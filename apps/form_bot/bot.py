@@ -34,6 +34,14 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 async def load_cogs():
     """Cogsを読み込む"""
     try:
+        await bot.load_extension('cogs.test_form')
+        print('✅ test_form Cogを読み込みました')
+        await bot.load_extension('cogs.feedback_form')
+        print('✅ feedback_form Cogを読み込みました')
+        await bot.load_extension('cogs.setup_forms')
+        print('✅ setup_forms Cogを読み込みました')
+        await bot.load_extension('cogs.tournament_application')
+        print('✅ tournament_application Cogを読み込みました')
         await bot.load_extension('cogs.web_form_setup')
         print('✅ web_form_setup Cogを読み込みました')
     except Exception as e:
@@ -50,26 +58,36 @@ async def on_ready():
     # Cogsを読み込む
     await load_cogs()
     
+    # 永続的なViewを登録（Bot再起動後もボタンが動作するように）
+    from views.form_buttons import FormButtonsView
+    from views.tournament_application_view import TournamentApplicationView
+    bot.add_view(FormButtonsView())
+    bot.add_view(TournamentApplicationView())
+    print('✅ 永続的なボタンViewを登録しました')
+    
     # 通知サーバーを起動
     from api.notification_server import NotificationServer
     notification_server = NotificationServer(bot, port=8001)
     await notification_server.run_in_background()
     
-    # 古いコマンドをクリアしてから同期
+    # スラッシュコマンドを同期
     try:
-        bot.tree.clear_commands(guild=None)
-        print('🗑️ 古いコマンドをクリアしました')
         synced = await bot.tree.sync()
         print(f'✅ {len(synced)}個のスラッシュコマンドを同期しました')
-        for cmd in synced:
-            print(f'   - /{cmd.name}')
     except Exception as e:
         print(f'❌ コマンド同期エラー: {e}')
     
     print('-' * 50)
     print('🤖 Form Botが起動中です')
-    print('💡 /setup_web_form コマンドでボタンを設置できます')
+    print('💡 /setup_forms コマンドでボタンを設置できます')
     print('ℹ️  終了するには Ctrl+C を押してください')
+
+
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    """インタラクションのデバッグログ"""
+    if interaction.type == discord.InteractionType.modal_submit:
+        print(f'📝 モーダル送信: {interaction.user.name}')
 
 
 def main():
