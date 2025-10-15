@@ -55,10 +55,14 @@ async def on_ready():
     notification_server = NotificationServer(bot, port=8001)
     await notification_server.run_in_background()
     
-    # スラッシュコマンドを同期
+    # 古いコマンドをクリアしてから同期
     try:
+        bot.tree.clear_commands(guild=None)
+        print('🗑️ 古いコマンドをクリアしました')
         synced = await bot.tree.sync()
         print(f'✅ {len(synced)}個のスラッシュコマンドを同期しました')
+        for cmd in synced:
+            print(f'   - /{cmd.name}')
     except Exception as e:
         print(f'❌ コマンド同期エラー: {e}')
     
