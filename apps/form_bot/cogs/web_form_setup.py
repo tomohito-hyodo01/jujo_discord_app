@@ -9,12 +9,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import sys
 import os
-
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from views.web_form_button import WebFormButtonView, create_web_form_embed
 
 
 class WebFormSetupCog(commands.Cog):
@@ -30,8 +25,6 @@ class WebFormSetupCog(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     async def setup_web_form(self, interaction: discord.Interaction):
         """大会申込ボタンを設置（共通リンク・OAuth2方式）"""
-        import os
-        
         form_url = os.getenv('FORM_URL', 'http://localhost:3000')
         
         print(f'⚙️  /setup_web_form 実行: {interaction.user.name}')
