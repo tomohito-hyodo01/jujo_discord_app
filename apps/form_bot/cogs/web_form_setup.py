@@ -9,12 +9,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import sys
 import os
-
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from views.web_form_button import WebFormButtonView, create_web_form_embed
 
 
 class WebFormSetupCog(commands.Cog):
