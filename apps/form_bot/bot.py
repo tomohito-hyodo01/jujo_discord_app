@@ -34,14 +34,6 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 async def load_cogs():
     """Cogsを読み込む"""
     try:
-        await bot.load_extension('cogs.test_form')
-        print('✅ test_form Cogを読み込みました')
-        await bot.load_extension('cogs.feedback_form')
-        print('✅ feedback_form Cogを読み込みました')
-        await bot.load_extension('cogs.setup_forms')
-        print('✅ setup_forms Cogを読み込みました')
-        await bot.load_extension('cogs.tournament_application')
-        print('✅ tournament_application Cogを読み込みました')
         await bot.load_extension('cogs.web_form_setup')
         print('✅ web_form_setup Cogを読み込みました')
     except Exception as e:
@@ -58,12 +50,8 @@ async def on_ready():
     # Cogsを読み込む
     await load_cogs()
     
-    # 永続的なViewを登録（Bot再起動後もボタンが動作するように）
-    from views.form_buttons import FormButtonsView
-    from views.tournament_application_view import TournamentApplicationView
-    bot.add_view(FormButtonsView())
-    bot.add_view(TournamentApplicationView())
-    print('✅ 永続的なボタンViewを登録しました')
+    # 永続的なViewは不要（外部Webフォーム方式のため）
+    print('✅ Bot初期化完了')
     
     # 通知サーバーを起動
     from api.notification_server import NotificationServer
@@ -79,7 +67,7 @@ async def on_ready():
     
     print('-' * 50)
     print('🤖 Form Botが起動中です')
-    print('💡 /setup_forms コマンドでボタンを設置できます')
+    print('💡 /setup_web_form コマンドで大会申込ボタンを設置できます')
     print('ℹ️  終了するには Ctrl+C を押してください')
 
 
