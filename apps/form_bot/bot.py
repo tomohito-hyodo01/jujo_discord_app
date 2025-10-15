@@ -68,15 +68,8 @@ async def on_ready():
     
     print('-' * 50)
     print('🤖 Form Botが起動中です')
-    print('💡 /setup_forms コマンドでボタンを設置できます')
+    print('💡 /setup_web_form コマンドでボタンを設置できます')
     print('ℹ️  終了するには Ctrl+C を押してください')
-
-
-@bot.event
-async def on_interaction(interaction: discord.Interaction):
-    """インタラクションのデバッグログ"""
-    if interaction.type == discord.InteractionType.modal_submit:
-        print(f'📝 モーダル送信: {interaction.user.name}')
 
 
 def main():
