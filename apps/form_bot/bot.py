@@ -50,9 +50,6 @@ async def on_ready():
     # Cogsを読み込む
     await load_cogs()
     
-    # 永続的なViewは不要（外部Webフォーム方式のため）
-    print('✅ Bot初期化完了')
-    
     # 通知サーバーを起動
     from api.notification_server import NotificationServer
     notification_server = NotificationServer(bot, port=8001)
@@ -67,7 +64,7 @@ async def on_ready():
     
     print('-' * 50)
     print('🤖 Form Botが起動中です')
-    print('💡 /setup_web_form コマンドで大会申込ボタンを設置できます')
+    print('💡 /setup_forms コマンドでボタンを設置できます')
     print('ℹ️  終了するには Ctrl+C を押してください')
 
 
