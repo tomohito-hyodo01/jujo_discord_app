@@ -350,11 +350,13 @@ export default function TournamentApplicationForm({ auth, onCompletedChange }: T
             style={inputStyle}
           >
             <option value="">選択してください</option>
-            {players.map(p => (
-              <option key={p.player_id} value={p.player_id}>
-                {p.player_name}
-              </option>
-            ))}
+            {players
+              .filter(p => p.discord_id !== formData.discordId)
+              .map(p => (
+                <option key={p.player_id} value={p.player_id}>
+                  {p.player_name}
+                </option>
+              ))}
             <option value="add_player">+ 選手追加</option>
           </select>
         </div>
