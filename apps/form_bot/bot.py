@@ -55,8 +55,9 @@ async def on_ready():
     
     # 通知サーバーを起動
     from api.notification_server import NotificationServer
+    import asyncio
     notification_server = NotificationServer(bot, port=8001)
-    await notification_server.run_in_background()
+    asyncio.create_task(notification_server.run_in_background())
     
     # スラッシュコマンドを同期
     try:
