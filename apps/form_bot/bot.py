@@ -59,10 +59,21 @@ async def on_ready():
     notification_server = NotificationServer(bot, port=8001)
     asyncio.create_task(notification_server.run_in_background())
     
-    # スラッシュコマンドを同期
+    # スラッシュコマンドを同期（テストサーバー専用）
     try:
-        synced = await bot.tree.sync()
-        print(f'✅ {len(synced)}個のスラッシュコマンドを同期しました')
+        # 環境変数から対象ギルドIDを取得
+        guild_id = os.getenv('DISCORD_GUILD_ID')
+        
+        if guild_id:
+            # ギルド固有のコマンドとして同期（即座に反映）
+            guild = discord.Object(id=int(guild_id))
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            print(f'✅ {len(synced)}個のギルドコマンドを同期しました（Guild ID: {guild_id}）')
+        else:
+            # グローバルコマンドとして同期（最大1時間かかる）
+            synced = await bot.tree.sync()
+            print(f'✅ {len(synced)}個のグローバルコマンドを同期しました')
     except Exception as e:
         print(f'❌ コマンド同期エラー: {e}')
     
