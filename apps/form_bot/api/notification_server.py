@@ -21,7 +21,12 @@ class NotificationServer:
     
     def setup_routes(self):
         """ルートを設定"""
+        self.app.router.add_get('/', self.handle_health_check)
         self.app.router.add_post('/notify/registration', self.handle_registration_notification)
+    
+    async def handle_health_check(self, request):
+        """ヘルスチェック"""
+        return web.json_response({'status': 'healthy'})
     
     async def handle_registration_notification(self, request):
         """大会申込通知を処理"""
