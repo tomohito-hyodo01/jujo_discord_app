@@ -64,6 +64,11 @@ async def on_ready():
         # 環境変数から対象ギルドIDを取得
         guild_id = os.getenv('DISCORD_GUILD_ID')
         
+        # 古いグローバルコマンドを全て削除
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        print('✅ グローバルコマンドをクリアしました')
+        
         if guild_id:
             # ギルド固有のコマンドとして同期（即座に反映）
             guild = discord.Object(id=int(guild_id))
