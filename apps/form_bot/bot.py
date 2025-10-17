@@ -53,11 +53,15 @@ async def on_ready():
     # 永続的なViewの登録は不要（共通リンク方式）
     print('✅ 初期化完了')
     
-    # 通知サーバーを起動
-    from api.notification_server import NotificationServer
+    # 通知サーバーを起動（バックグラウンドで）
     import asyncio
-    notification_server = NotificationServer(bot, port=8001)
-    asyncio.create_task(notification_server.run_in_background())
+    from api.notification_server import NotificationServer
+    
+    async def start_notification_server():
+        notification_server = NotificationServer(bot, port=8001)
+        await notification_server.run_in_background()
+    
+    asyncio.create_task(start_notification_server())
     
     # スラッシュコマンドを同期（テストサーバー専用）
     try:
