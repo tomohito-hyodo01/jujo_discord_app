@@ -1,0 +1,44 @@
+name: Supabase Keep-Alive
+
+# 毎日午前9時（JST = UTC 0:00）に自動実行
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 毎日 UTC 0:00 = JST 9:00
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  keepalive:
+    name: Ping Supabase Database
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Supabase via REST API
+        run: |
+          echo "🏓 Pinging Supabase..."
+
+          response=$(curl -s -w "\n%{http_code}" -X GET \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/ward_mst?limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
+            -H "Content-Type: application/json")
+
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+
+          if [ "$http_code" -eq 200 ]; then
+            echo "✅ Supabase is alive and healthy!"
+          else
+            echo "❌ Failed to ping Supabase (HTTP $http_code)"
+            exit 1
+          fi
+
+      - name: Report Status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "📊 Keep-alive successful at $(date)"
+          else
+            echo "⚠️ Keep-alive failed at $(date)"
+          fi
