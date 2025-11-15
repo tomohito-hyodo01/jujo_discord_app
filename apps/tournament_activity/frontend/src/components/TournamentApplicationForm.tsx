@@ -4,10 +4,11 @@ import CompletePage from './CompletePage'
 
 interface TournamentApplicationFormProps {
   auth: any
+  wardId?: string  // チャンネルから送信されたward_id
   onCompletedChange?: (isCompleted: boolean) => void
 }
 
-export default function TournamentApplicationForm({ auth, onCompletedChange }: TournamentApplicationFormProps) {
+export default function TournamentApplicationForm({ auth, wardId, onCompletedChange }: TournamentApplicationFormProps) {
   const [tournaments, setTournaments] = useState<any[]>([])
   const [players, setPlayers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -53,18 +54,29 @@ export default function TournamentApplicationForm({ auth, onCompletedChange }: T
   useEffect(() => {
     const loadAvailableTournaments = async () => {
       if (!formData.discordId) return
-      
+
       try {
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-        
+
         // 申込可能な大会を取得（締切前 & 未申込）
         const tournamentsRes = await fetch(`${apiUrl}/api/tournaments/available/${formData.discordId}`)
         if (!tournamentsRes.ok) {
           throw new Error(`大会取得失敗: ${tournamentsRes.status}`)
         }
-        const tournamentsData = await tournamentsRes.json()
+        let tournamentsData = await tournamentsRes.json()
+
+        // wardIdが指定されている場合、registrated_wardでフィルタリング
+        if (wardId) {
+          const wardIdNumber = parseInt(wardId, 10)
+          if (!isNaN(wardIdNumber)) {
+            tournamentsData = tournamentsData.filter(
+              (tournament: any) => tournament.registrated_ward === wardIdNumber
+            )
+          }
+        }
+
         setTournaments(tournamentsData)
-        
+
         // 選手一覧も再取得
         const playersRes = await fetch(`${apiUrl}/api/players`)
         if (playersRes.ok) {
@@ -75,9 +87,9 @@ export default function TournamentApplicationForm({ auth, onCompletedChange }: T
         setError(err.message || '大会の取得に失敗しました')
       }
     }
-    
+
     loadAvailableTournaments()
-  }, [formData.discordId, refreshTrigger])
+  }, [formData.discordId, refreshTrigger, wardId])
 
   const selectedTournament = tournaments.find(t => t.tournament_id === formData.tournamentId)
   

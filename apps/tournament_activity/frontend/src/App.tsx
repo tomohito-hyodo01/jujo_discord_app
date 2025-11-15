@@ -5,21 +5,60 @@ import DiscordLogin from './components/DiscordLogin'
 import AuthCallback from './components/AuthCallback'
 
 function App() {
-  // URLパラメータからビューとセッションID、認証コードを取得
+  const DEV_DISCORD_ID = '1427112485047242945'
+  const isLocalDev = import.meta.env.DEV || window.location.hostname === 'localhost'
+
+  // URLパラメータからビューとセッションID、認証コード、ward_idを取得
   const urlParams = new URLSearchParams(window.location.search)
   const initialView = urlParams.get('view') === 'tournament' ? 'tournament' : 'player'
   const sessionId = urlParams.get('session')
   const authCode = urlParams.get('code')
-  
+  const wardId = urlParams.get('ward')  // ward_idを取得
+
   const [view, setView] = useState<'player' | 'tournament'>(initialView)
   const [discordUserId, setDiscordUserId] = useState('')
   const [loading, setLoading] = useState(true)
   const [isCompleted, setIsCompleted] = useState(false)
   const [isPlayerRegistrationRequired, setIsPlayerRegistrationRequired] = useState(false)
   const [needsOAuth, setNeedsOAuth] = useState(false)
-  
+
   // 全てのuseEffectを条件分岐の前に配置
   useEffect(() => {
+    // ローカル開発ではDiscord認証をスキップし、固定IDで動作検証
+    const handleLocalBypass = async () => {
+      setDiscordUserId(DEV_DISCORD_ID)
+      setNeedsOAuth(false)
+
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+        const playerRes = await fetch(`${apiUrl}/api/players/discord/${DEV_DISCORD_ID}`)
+
+        if (playerRes.ok) {
+          const playerData = await playerRes.json()
+
+          if (playerData && playerData.player_id) {
+            setIsPlayerRegistrationRequired(false)
+          } else {
+            setIsPlayerRegistrationRequired(true)
+            setView('player')
+          }
+        } else {
+          setIsPlayerRegistrationRequired(true)
+          setView('player')
+        }
+      } catch {
+        setIsPlayerRegistrationRequired(true)
+        setView('player')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (isLocalDev) {
+      handleLocalBypass()
+      return
+    }
+
     // 認証コールバック処理（OAuth2）
     if (authCode) {
       // AuthCallbackコンポーネントで処理
@@ -62,7 +101,7 @@ function App() {
       setNeedsOAuth(true)
       setLoading(false)
     }
-  }, [sessionId, authCode])
+  }, [sessionId, authCode, isLocalDev])
   
   useEffect(() => {
     // URLパラメータの変更を検知
@@ -250,8 +289,9 @@ function App() {
             }}
           />
         ) : (
-          <TournamentApplicationForm 
-            auth={auth} 
+          <TournamentApplicationForm
+            auth={auth}
+            wardId={wardId || undefined}
             onCompletedChange={(completed) => setIsCompleted(completed)}
           />
         )}
@@ -261,4 +301,3 @@ function App() {
 }
 
 export default App
-
