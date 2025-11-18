@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS player_mst (
     phone_number TEXT NOT NULL,
     birth_date DATE NOT NULL,
     sex INTEGER NOT NULL CHECK (sex IN (0, 1)),
+    tokyo_flg BOOLEAN DEFAULT false,     -- 東京都への登録フラグ
+    koto_flg BOOLEAN DEFAULT false,      -- 江東区への登録フラグ
+    edogawa_flg BOOLEAN DEFAULT false,   -- 江戸川区への登録フラグ
+    chuo_flg BOOLEAN DEFAULT false,      -- 中央区への登録フラグ
+    sumida_flg BOOLEAN DEFAULT false,    -- 墨田区への登録フラグ
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );

@@ -14,7 +14,7 @@
 | カラム名 | 型 | 制約 | 説明 | 入力元 |
 |---------|---|------|------|--------|
 | **player_id** | SERIAL | PRIMARY KEY, NOT NULL | 選手ID（自動採番） | 自動 |
-| **discord_id** | TEXT | NOT NULL, UNIQUE | Discord User ID | Discord |
+| **discord_id** | TEXT | UNIQUE | Discord User ID（nullable） | Discord |
 | jsta_number | TEXT | - | 日本連盟登録番号 | フォーム |
 | **player_name** | TEXT | NOT NULL | 氏名 | フォーム |
 | post_number | TEXT | - | 郵便番号 | フォーム |
@@ -22,17 +22,28 @@
 | **phone_number** | TEXT | NOT NULL | 電話番号 | フォーム |
 | **birth_date** | DATE | NOT NULL | 生年月日 | フォーム |
 | **sex** | INTEGER | NOT NULL, CHECK (0 or 1) | 性別（0:男子, 1:女子） | フォーム |
+| **tokyo_flg** | BOOLEAN | DEFAULT false | 東京都への登録フラグ | 管理画面 |
+| **koto_flg** | BOOLEAN | DEFAULT false | 江東区への登録フラグ | 管理画面 |
+| **edogawa_flg** | BOOLEAN | DEFAULT false | 江戸川区への登録フラグ | 管理画面 |
+| **chuo_flg** | BOOLEAN | DEFAULT false | 中央区への登録フラグ | 管理画面 |
+| **sumida_flg** | BOOLEAN | DEFAULT false | 墨田区への登録フラグ | 管理画面 |
 | created_at | TIMESTAMP | - | 作成日時 | 自動 |
 | updated_at | TIMESTAMP | - | 更新日時 | 自動 |
 
 ### データ例
 
 ```sql
-player_id | discord_id  | jsta_number | player_name | sex | phone_number
-----------|-------------|-------------|-------------|-----|-------------
-1         | 123456789   | JSTA001     | 山田太郎    | 0   | 090-1234-5678
-2         | 987654321   | JSTA002     | 佐藤花子    | 1   | 080-9876-5432
+player_id | discord_id  | player_name | sex | edogawa_flg | koto_flg | tokyo_flg
+----------|-------------|-------------|-----|-------------|----------|----------
+1         | 123456789   | 山田太郎    | 0   | true        | false    | true
+2         | 987654321   | 佐藤花子    | 1   | true        | true     | false
+3         | NULL        | 鈴木一郎    | 0   | false       | false    | false
 ```
+
+**例の説明:**
+- 山田太郎: 江戸川区と東京都に登録
+- 佐藤花子: 江戸川区と江東区に登録
+- 鈴木一郎: どこにも登録していない（ペア選手として追加）
 
 ---
 
@@ -186,6 +197,37 @@ INSERT INTO tournament_registration (
 ) VALUES (
     '123456789', 'arakawa_2025_singles', '一般', 0, 1
 );
+```
+
+---
+
+## 🏢 各区登録フラグの使用例
+
+### 江戸川区に登録している選手を検索
+```sql
+SELECT * FROM player_mst WHERE edogawa_flg = true;
+```
+
+### 江戸川区と江東区の両方に登録している選手
+```sql
+SELECT * FROM player_mst 
+WHERE edogawa_flg = true AND koto_flg = true;
+```
+
+### どこにも登録していない選手
+```sql
+SELECT * FROM player_mst 
+WHERE NOT (tokyo_flg OR koto_flg OR edogawa_flg OR chuo_flg OR sumida_flg);
+```
+
+### 江戸川区への登録を追加
+```sql
+UPDATE player_mst SET edogawa_flg = true WHERE player_id = 1;
+```
+
+### 江戸川区への登録を削除
+```sql
+UPDATE player_mst SET edogawa_flg = false WHERE player_id = 1;
 ```
 
 ---
