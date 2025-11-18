@@ -1,0 +1,60 @@
+name: Tournament Excel Generation
+
+# 毎日午前9時（JST = UTC 0:00）に自動実行
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 毎日 UTC 0:00 = JST 9:00
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  generate-excel:
+    name: Generate Excel for Upcoming Deadlines
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call Excel Generation API
+        id: generate
+        run: |
+          echo "📊 Checking tournaments with deadline tomorrow..."
+
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://tournament-api-jujo.fly.dev/api/excel/process-deadlines" \
+            -H "Content-Type: application/json")
+
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+
+          if [ "$http_code" -eq 200 ]; then
+            echo "✅ Excel generation completed successfully!"
+
+            # レスポンスから処理結果を抽出
+            processed_count=$(echo "$body" | grep -o '"processed_count":[0-9]*' | cut -d':' -f2)
+            success_count=$(echo "$body" | grep -o '"success_count":[0-9]*' | cut -d':' -f2)
+
+            echo "📈 Processed: $processed_count tournaments"
+            echo "✅ Success: $success_count tournaments"
+
+            # 結果を出力変数に保存
+            echo "processed_count=$processed_count" >> $GITHUB_OUTPUT
+            echo "success_count=$success_count" >> $GITHUB_OUTPUT
+            echo "response_body=$body" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Failed to generate Excel files (HTTP $http_code)"
+            echo "response_body=$body" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Report Status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "📊 Excel generation successful at $(date)"
+            echo "Processed: ${{ steps.generate.outputs.processed_count }} tournaments"
+            echo "Success: ${{ steps.generate.outputs.success_count }} tournaments"
+          else
+            echo "⚠️ Excel generation failed at $(date)"
+            echo "Response: ${{ steps.generate.outputs.response_body }}"
+          fi
