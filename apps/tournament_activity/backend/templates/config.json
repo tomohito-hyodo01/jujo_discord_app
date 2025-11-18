@@ -1,0 +1,76 @@
+{
+  "version": "1.0",
+  "description": "各区の大会申込Excelテンプレート設定",
+  "wards": {
+    "18": {
+      "ward_name": "荒川区",
+      "templates": {
+        "member_registration": "会員登録表.xlsx",
+        "individual": "個人戦申込書.xlsx",
+        "team": "団体戦申込書.xlsx",
+        "singles": null
+      },
+      "sheet_mapping": {
+        "member_registration": {
+          "sheet_name": "会員登録表",
+          "start_row": 2,
+          "columns": {
+            "no": "A",
+            "name": "B",
+            "birth_date": "C",
+            "address": "D",
+            "phone": "E",
+            "jsta_number": "F"
+          }
+        },
+        "individual": {
+          "sheet_name": "個人戦申込書",
+          "start_row": 2,
+          "columns": {
+            "no": "A",
+            "type": "B",
+            "sex": "C",
+            "player1_name": "D",
+            "player2_name": "E",
+            "player1_phone": "F",
+            "player2_phone": "G"
+          }
+        }
+      }
+    },
+    "23": {
+      "ward_name": "江戸川区",
+      "templates": {
+        "member_registration": "会員登録表.xlsx",
+        "individual": "個人戦申込書.xlsx",
+        "team": null,
+        "singles": null
+      },
+      "sheet_mapping": {
+        "member_registration": {
+          "sheet_name": "会員登録表",
+          "start_row": 2,
+          "columns": {
+            "no": "A",
+            "name": "B",
+            "birth_date": "C",
+            "address": "D",
+            "phone": "E",
+            "jsta_number": "F"
+          }
+        },
+        "individual": {
+          "sheet_name": "個人戦申込書",
+          "start_row": 2,
+          "columns": {
+            "no": "A",
+            "type": "B",
+            "sex": "C",
+            "player1_name": "D",
+            "player2_name": "E"
+          }
+        }
+      }
+    }
+  }
+}
