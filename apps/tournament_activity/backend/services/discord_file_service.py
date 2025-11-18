@@ -125,15 +125,9 @@ class DiscordFileService:
         file_handles = []
 
         try:
-            print("=== Sending files to Discord ===")
             for idx, (file_path, file_name) in enumerate(files):
                 if not Path(file_path).exists():
                     raise FileNotFoundError(f"File not found: {file_path}")
-
-                # デバッグ: 送信前のファイル名を出力
-                print(f"File {idx}: {file_name}")
-                print(f"  Encoded: {file_name.encode('utf-8')}")
-                print(f"  Type: {type(file_name)}")
 
                 f = open(file_path, 'rb')
                 file_handles.append(f)
@@ -159,16 +153,7 @@ class DiscordFileService:
             if response.status_code not in [200, 201]:
                 raise Exception(f"Discord API error: {response.status_code} - {response.text}")
 
-            response_data = response.json()
-
-            # デバッグ: attachmentsのfilenameとURLをログ出力
-            print("=== Discord API Response Debug ===")
-            for attachment in response_data.get("attachments", []):
-                print(f"Filename: {attachment.get('filename')}")
-                print(f"URL: {attachment.get('url')}")
-                print(f"---")
-
-            return response_data
+            return response.json()
 
         finally:
             # ファイルハンドルをクローズ
