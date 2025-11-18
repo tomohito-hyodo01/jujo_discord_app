@@ -137,62 +137,58 @@ async def generate_excel(request: ExcelGenerationRequest):
         enriched_registrations = []
 
         for reg in registrations:
-            # pair1の選手情報を取得
-            player1_result = db.client.table('player_mst')\
+            # 1行目: discord_idと一致する選手（申込者本人）
+            applicant_result = db.client.table('player_mst')\
                 .select('*')\
-                .eq('player_id', reg['pair1'])\
+                .eq('discord_id', reg['discord_id'])\
                 .execute()
 
-            if not player1_result.data:
+            if not applicant_result.data:
                 continue
 
-            player1 = player1_result.data[0]
-
-            # applicantオブジェクトを作成（pair1の選手）
+            applicant_player = applicant_result.data[0]
             applicant = {
-                'player_id': player1.get('player_id'),
-                'player_name': player1.get('player_name'),
-                'birth_date': player1.get('birth_date'),
-                'sex': player1.get('sex'),
-                'post_number': player1.get('post_number'),
-                'address': player1.get('address'),
-                'phone_number': player1.get('phone_number'),
-                'jsta_number': player1.get('jsta_number'),
-                'edogawa_flg': player1.get('edogawa_flg', False),
-                'affiliated_club': player1.get('affiliated_club', ''),
+                'player_id': applicant_player.get('player_id'),
+                'player_name': applicant_player.get('player_name'),
+                'birth_date': applicant_player.get('birth_date'),
+                'sex': applicant_player.get('sex'),
+                'post_number': applicant_player.get('post_number'),
+                'address': applicant_player.get('address'),
+                'phone_number': applicant_player.get('phone_number'),
+                'jsta_number': applicant_player.get('jsta_number'),
+                'edogawa_flg': applicant_player.get('edogawa_flg', False),
+                'affiliated_club': applicant_player.get('affiliated_club', ''),
             }
 
-            # 申込情報とapplicantを統合
+            # 2行目: pair1と一致する選手（ペア相手）
+            partner = None
+            if reg.get('pair1'):
+                partner_result = db.client.table('player_mst')\
+                    .select('*')\
+                    .eq('player_id', reg['pair1'])\
+                    .execute()
+
+                if partner_result.data:
+                    partner_player = partner_result.data[0]
+                    partner = {
+                        'player_id': partner_player.get('player_id'),
+                        'player_name': partner_player.get('player_name'),
+                        'birth_date': partner_player.get('birth_date'),
+                        'sex': partner_player.get('sex'),
+                        'post_number': partner_player.get('post_number'),
+                        'address': partner_player.get('address'),
+                        'phone_number': partner_player.get('phone_number'),
+                        'jsta_number': partner_player.get('jsta_number'),
+                        'edogawa_flg': partner_player.get('edogawa_flg', False),
+                        'affiliated_club': partner_player.get('affiliated_club', ''),
+                    }
+
+            # 申込情報とapplicant/partnerを統合
             enriched_reg = {
                 **reg,
                 'applicant': applicant,
-                'partner': None  # デフォルトはNone
+                'partner': partner
             }
-
-            # pair2がある場合（ダブルス）
-            if reg.get('pair2') and isinstance(reg['pair2'], list) and len(reg['pair2']) > 0:
-                player2_id = reg['pair2'][0]
-                player2_result = db.client.table('player_mst')\
-                    .select('*')\
-                    .eq('player_id', player2_id)\
-                    .execute()
-
-                if player2_result.data:
-                    player2 = player2_result.data[0]
-                    # partnerオブジェクトを作成
-                    partner = {
-                        'player_id': player2.get('player_id'),
-                        'player_name': player2.get('player_name'),
-                        'birth_date': player2.get('birth_date'),
-                        'sex': player2.get('sex'),
-                        'post_number': player2.get('post_number'),
-                        'address': player2.get('address'),
-                        'phone_number': player2.get('phone_number'),
-                        'jsta_number': player2.get('jsta_number'),
-                        'edogawa_flg': player2.get('edogawa_flg', False),
-                        'affiliated_club': player2.get('affiliated_club', ''),
-                    }
-                    enriched_reg['partner'] = partner
 
             enriched_registrations.append(enriched_reg)
 
@@ -354,59 +350,59 @@ async def process_tournament_deadlines():
                 # 選手情報を取得して申込データに結合
                 enriched_registrations = []
                 for reg in registrations:
-                    player1_result = db.client.table('player_mst')\
+                    # 1行目: discord_idと一致する選手（申込者本人）
+                    applicant_result = db.client.table('player_mst')\
                         .select('*')\
-                        .eq('player_id', reg['pair1'])\
+                        .eq('discord_id', reg['discord_id'])\
                         .execute()
 
-                    if not player1_result.data:
+                    if not applicant_result.data:
                         continue
 
-                    player1 = player1_result.data[0]
+                    applicant_player = applicant_result.data[0]
 
                     # applicantオブジェクトを作成
                     applicant = {
-                        'player_id': player1.get('player_id'),
-                        'player_name': player1.get('player_name'),
-                        'birth_date': player1.get('birth_date'),
-                        'sex': player1.get('sex'),
-                        'post_number': player1.get('post_number'),
-                        'address': player1.get('address'),
-                        'phone_number': player1.get('phone_number'),
-                        'jsta_number': player1.get('jsta_number'),
-                        'edogawa_flg': player1.get('edogawa_flg', False),
-                        'affiliated_club': player1.get('affiliated_club', ''),
+                        'player_id': applicant_player.get('player_id'),
+                        'player_name': applicant_player.get('player_name'),
+                        'birth_date': applicant_player.get('birth_date'),
+                        'sex': applicant_player.get('sex'),
+                        'post_number': applicant_player.get('post_number'),
+                        'address': applicant_player.get('address'),
+                        'phone_number': applicant_player.get('phone_number'),
+                        'jsta_number': applicant_player.get('jsta_number'),
+                        'edogawa_flg': applicant_player.get('edogawa_flg', False),
+                        'affiliated_club': applicant_player.get('affiliated_club', ''),
                     }
+
+                    # 2行目: pair1と一致する選手（ペア相手）
+                    partner = None
+                    if reg.get('pair1'):
+                        partner_result = db.client.table('player_mst')\
+                            .select('*')\
+                            .eq('player_id', reg['pair1'])\
+                            .execute()
+
+                        if partner_result.data:
+                            partner_player = partner_result.data[0]
+                            partner = {
+                                'player_id': partner_player.get('player_id'),
+                                'player_name': partner_player.get('player_name'),
+                                'birth_date': partner_player.get('birth_date'),
+                                'sex': partner_player.get('sex'),
+                                'post_number': partner_player.get('post_number'),
+                                'address': partner_player.get('address'),
+                                'phone_number': partner_player.get('phone_number'),
+                                'jsta_number': partner_player.get('jsta_number'),
+                                'edogawa_flg': partner_player.get('edogawa_flg', False),
+                                'affiliated_club': partner_player.get('affiliated_club', ''),
+                            }
 
                     enriched_reg = {
                         **reg,
                         'applicant': applicant,
-                        'partner': None
+                        'partner': partner
                     }
-
-                    # pair2がある場合
-                    if reg.get('pair2') and isinstance(reg['pair2'], list) and len(reg['pair2']) > 0:
-                        player2_id = reg['pair2'][0]
-                        player2_result = db.client.table('player_mst')\
-                            .select('*')\
-                            .eq('player_id', player2_id)\
-                            .execute()
-
-                        if player2_result.data:
-                            player2 = player2_result.data[0]
-                            partner = {
-                                'player_id': player2.get('player_id'),
-                                'player_name': player2.get('player_name'),
-                                'birth_date': player2.get('birth_date'),
-                                'sex': player2.get('sex'),
-                                'post_number': player2.get('post_number'),
-                                'address': player2.get('address'),
-                                'phone_number': player2.get('phone_number'),
-                                'jsta_number': player2.get('jsta_number'),
-                                'edogawa_flg': player2.get('edogawa_flg', False),
-                                'affiliated_club': player2.get('affiliated_club', ''),
-                            }
-                            enriched_reg['partner'] = partner
 
                     enriched_registrations.append(enriched_reg)
 

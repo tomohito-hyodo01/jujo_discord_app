@@ -158,12 +158,13 @@ class EdogawaExcelService(BaseExcelService):
             # 2行書き込み（申込者 + ペア）
             players = [applicant, partner]
 
-            for player in players:
+            for idx, player in enumerate(players):
                 if player is None:
                     continue
 
-                # A列: NO
-                self._set_cell_value(ws, f'A{row}', entry_no)
+                # A列: NO（1行目のみ書き込み - 結合セル対応）
+                if idx == 0:  # 申込者の行のみ
+                    self._set_cell_value(ws, f'A{row}', entry_no)
 
                 # B列: 種別
                 self._set_cell_value(ws, f'B{row}', type_str)
