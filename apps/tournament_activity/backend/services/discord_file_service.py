@@ -153,7 +153,16 @@ class DiscordFileService:
                 if response.status_code not in [200, 201]:
                     raise Exception(f"Discord API error: {response.status_code} - {response.text}")
 
-                return response.json()
+                response_data = response.json()
+
+                # デバッグ: attachmentsのfilenameとURLをログ出力
+                print("=== Discord API Response Debug ===")
+                for attachment in response_data.get("attachments", []):
+                    print(f"Filename: {attachment.get('filename')}")
+                    print(f"URL: {attachment.get('url')}")
+                    print(f"---")
+
+                return response_data
 
         finally:
             # ファイルハンドルをクローズ
