@@ -4,6 +4,7 @@ Discord ファイル送信サービス
 大会申込ExcelファイルをDiscordチャンネルに送信
 """
 import os
+import json
 import httpx
 from typing import Dict, List, Tuple
 from pathlib import Path
@@ -129,8 +130,12 @@ class DiscordFileService:
                     (f'files[{idx}]', (file_name, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
                 )
 
+            # payload_jsonを正しいJSON文字列に変換
+            payload = {
+                "content": content
+            }
             data = {
-                'payload_json': f'{{"content": "{content}"}}'
+                'payload_json': json.dumps(payload)
             }
 
             async with httpx.AsyncClient(timeout=60.0) as client:
