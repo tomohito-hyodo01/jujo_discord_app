@@ -203,7 +203,9 @@ class GoogleDriveService:
             response = self.service.files().list(
                 q=query,
                 spaces='drive',
-                fields='files(id, name)'
+                fields='files(id, name)',
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
             ).execute()
 
             files = response.get('files', [])
@@ -240,7 +242,8 @@ class GoogleDriveService:
 
         folder = self.service.files().create(
             body=file_metadata,
-            fields='id'
+            fields='id',
+            supportsAllDrives=True
         ).execute()
 
         return folder['id']
@@ -276,7 +279,8 @@ class GoogleDriveService:
         file = self.service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id'
+            fields='id',
+            supportsAllDrives=True
         ).execute()
 
         # 共有設定（リンクを知っている人は閲覧可能）
@@ -299,7 +303,8 @@ class GoogleDriveService:
         try:
             self.service.permissions().create(
                 fileId=file_id,
-                body=permission
+                body=permission,
+                supportsAllDrives=True
             ).execute()
         except HttpError as e:
             print(f"Warning: Could not set file permission: {e}")
