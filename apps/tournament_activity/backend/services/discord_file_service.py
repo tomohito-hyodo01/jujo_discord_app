@@ -125,9 +125,15 @@ class DiscordFileService:
         file_handles = []
 
         try:
+            print("=== Sending files to Discord ===")
             for idx, (file_path, file_name) in enumerate(files):
                 if not Path(file_path).exists():
                     raise FileNotFoundError(f"File not found: {file_path}")
+
+                # デバッグ: 送信前のファイル名を出力
+                print(f"File {idx}: {file_name}")
+                print(f"  Encoded: {file_name.encode('utf-8')}")
+                print(f"  Type: {type(file_name)}")
 
                 f = open(file_path, 'rb')
                 file_handles.append(f)
