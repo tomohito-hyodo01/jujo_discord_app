@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from services.excel_service_factory import ExcelServiceFactory
-from services.google_drive_service import GoogleDriveService
+from services.discord_file_service import DiscordFileService
 
 router = APIRouter()
 
@@ -198,19 +198,12 @@ async def generate_excel(request: ExcelGenerationRequest):
                 error="Failed to generate Excel files"
             )
 
-        # 5. Google Driveにアップロード
-        drive_service = GoogleDriveService()
-        file_urls = drive_service.upload_tournament_files(
+        # 5. Discordチャンネルにファイルを送信
+        discord_service = DiscordFileService()
+        file_urls = await discord_service.upload_tournament_files(
             ward_id=ward_id,
             tournament_name=tournament_name,
             file_paths=file_paths
-        )
-
-        # 6. Discord通知を送信
-        await send_discord_notification(
-            tournament_name=tournament_name,
-            file_urls=file_urls,
-            registration_count=len(enriched_registrations)
         )
 
         return ExcelGenerationResponse(
@@ -395,19 +388,12 @@ async def process_tournament_deadlines():
                 excel_service = ExcelServiceFactory.create(ward_id)
                 file_paths = excel_service.generate_tournament_files(tournament, enriched_registrations)
 
-                # Google Driveにアップロード
-                drive_service = GoogleDriveService()
-                file_urls = drive_service.upload_tournament_files(
+                # Discordチャンネルにファイルを送信
+                discord_service = DiscordFileService()
+                file_urls = await discord_service.upload_tournament_files(
                     ward_id=ward_id,
                     tournament_name=tournament_name,
                     file_paths=file_paths
-                )
-
-                # Discord通知を送信
-                await send_discord_notification(
-                    tournament_name=tournament_name,
-                    file_urls=file_urls,
-                    registration_count=len(enriched_registrations)
                 )
 
                 results.append({
