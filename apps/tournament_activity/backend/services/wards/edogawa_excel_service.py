@@ -59,7 +59,7 @@ class EdogawaExcelService(BaseExcelService):
             生成されたファイルパス
         """
         # テンプレートをコピー
-        output_filename = f"{tournament_name}_会員登録表.xlsx"
+        output_filename = "会員登録表.xlsx"
         output_path = self._copy_template("会員登録表フォーマット.xlsx", output_filename)
 
         # Excelを開く
