@@ -300,7 +300,7 @@ async def process_tournament_deadlines():
         # 明日締切の大会を検索
         tournaments_result = db.client.table('tournament_mst')\
             .select('*')\
-            .eq('deadline', tomorrow)\
+            .eq('deadline_date', tomorrow)\
             .execute()
 
         tournaments = tournaments_result.data
