@@ -5,7 +5,8 @@ Discord ファイル送信サービス
 """
 import os
 import json
-import httpx
+import requests
+import asyncio
 from typing import Dict, List, Tuple
 from pathlib import Path
 
@@ -81,8 +82,8 @@ class DiscordFileService:
         if not files_to_upload:
             raise ValueError("No files to upload")
 
-        # Discordにファイルをアップロード
-        message_data = await self._send_files_to_discord(content, files_to_upload)
+        # Discordにファイルをアップロード（同期メソッドを非同期実行）
+        message_data = await asyncio.to_thread(self._send_files_to_discord, content, files_to_upload)
 
         # アップロードされたファイルのURLを取得
         result = {}
@@ -99,13 +100,13 @@ class DiscordFileService:
 
         return result
 
-    async def _send_files_to_discord(
+    def _send_files_to_discord(
         self,
         content: str,
         files: List[Tuple[str, str]]
     ) -> Dict:
         """
-        Discord APIでファイルを送信
+        Discord APIでファイルを送信（同期版 - requestsを使用）
 
         Args:
             content: メッセージ内容
@@ -120,7 +121,7 @@ class DiscordFileService:
         }
 
         # ファイルをマルチパートフォームデータとして準備
-        files_data = []
+        files_data = {}
         file_handles = []
 
         try:
@@ -130,9 +131,7 @@ class DiscordFileService:
 
                 f = open(file_path, 'rb')
                 file_handles.append(f)
-                files_data.append(
-                    (f'files[{idx}]', (file_name, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
-                )
+                files_data[f'files[{idx}]'] = (file_name, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
             # payload_jsonを正しいJSON文字列に変換
             payload = {
@@ -142,27 +141,28 @@ class DiscordFileService:
                 'payload_json': json.dumps(payload)
             }
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    url,
-                    headers=headers,
-                    data=data,
-                    files=files_data
-                )
+            # requestsを使用してファイルをアップロード
+            response = requests.post(
+                url,
+                headers=headers,
+                data=data,
+                files=files_data,
+                timeout=60.0
+            )
 
-                if response.status_code not in [200, 201]:
-                    raise Exception(f"Discord API error: {response.status_code} - {response.text}")
+            if response.status_code not in [200, 201]:
+                raise Exception(f"Discord API error: {response.status_code} - {response.text}")
 
-                response_data = response.json()
+            response_data = response.json()
 
-                # デバッグ: attachmentsのfilenameとURLをログ出力
-                print("=== Discord API Response Debug ===")
-                for attachment in response_data.get("attachments", []):
-                    print(f"Filename: {attachment.get('filename')}")
-                    print(f"URL: {attachment.get('url')}")
-                    print(f"---")
+            # デバッグ: attachmentsのfilenameとURLをログ出力
+            print("=== Discord API Response Debug ===")
+            for attachment in response_data.get("attachments", []):
+                print(f"Filename: {attachment.get('filename')}")
+                print(f"URL: {attachment.get('url')}")
+                print(f"---")
 
-                return response_data
+            return response_data
 
         finally:
             # ファイルハンドルをクローズ
