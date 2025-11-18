@@ -3,31 +3,27 @@
 """
 PDF解析サービス
 
-Azure Document Intelligenceを使用して大会要項PDFから情報を抽出
+Claude APIを使用して大会要項PDFから情報を抽出
 """
 
 import os
-import re
+import base64
+import json
 from typing import Dict, Any
-from azure.ai.formrecognizer import DocumentAnalysisClient
-from azure.core.credentials import AzureKeyCredential
+import anthropic
 
 
 class PDFParserService:
-    """PDF解析サービス"""
+    """PDF解析サービス（Claude API使用）"""
 
     def __init__(self):
         """初期化"""
-        self.endpoint = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
-        self.api_key = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY")
+        self.api_key = os.getenv("ANTHROPIC_API_KEY")
 
-        if not self.endpoint or not self.api_key:
-            raise ValueError("Azure Document Intelligence credentials not set")
+        if not self.api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not set")
 
-        self.client = DocumentAnalysisClient(
-            endpoint=self.endpoint,
-            credential=AzureKeyCredential(self.api_key)
-        )
+        self.client = anthropic.Anthropic(api_key=self.api_key)
 
     async def parse_tournament_pdf(self, pdf_content: bytes) -> Dict[str, Any]:
         """
@@ -39,121 +35,70 @@ class PDFParserService:
         Returns:
             抽出された大会情報
         """
-        # Azure Document Intelligenceで解析
-        poller = self.client.begin_analyze_document(
-            "prebuilt-layout", pdf_content
+        # PDFをbase64エンコード
+        pdf_base64 = base64.standard_b64encode(pdf_content).decode('utf-8')
+
+        # Claudeに直接PDFを送信して構造化データを取得
+        message = self.client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2048,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": pdf_base64
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": """このPDFは大会要項です。以下の情報を抽出してJSON形式で返してください。
+
+必須フィールド:
+{
+  "tournament_id": "大会名と日付からMD5ハッシュで自動生成（例: tournament_a1b2c3d4）",
+  "tournament_name": "大会名（完全な名称）",
+  "registrated_ward": 主催区（北区=17, 荒川区=18, 江戸川区=23、該当なしまたは不明=0）,
+  "deadline_date": "申込締切日（YYYY-MM-DD形式、例: 2024-03-15）",
+  "tournament_date": "大会開催日（YYYY-MM-DD形式、例: 2024-03-20）",
+  "classification": 競技形式（個人戦=0, 団体戦=1）,
+  "mix_flg": ミックスダブルスか（true/false）,
+  "type": ["一般", "45", "55", "60", "65", "70"]  // 該当する年齢種別の配列
+}
+
+重要な注意事項:
+1. 日付は必ずYYYY-MM-DD形式に変換してください（和暦の場合は西暦に変換）
+2. tournament_idは大会名と日付からMD5ハッシュ8文字で生成し、"tournament_"プレフィックスを付けてください
+3. 情報が見つからない場合は適切なデフォルト値を使用してください
+4. JSONのみを返し、説明文やマークダウンは不要です
+
+JSON:"""
+                    }
+                ]
+            }]
         )
-        result = poller.result()
 
-        # テキストを抽出
-        text = ""
-        for page in result.pages:
-            for line in page.lines:
-                text += line.content + "\n"
+        # レスポンスからJSONを抽出
+        response_text = message.content[0].text.strip()
 
-        # テキストから大会情報を抽出
-        tournament_data = self._extract_tournament_info(text)
+        # マークダウンコードブロックを削除（もしあれば）
+        if response_text.startswith('```'):
+            response_text = response_text.split('```')[1]
+            if response_text.startswith('json'):
+                response_text = response_text[4:]
+            response_text = response_text.strip()
+
+        # JSONをパース
+        tournament_data = json.loads(response_text)
+
+        # tournament_idの生成（Claudeが生成していない場合）
+        if not tournament_data.get("tournament_id") or tournament_data["tournament_id"] == "":
+            import hashlib
+            id_source = f"{tournament_data.get('tournament_name', 'unknown')}_{tournament_data.get('tournament_date', '')}"
+            hash_value = hashlib.md5(id_source.encode()).hexdigest()[:8]
+            tournament_data["tournament_id"] = f"tournament_{hash_value}"
 
         return tournament_data
-
-    def _extract_tournament_info(self, text: str) -> Dict[str, Any]:
-        """
-        抽出したテキストから大会情報をパース
-
-        Args:
-            text: 抽出されたテキスト
-
-        Returns:
-            大会情報の辞書
-        """
-        data = {
-            "tournament_id": "",
-            "tournament_name": "",
-            "registrated_ward": 0,
-            "deadline_date": "",
-            "tournament_date": "",
-            "classification": 0,
-            "mix_flg": False,
-            "type": []
-        }
-
-        # 大会名を抽出（「大会」「選手権」「大会」などを含む行）
-        name_patterns = [
-            r"(.+(?:大会|選手権|トーナメント|オープン))",
-            r"大会名[：:]\s*(.+)",
-        ]
-        for pattern in name_patterns:
-            match = re.search(pattern, text)
-            if match:
-                data["tournament_name"] = match.group(1).strip()
-                break
-
-        # 日付を抽出（YYYY年MM月DD日 または YYYY/MM/DD など）
-        date_patterns = [
-            r"(\d{4})[年/\-](\d{1,2})[月/\-](\d{1,2})",
-            r"大会日[：:]\s*(\d{4})[年/\-](\d{1,2})[月/\-](\d{1,2})",
-        ]
-        for pattern in date_patterns:
-            match = re.search(pattern, text)
-            if match:
-                year, month, day = match.groups()
-                data["tournament_date"] = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-                break
-
-        # 締切日を抽出
-        deadline_patterns = [
-            r"締[め切]*[日期][：:]\s*(\d{4})[年/\-](\d{1,2})[月/\-](\d{1,2})",
-            r"申込締切[：:]\s*(\d{4})[年/\-](\d{1,2})[月/\-](\d{1,2})",
-        ]
-        for pattern in deadline_patterns:
-            match = re.search(pattern, text)
-            if match:
-                year, month, day = match.groups()
-                data["deadline_date"] = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-                break
-
-        # 種別を抽出（一般、45、55など）
-        type_patterns = [
-            r"一般",
-            r"45",
-            r"55",
-            r"60",
-            r"65",
-            r"70",
-        ]
-        types = []
-        for pattern in type_patterns:
-            if re.search(pattern, text):
-                types.append(pattern)
-        data["type"] = types if types else ["一般"]
-
-        # ミックスフラグ
-        if re.search(r"ミックス|MIX|mix", text, re.IGNORECASE):
-            data["mix_flg"] = True
-
-        # 個人戦/団体戦を判定
-        if re.search(r"団体", text):
-            data["classification"] = 1
-        else:
-            data["classification"] = 0
-
-        # 区を抽出（江戸川区、北区など）
-        ward_mapping = {
-            "北区": 17,
-            "荒川区": 18,
-            "江戸川区": 23,
-        }
-        for ward_name, ward_id in ward_mapping.items():
-            if ward_name in text:
-                data["registrated_ward"] = ward_id
-                break
-
-        # tournament_idを生成（大会名と日付から）
-        if data["tournament_name"] and data["tournament_date"]:
-            # 日本語を削除してIDを生成
-            import hashlib
-            id_source = f"{data['tournament_name']}_{data['tournament_date']}"
-            hash_value = hashlib.md5(id_source.encode()).hexdigest()[:8]
-            data["tournament_id"] = f"tournament_{hash_value}"
-
-        return data
