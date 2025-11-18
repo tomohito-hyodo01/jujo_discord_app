@@ -148,9 +148,9 @@ async def generate_excel(request: ExcelGenerationRequest):
 
             player1 = player1_result.data[0]
 
-            # 申込情報と選手情報を統合
-            enriched_reg = {
-                **reg,
+            # applicantオブジェクトを作成（pair1の選手）
+            applicant = {
+                'player_id': player1.get('player_id'),
                 'player_name': player1.get('player_name'),
                 'birth_date': player1.get('birth_date'),
                 'sex': player1.get('sex'),
@@ -160,6 +160,13 @@ async def generate_excel(request: ExcelGenerationRequest):
                 'jsta_number': player1.get('jsta_number'),
                 'edogawa_flg': player1.get('edogawa_flg', False),
                 'affiliated_club': player1.get('affiliated_club', ''),
+            }
+
+            # 申込情報とapplicantを統合
+            enriched_reg = {
+                **reg,
+                'applicant': applicant,
+                'partner': None  # デフォルトはNone
             }
 
             # pair2がある場合（ダブルス）
@@ -172,9 +179,20 @@ async def generate_excel(request: ExcelGenerationRequest):
 
                 if player2_result.data:
                     player2 = player2_result.data[0]
-                    enriched_reg['player2_name'] = player2.get('player_name')
-                    enriched_reg['player2_birth_date'] = player2.get('birth_date')
-                    enriched_reg['player2_affiliated_club'] = player2.get('affiliated_club', '')
+                    # partnerオブジェクトを作成
+                    partner = {
+                        'player_id': player2.get('player_id'),
+                        'player_name': player2.get('player_name'),
+                        'birth_date': player2.get('birth_date'),
+                        'sex': player2.get('sex'),
+                        'post_number': player2.get('post_number'),
+                        'address': player2.get('address'),
+                        'phone_number': player2.get('phone_number'),
+                        'jsta_number': player2.get('jsta_number'),
+                        'edogawa_flg': player2.get('edogawa_flg', False),
+                        'affiliated_club': player2.get('affiliated_club', ''),
+                    }
+                    enriched_reg['partner'] = partner
 
             enriched_registrations.append(enriched_reg)
 
@@ -346,8 +364,9 @@ async def process_tournament_deadlines():
 
                     player1 = player1_result.data[0]
 
-                    enriched_reg = {
-                        **reg,
+                    # applicantオブジェクトを作成
+                    applicant = {
+                        'player_id': player1.get('player_id'),
                         'player_name': player1.get('player_name'),
                         'birth_date': player1.get('birth_date'),
                         'sex': player1.get('sex'),
@@ -357,6 +376,12 @@ async def process_tournament_deadlines():
                         'jsta_number': player1.get('jsta_number'),
                         'edogawa_flg': player1.get('edogawa_flg', False),
                         'affiliated_club': player1.get('affiliated_club', ''),
+                    }
+
+                    enriched_reg = {
+                        **reg,
+                        'applicant': applicant,
+                        'partner': None
                     }
 
                     # pair2がある場合
@@ -369,9 +394,19 @@ async def process_tournament_deadlines():
 
                         if player2_result.data:
                             player2 = player2_result.data[0]
-                            enriched_reg['player2_name'] = player2.get('player_name')
-                            enriched_reg['player2_birth_date'] = player2.get('birth_date')
-                            enriched_reg['player2_affiliated_club'] = player2.get('affiliated_club', '')
+                            partner = {
+                                'player_id': player2.get('player_id'),
+                                'player_name': player2.get('player_name'),
+                                'birth_date': player2.get('birth_date'),
+                                'sex': player2.get('sex'),
+                                'post_number': player2.get('post_number'),
+                                'address': player2.get('address'),
+                                'phone_number': player2.get('phone_number'),
+                                'jsta_number': player2.get('jsta_number'),
+                                'edogawa_flg': player2.get('edogawa_flg', False),
+                                'affiliated_club': player2.get('affiliated_club', ''),
+                            }
+                            enriched_reg['partner'] = partner
 
                     enriched_registrations.append(enriched_reg)
 
