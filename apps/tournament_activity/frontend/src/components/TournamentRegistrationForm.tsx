@@ -22,7 +22,6 @@ function TournamentRegistrationForm() {
     mix_flg: false,
     type: []
   })
-  const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
@@ -64,7 +63,6 @@ function TournamentRegistrationForm() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    setPdfFile(file)
     setIsUploading(true)
     setMessage(null)
 
@@ -131,7 +129,6 @@ function TournamentRegistrationForm() {
           mix_flg: false,
           type: []
         })
-        setPdfFile(null)
       }
     } catch (error) {
       console.error('Submit error:', error)
