@@ -59,16 +59,18 @@ class EdogawaExcelService(BaseExcelService):
             生成されたファイルパス
         """
         # テンプレートをコピー
-        output_filename = f"{tournament_name}_会員登録表_{timestamp}.xlsx"
+        output_filename = f"{tournament_name}_会員登録表.xlsx"
         output_path = self._copy_template("会員登録表フォーマット.xlsx", output_filename)
 
         # Excelを開く
         wb = openpyxl.load_workbook(output_path)
         ws = wb["Sheet1"]
 
-        # A2: 年度を設定（結合セルA2~H2）
-        fiscal_year_text = self._format_fiscal_year()
-        self._set_cell_value(ws, 'A2', fiscal_year_text)
+        # A2: 年度を設定（結合セルA2~H2）- 元のテキストの⚪︎を数字に置き換え
+        current_value = ws['A2'].value or ""
+        fiscal_year_number = self._get_fiscal_year_number()
+        new_value = current_value.replace("⚪︎", str(fiscal_year_number))
+        self._set_cell_value(ws, 'A2', new_value)
 
         # edogawa_flg=False の選手のみ抽出
         players_to_write = self._extract_unregistered_players(registrations)
@@ -129,7 +131,7 @@ class EdogawaExcelService(BaseExcelService):
             生成されたファイルパス
         """
         # テンプレートをコピー
-        output_filename = f"{tournament['tournament_name']}_申込書_{timestamp}.xlsx"
+        output_filename = f"{tournament['tournament_name']}_申込書.xlsx"
         output_path = self._copy_template("個人戦_申込書フォーマット.xlsx", output_filename)
 
         # Excelを開く
@@ -276,12 +278,12 @@ class EdogawaExcelService(BaseExcelService):
         reiwa_year = today.year - 2018
         return f"申　込　日　令和{reiwa_year}年{today.month:02d}月{today.day:02d}日"
 
-    def _format_fiscal_year(self) -> str:
+    def _get_fiscal_year_number(self) -> int:
         """
-        現在の年度を令和フォーマットで生成
+        現在の年度を令和年数で取得
 
         Returns:
-            年度文字列（例: "令和7年度"）
+            令和年数（例: 7）
         """
         today = datetime.now()
 
@@ -292,4 +294,4 @@ class EdogawaExcelService(BaseExcelService):
             fiscal_year = today.year - 1
 
         reiwa_year = fiscal_year - 2018
-        return f"令和{reiwa_year}年度"
+        return reiwa_year
