@@ -122,6 +122,7 @@ class DiscordFileService:
         # ファイルをマルチパートフォームデータとして準備
         files_data = []
         file_handles = []
+        attachments = []
 
         try:
             for idx, (file_path, file_name) in enumerate(files):
@@ -130,13 +131,14 @@ class DiscordFileService:
 
                 f = open(file_path, 'rb')
                 file_handles.append(f)
+
+                # form dataには一時的なASCIIファイル名を使用（エンコーディング問題を回避）
+                temp_filename = f"file_{idx}.xlsx"
                 files_data.append(
-                    (f'files[{idx}]', (file_name, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
+                    (f'files[{idx}]', (temp_filename, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
                 )
 
-            # attachments配列を作成してファイル名を明示的に指定
-            attachments = []
-            for idx, (file_path, file_name) in enumerate(files):
+                # attachments配列で正しい日本語ファイル名を指定
                 attachments.append({
                     "id": idx,
                     "filename": file_name
