@@ -22,6 +22,7 @@
 | **phone_number** | TEXT | NOT NULL | 電話番号 | フォーム |
 | **birth_date** | DATE | NOT NULL | 生年月日 | フォーム |
 | **sex** | INTEGER | NOT NULL, CHECK (0 or 1) | 性別（0:男子, 1:女子） | フォーム |
+| affiliated_club | VARCHAR(100) | - | 所属クラブ名 | フォーム |
 | **tokyo_flg** | BOOLEAN | DEFAULT false | 東京都への登録フラグ | 管理画面 |
 | **koto_flg** | BOOLEAN | DEFAULT false | 江東区への登録フラグ | 管理画面 |
 | **edogawa_flg** | BOOLEAN | DEFAULT false | 江戸川区への登録フラグ | 管理画面 |
@@ -33,17 +34,17 @@
 ### データ例
 
 ```sql
-player_id | discord_id  | player_name | sex | edogawa_flg | koto_flg | tokyo_flg
-----------|-------------|-------------|-----|-------------|----------|----------
-1         | 123456789   | 山田太郎    | 0   | true        | false    | true
-2         | 987654321   | 佐藤花子    | 1   | true        | true     | false
-3         | NULL        | 鈴木一郎    | 0   | false       | false    | false
+player_id | discord_id  | player_name | affiliated_club | edogawa_flg | koto_flg | tokyo_flg
+----------|-------------|-------------|-----------------|-------------|----------|----------
+1         | 123456789   | 山田太郎    | 十条クラブ      | true        | false    | true
+2         | 987654321   | 佐藤花子    | 江戸川TC        | true        | true     | false
+3         | NULL        | 鈴木一郎    | NULL            | false       | false    | false
 ```
 
 **例の説明:**
-- 山田太郎: 江戸川区と東京都に登録
-- 佐藤花子: 江戸川区と江東区に登録
-- 鈴木一郎: どこにも登録していない（ペア選手として追加）
+- 山田太郎: 十条クラブ所属、江戸川区と東京都に登録
+- 佐藤花子: 江戸川TC所属、江戸川区と江東区に登録
+- 鈴木一郎: クラブ未所属、どこにも登録していない（ペア選手として追加）
 
 ---
 
