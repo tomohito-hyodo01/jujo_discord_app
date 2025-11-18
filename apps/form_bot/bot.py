@@ -37,7 +37,13 @@ async def load_cogs():
         await bot.load_extension('cogs.web_form_setup')
         print('✅ web_form_setup Cogを読み込みました')
     except Exception as e:
-        print(f'❌ Cog読み込みエラー: {e}')
+        print(f'❌ web_form_setup Cog読み込みエラー: {e}')
+
+    try:
+        await bot.load_extension('cogs.tournament_form_setup')
+        print('✅ tournament_form_setup Cogを読み込みました')
+    except Exception as e:
+        print(f'❌ tournament_form_setup Cog読み込みエラー: {e}')
 
 
 @bot.event
