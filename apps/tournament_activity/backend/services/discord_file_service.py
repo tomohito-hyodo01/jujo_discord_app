@@ -51,7 +51,7 @@ class DiscordFileService:
             }
         """
         # メッセージ内容を作成
-        content = f"**大会申込Excelファイル**\n\n"
+        content = f"大会申込書を作成いたしました。内容をご確認いただき、大会運営に送付してください。\n\n"
         content += f"大会名: {tournament_name}\n"
         content += f"作成日時: {self._get_current_time()}\n\n"
 
