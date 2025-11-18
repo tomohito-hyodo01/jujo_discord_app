@@ -270,7 +270,7 @@ class GoogleDriveService:
         media = MediaFileUpload(
             file_path,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            resumable=True
+            resumable=False
         )
 
         file = self.service.files().create(
