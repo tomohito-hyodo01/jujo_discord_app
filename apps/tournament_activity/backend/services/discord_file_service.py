@@ -134,9 +134,18 @@ class DiscordFileService:
                     (f'files[{idx}]', (file_name, f, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
                 )
 
+            # attachments配列を作成してファイル名を明示的に指定
+            attachments = []
+            for idx, (file_path, file_name) in enumerate(files):
+                attachments.append({
+                    "id": idx,
+                    "filename": file_name
+                })
+
             # payload_jsonを正しいJSON文字列に変換
             payload = {
-                "content": content
+                "content": content,
+                "attachments": attachments
             }
             data = {
                 'payload_json': json.dumps(payload)
