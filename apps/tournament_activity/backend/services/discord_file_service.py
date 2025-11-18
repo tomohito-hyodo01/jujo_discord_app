@@ -67,12 +67,16 @@ class DiscordFileService:
         file_names = {}
 
         if "member_registration" in file_paths:
-            files_to_upload.append((file_paths["member_registration"], "会員登録表.xlsx"))
-            file_names["member_registration"] = "会員登録表.xlsx"
+            file_path = file_paths["member_registration"]
+            file_name = os.path.basename(file_path)
+            files_to_upload.append((file_path, file_name))
+            file_names["member_registration"] = file_name
 
         if "individual_application" in file_paths:
-            files_to_upload.append((file_paths["individual_application"], "個人戦申込書.xlsx"))
-            file_names["individual_application"] = "個人戦申込書.xlsx"
+            file_path = file_paths["individual_application"]
+            file_name = os.path.basename(file_path)
+            files_to_upload.append((file_path, file_name))
+            file_names["individual_application"] = file_name
 
         if not files_to_upload:
             raise ValueError("No files to upload")
