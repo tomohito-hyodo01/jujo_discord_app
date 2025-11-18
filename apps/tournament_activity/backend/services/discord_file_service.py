@@ -51,17 +51,9 @@ class DiscordFileService:
             }
         """
         # メッセージ内容を作成
-        ward_names = {
-            17: "北区",
-            18: "荒川区",
-            23: "江戸川区",
-        }
-        ward_name = ward_names.get(ward_id, f"Ward {ward_id}")
-
-        content = f"📊 **大会申込Excelファイル**\n\n"
-        content += f"🏆 大会名: {tournament_name}\n"
-        content += f"📍 区: {ward_name}\n"
-        content += f"📅 生成日時: {self._get_current_time()}\n\n"
+        content = f"**大会申込Excelファイル**\n\n"
+        content += f"大会名: {tournament_name}\n"
+        content += f"作成日時: {self._get_current_time()}\n\n"
 
         # アップロードするファイルのリストを作成
         files_to_upload = []
