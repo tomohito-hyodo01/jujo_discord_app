@@ -60,32 +60,32 @@ class EdogawaExcelService(BaseExcelService):
             row = 6 + idx
 
             # A列: No
-            ws[f'A{row}'] = idx + 1
+            ws[f'A{row}'].value = idx + 1
 
             # BC列: 氏名（結合セル）
-            ws[f'B{row}'] = player['player_name']
+            ws[f'B{row}'].value = player['player_name']
 
             # D列: 生年月日
             birth_date = player['birth_date']
             if isinstance(birth_date, str):
                 birth_date = datetime.strptime(birth_date, "%Y-%m-%d").date()
-            ws[f'D{row}'] = birth_date
+            ws[f'D{row}'].value = birth_date
 
             # E列: 年齢（計算式を維持するため、ここでは触らない）
             # ※テンプレートに既に計算式が入っているため
 
             # F列: 性別
             sex = player['sex']
-            ws[f'F{row}'] = "男" if sex == 0 else "女"
+            ws[f'F{row}'].value = "男" if sex == 0 else "女"
 
             # G列: 郵便番号
-            ws[f'G{row}'] = player.get('post_number', '')
+            ws[f'G{row}'].value = player.get('post_number', '')
 
             # H列: 現住所（結合セルH-J）
-            ws[f'H{row}'] = player['address']
+            ws[f'H{row}'].value = player['address']
 
             # KL列: 電話（結合セルK-L）
-            ws[f'K{row}'] = player['phone_number']
+            ws[f'K{row}'].value = player['phone_number']
 
         # 保存
         wb.save(output_path)
@@ -119,10 +119,10 @@ class EdogawaExcelService(BaseExcelService):
         ws = wb["Sheet1"]
 
         # A1: 大会名を設定
-        ws['A1'] = f"{tournament['tournament_name']}　申込書"
+        ws['A1'].value = f"{tournament['tournament_name']}　申込書"
 
         # F3: 申込日を設定
-        ws['F3'] = self._format_application_date()
+        ws['F3'].value = self._format_application_date()
 
         # 団体名・責任者・連絡先（5-7行目）は空欄のまま（手動入力）
 
@@ -149,22 +149,22 @@ class EdogawaExcelService(BaseExcelService):
                     continue
 
                 # A列: NO
-                ws[f'A{row}'] = entry_no
+                ws[f'A{row}'].value = entry_no
 
                 # B列: 種別
-                ws[f'B{row}'] = type_str
+                ws[f'B{row}'].value = type_str
 
                 # C列: 氏名
-                ws[f'C{row}'] = player['player_name']
+                ws[f'C{row}'].value = player['player_name']
 
                 # D列: 生年月日
                 birth_date = player['birth_date']
                 if isinstance(birth_date, str):
                     birth_date = datetime.strptime(birth_date, "%Y-%m-%d").date()
-                ws[f'D{row}'] = birth_date
+                ws[f'D{row}'].value = birth_date
 
                 # E列: 所属名
-                ws[f'E{row}'] = player.get('affiliated_club', '')
+                ws[f'E{row}'].value = player.get('affiliated_club', '')
 
                 # F列: 備考は空欄
 
