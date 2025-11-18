@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS player_mst (
     phone_number TEXT NOT NULL,
     birth_date DATE NOT NULL,
     sex INTEGER NOT NULL CHECK (sex IN (0, 1)),
+    affiliated_club VARCHAR(100),        -- 所属クラブ名
     tokyo_flg BOOLEAN DEFAULT false,     -- 東京都への登録フラグ
     koto_flg BOOLEAN DEFAULT false,      -- 江東区への登録フラグ
     edogawa_flg BOOLEAN DEFAULT false,   -- 江戸川区への登録フラグ
