@@ -76,16 +76,20 @@ def generate_tournament_id(tournament_name: str, tournament_date: str, registrat
     Args:
         tournament_name: 大会名
         tournament_date: 大会日（YYYY-MM-DD）
-        registrated_ward: 主催区ID（17=北区, 18=荒川区, 23=江戸川区）
+        registrated_ward: 主催区ID
 
     Returns:
         生成された大会ID
     """
     # 区名マッピング
     ward_map = {
+        1: 'chuo',
+        13: 'koto',
         17: 'kita',
         18: 'arakawa',
-        23: 'edogawa'
+        22: 'sumida',
+        23: 'edogawa',
+        99: 'wide'
     }
 
     ward_name = ward_map.get(registrated_ward, 'other')
@@ -243,6 +247,13 @@ async def parse_pdf(
             "data": tournament_data,
             "model_used": model
         }
+    except ValueError as e:
+        if str(e) == "INVALID_WARD":
+            raise HTTPException(
+                status_code=400,
+                detail="登録可能な地域の大会要項を選択してください。"
+            )
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

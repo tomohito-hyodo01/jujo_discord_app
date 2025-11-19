@@ -30,9 +30,13 @@ function TournamentRegistrationForm() {
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   const wardOptions = [
-    { id: 17, name: '北区' },
+    { id: 23, name: '江戸川区' },
     { id: 18, name: '荒川区' },
-    { id: 23, name: '江戸川区' }
+    { id: 17, name: '北区' },
+    { id: 13, name: '江東区' },
+    { id: 1, name: '中央区' },
+    { id: 22, name: '墨田区' },
+    { id: 99, name: '広域' }
   ]
 
   const typeOptions = ['一般', '35', '45', '55', '60', '65', '70']
@@ -77,7 +81,8 @@ function TournamentRegistrationForm() {
       })
 
       if (!response.ok) {
-        throw new Error('PDF解析に失敗しました')
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'PDF解析に失敗しました')
       }
 
       const result = await response.json()
@@ -94,7 +99,8 @@ function TournamentRegistrationForm() {
       }
     } catch (error) {
       console.error('PDF upload error:', error)
-      setMessage({ type: 'error', text: 'PDF解析中にエラーが発生しました' })
+      const errorMessage = error instanceof Error ? error.message : 'PDF解析中にエラーが発生しました'
+      setMessage({ type: 'error', text: errorMessage })
     } finally {
       setIsUploading(false)
     }
