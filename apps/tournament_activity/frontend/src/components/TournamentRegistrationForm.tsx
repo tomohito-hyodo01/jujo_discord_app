@@ -176,7 +176,54 @@ function TournamentRegistrationForm() {
   }
 
   return (
-    <div>
+    <div style={{ position: 'relative' }}>
+      {/* Full-screen loader during PDF parsing */}
+      {isUploading && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999
+        }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            border: '4px solid #1e293b',
+            borderTop: '4px solid #3b82f6',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }} />
+          <p style={{
+            color: '#e2e8f0',
+            fontSize: '18px',
+            fontWeight: '600',
+            marginTop: '24px'
+          }}>
+            PDFを解析中...
+          </p>
+          <p style={{
+            color: '#94a3b8',
+            fontSize: '14px',
+            marginTop: '8px'
+          }}>
+            しばらくお待ちください
+          </p>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      )}
+
       <h2 style={{
         fontSize: '24px',
         fontWeight: '600',
@@ -280,11 +327,6 @@ function TournamentRegistrationForm() {
             padding: '12px'
           }}
         />
-        {isUploading && (
-          <p style={{ color: '#60a5fa', marginTop: '8px', fontSize: '14px' }}>
-            PDFを解析中...
-          </p>
-        )}
       </div>
 
       <form onSubmit={handleSubmit}>
