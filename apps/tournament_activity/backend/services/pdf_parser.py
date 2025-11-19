@@ -128,7 +128,7 @@ class PDFParserService:
 {
   "tournament_id": "大会名と日付からMD5ハッシュで自動生成（例: tournament_a1b2c3d4）",
   "tournament_name": "大会名（完全な名称）",
-  "registrated_ward": 主催区（北区=17, 荒川区=18, 江戸川区=23、該当なしまたは不明=0）,
+  "registrated_ward": 主催区のID（下記参照）,
   "deadline_date": "申込締切日（YYYY-MM-DD形式、例: 2024-03-15）",
   "tournament_date": "大会開催日（YYYY-MM-DD形式、例: 2024-03-20）",
   "classification": 競技形式（個人戦=0, 団体戦=1）,
@@ -136,12 +136,23 @@ class PDFParserService:
   "type": ["一般", "35", "45"]  // 該当する年齢種別の配列（一般、35、45のみ）
 }
 
+主催区のIDマッピング:
+- 江戸川区 = 23
+- 荒川区 = 18
+- 北区 = 17
+- 江東区 = 13
+- 中央区 = 1
+- 墨田区 = 22
+- 広域（東京都、関東、東日本、全日本など） = 99
+- 上記以外の区・該当なし = -1 (エラーとして扱われます)
+
 重要な注意事項:
 1. 日付は必ずYYYY-MM-DD形式に変換してください（和暦の場合は西暦に変換）
 2. tournament_idは大会名と日付からMD5ハッシュ8文字で生成し、"tournament_"プレフィックスを付けてください
-3. 情報が見つからない場合は適切なデフォルト値を使用してください
-4. JSONのみを返し、説明文やマークダウンは不要です
+3. 主催が「東京都」「関東」「東日本」「全日本」などの広域の場合は registrated_ward = 99 を設定してください
+4. 主催区が上記リストにない場合（例：世田谷区、練馬区など）は registrated_ward = -1 を設定してください
 5. **重要**: 種別(type)には「一般」「35」「45」のみを抽出してください。「シニア」「55」「60」「65」「70」などは無視してください
+6. JSONのみを返し、説明文やマークダウンは不要です
 
 JSON:"""
 
@@ -156,6 +167,14 @@ JSON:"""
 
         # JSONをパース
         tournament_data = json.loads(response_text)
+
+        # 主催区の検証
+        allowed_ward_ids = {1, 13, 17, 18, 22, 23, 99}  # 中央区、江東区、北区、荒川区、墨田区、江戸川区、広域
+        ward_id = tournament_data.get("registrated_ward", 0)
+
+        if ward_id == -1 or (ward_id != 0 and ward_id not in allowed_ward_ids):
+            # 対象外の区が検出された場合
+            raise ValueError("INVALID_WARD")
 
         # tournament_idの生成（AIが生成していない場合）
         if not tournament_data.get("tournament_id") or tournament_data["tournament_id"] == "":
