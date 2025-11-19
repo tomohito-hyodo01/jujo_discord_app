@@ -6,11 +6,45 @@ import DiscordLogin from './components/DiscordLogin'
 import AuthCallback from './components/AuthCallback'
 
 function App() {
+  // Check if this is the tournament registration page (no auth required)
+  const isTournamentRegisterPage = window.location.pathname === '/tournament-register'
+
+  // If tournament registration page, render it directly without auth
+  if (isTournamentRegisterPage) {
+    return (
+      <div style={{
+        width: '100%',
+        maxWidth: '800px',
+        backgroundColor: '#0a1628',
+        borderRadius: '16px',
+        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
+        overflow: 'hidden',
+        border: '1px solid #1e293b'
+      }}>
+        <div style={{
+          padding: '40px',
+          background: 'linear-gradient(135deg, #0c1e3d 0%, #0f172a 100%)',
+          color: '#ffffff',
+          borderBottom: '1px solid #1e293b'
+        }}>
+          <h1 style={{
+            fontSize: '32px',
+            fontWeight: '600',
+            margin: 0,
+            letterSpacing: '-0.5px'
+          }}>
+            十条クラブ　大会登録フォーム
+          </h1>
+        </div>
+        <div style={{ padding: '40px', backgroundColor: '#0a1628' }}>
+          <TournamentRegistrationForm />
+        </div>
+      </div>
+    )
+  }
+
   const DEV_DISCORD_ID = '1427112485047242945'
   const isLocalDev = import.meta.env.DEV || window.location.hostname === 'localhost'
-
-  // Check if this is the tournament registration page
-  const isTournamentRegisterPage = window.location.pathname === '/tournament-register'
 
   // URLパラメータからビューとセッションID、認証コード、ward_idを取得
   const urlParams = new URLSearchParams(window.location.search)
@@ -197,40 +231,6 @@ function App() {
         </div>
         <div style={{ padding: '40px', backgroundColor: '#0a1628' }}>
           <DiscordLogin />
-        </div>
-      </div>
-    )
-  }
-  
-  // Tournament Registration Page (for tournament organizers)
-  if (isTournamentRegisterPage) {
-    return (
-      <div style={{
-        width: '100%',
-        maxWidth: '800px',
-        backgroundColor: '#0a1628',
-        borderRadius: '16px',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
-        overflow: 'hidden',
-        border: '1px solid #1e293b'
-      }}>
-        <div style={{
-          padding: '40px',
-          background: 'linear-gradient(135deg, #0c1e3d 0%, #0f172a 100%)',
-          color: '#ffffff',
-          borderBottom: '1px solid #1e293b'
-        }}>
-          <h1 style={{
-            fontSize: '32px',
-            fontWeight: '600',
-            margin: 0,
-            letterSpacing: '-0.5px'
-          }}>
-            十条クラブ　大会登録フォーム
-          </h1>
-        </div>
-        <div style={{ padding: '40px', backgroundColor: '#0a1628' }}>
-          <TournamentRegistrationForm />
         </div>
       </div>
     )
