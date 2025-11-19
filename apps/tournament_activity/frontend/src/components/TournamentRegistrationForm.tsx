@@ -34,7 +34,7 @@ function TournamentRegistrationForm() {
     { id: 23, name: '江戸川区' }
   ]
 
-  const typeOptions = ['一般', '45', '55', '60', '65', '70']
+  const typeOptions = ['一般', '35', '45', '55', '60', '65', '70']
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target as HTMLInputElement
@@ -218,22 +218,6 @@ function TournamentRegistrationForm() {
       </div>
 
       <form onSubmit={handleSubmit}>
-        {/* Tournament ID */}
-        <div style={{ marginBottom: '24px' }}>
-          <label style={labelStyle}>
-            大会ID <span style={{ color: '#ef4444' }}>*</span>
-          </label>
-          <input
-            type="text"
-            name="tournament_id"
-            value={formData.tournament_id}
-            onChange={handleInputChange}
-            required
-            style={inputStyle}
-            placeholder="例: tournament_2024_spring"
-          />
-        </div>
-
         {/* Tournament Name */}
         <div style={{ marginBottom: '24px' }}>
           <label style={labelStyle}>
