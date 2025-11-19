@@ -133,7 +133,7 @@ class PDFParserService:
   "tournament_date": "大会開催日（YYYY-MM-DD形式、例: 2024-03-20）",
   "classification": 競技形式（個人戦=0, 団体戦=1）,
   "mix_flg": ミックスダブルスか（true/false）,
-  "type": ["一般", "35", "45", "55", "60", "65", "70"]  // 該当する年齢種別の配列
+  "type": ["一般", "35", "45"]  // 該当する年齢種別の配列（一般、35、45のみ）
 }
 
 重要な注意事項:
@@ -141,6 +141,7 @@ class PDFParserService:
 2. tournament_idは大会名と日付からMD5ハッシュ8文字で生成し、"tournament_"プレフィックスを付けてください
 3. 情報が見つからない場合は適切なデフォルト値を使用してください
 4. JSONのみを返し、説明文やマークダウンは不要です
+5. **重要**: 種別(type)には「一般」「35」「45」のみを抽出してください。「シニア」「55」「60」「65」「70」などは無視してください
 
 JSON:"""
 
@@ -162,5 +163,15 @@ JSON:"""
             id_source = f"{tournament_data.get('tournament_name', 'unknown')}_{tournament_data.get('tournament_date', '')}"
             hash_value = hashlib.md5(id_source.encode()).hexdigest()[:8]
             tournament_data["tournament_id"] = f"tournament_{hash_value}"
+
+        # 種別のフィルタリング：一般、35、45のみを許可
+        if "type" in tournament_data and isinstance(tournament_data["type"], list):
+            allowed_types = {"一般", "35", "45"}
+            # シニア、55以上の種別を除外
+            filtered_types = [
+                t for t in tournament_data["type"]
+                if t in allowed_types or (t.isdigit() and int(t) < 55)
+            ]
+            tournament_data["type"] = filtered_types
 
         return tournament_data
