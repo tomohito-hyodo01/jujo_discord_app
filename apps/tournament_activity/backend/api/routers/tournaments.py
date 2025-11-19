@@ -217,9 +217,16 @@ async def register_tournament(request: TournamentRegisterRequest):
 
 
 @router.post("/tournaments/parse-pdf")
-async def parse_pdf(file: UploadFile = File(...)):
+async def parse_pdf(
+    file: UploadFile = File(...),
+    model: str = "claude"  # "claude" or "gemini"
+):
     """
-    PDFから大会情報を抽出（Azure Document Intelligence使用）
+    PDFから大会情報を抽出（Claude または Gemini 使用）
+
+    Args:
+        file: PDFファイル
+        model: 使用するモデル（"claude" または "gemini"）
     """
     try:
         from services.pdf_parser import PDFParserService
@@ -228,12 +235,13 @@ async def parse_pdf(file: UploadFile = File(...)):
         pdf_content = await file.read()
 
         # PDF解析サービスを使用
-        parser = PDFParserService()
+        parser = PDFParserService(model=model)
         tournament_data = await parser.parse_tournament_pdf(pdf_content)
 
         return {
             "success": True,
-            "data": tournament_data
+            "data": tournament_data,
+            "model_used": model
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

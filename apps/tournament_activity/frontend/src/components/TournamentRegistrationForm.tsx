@@ -25,6 +25,7 @@ function TournamentRegistrationForm() {
   const [isUploading, setIsUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+  const [selectedModel, setSelectedModel] = useState<'claude' | 'gemini'>('claude')
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -67,12 +68,12 @@ function TournamentRegistrationForm() {
     setMessage(null)
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      const uploadFormData = new FormData()
+      uploadFormData.append('file', file)
 
-      const response = await fetch(`${apiUrl}/api/tournaments/parse-pdf`, {
+      const response = await fetch(`${apiUrl}/api/tournaments/parse-pdf?model=${selectedModel}`, {
         method: 'POST',
-        body: formData
+        body: uploadFormData
       })
 
       if (!response.ok) {
@@ -86,7 +87,10 @@ function TournamentRegistrationForm() {
           ...prev,
           ...result.data
         }))
-        setMessage({ type: 'success', text: 'PDFから情報を抽出しました' })
+        setMessage({
+          type: 'success',
+          text: `PDFから情報を抽出しました（使用モデル: ${result.model_used === 'claude' ? 'Claude Sonnet 4' : 'Gemini 2.5 Flash'}）`
+        })
       }
     } catch (error) {
       console.error('PDF upload error:', error)
@@ -200,6 +204,72 @@ function TournamentRegistrationForm() {
         <label style={labelStyle}>
           PDF要項アップロード（任意）
         </label>
+
+        {/* AI Model Selection */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ ...labelStyle, marginBottom: '12px' }}>
+            使用するAIモデル
+          </label>
+          <div style={{ display: 'flex', gap: '16px' }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              padding: '12px 16px',
+              backgroundColor: selectedModel === 'claude' ? '#1e3a8a' : '#0f172a',
+              border: `1px solid ${selectedModel === 'claude' ? '#3b82f6' : '#1e293b'}`,
+              borderRadius: '8px',
+              color: '#e2e8f0',
+              fontSize: '15px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              flex: 1
+            }}>
+              <input
+                type="radio"
+                name="model"
+                value="claude"
+                checked={selectedModel === 'claude'}
+                onChange={(e) => setSelectedModel(e.target.value as 'claude' | 'gemini')}
+                style={{ marginRight: '8px', cursor: 'pointer' }}
+              />
+              <div>
+                <div style={{ fontWeight: '600' }}>Claude Sonnet 4</div>
+                <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                  高精度・約6.8円/回
+                </div>
+              </div>
+            </label>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              padding: '12px 16px',
+              backgroundColor: selectedModel === 'gemini' ? '#1e3a8a' : '#0f172a',
+              border: `1px solid ${selectedModel === 'gemini' ? '#3b82f6' : '#1e293b'}`,
+              borderRadius: '8px',
+              color: '#e2e8f0',
+              fontSize: '15px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              flex: 1
+            }}>
+              <input
+                type="radio"
+                name="model"
+                value="gemini"
+                checked={selectedModel === 'gemini'}
+                onChange={(e) => setSelectedModel(e.target.value as 'claude' | 'gemini')}
+                style={{ marginRight: '8px', cursor: 'pointer' }}
+              />
+              <div>
+                <div style={{ fontWeight: '600' }}>Gemini 2.5 Flash</div>
+                <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                  高速・約0.8円/回
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
         <input
           type="file"
           accept=".pdf"
