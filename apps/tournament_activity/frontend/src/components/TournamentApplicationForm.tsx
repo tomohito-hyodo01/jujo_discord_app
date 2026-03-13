@@ -9,7 +9,10 @@ interface TournamentApplicationFormProps {
 }
 
 export default function TournamentApplicationForm({ auth, wardId, onCompletedChange }: TournamentApplicationFormProps) {
-  const [tournaments, setTournaments] = useState<any[]>([])
+  const [allTournaments, setAllTournaments] = useState<any[]>([])  // 全大会データ
+  const [tournaments, setTournaments] = useState<any[]>([])  // フィルタ後の大会データ
+  const [allWards, setAllWards] = useState<any[]>([])  // 地域マスタデータ
+  const [availableWards, setAvailableWards] = useState<{ id: number; name: string }[]>([])  // 利用可能な地域リスト
   const [players, setPlayers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -20,6 +23,7 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [formData, setFormData] = useState({
     discordId: '',
+    wardId: wardId || '',  // URLパラメータからの初期値
     tournamentId: '',
     type: '',
     pairId: '',
@@ -30,7 +34,7 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
       try {
         setLoading(true)
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-        
+
         // 選手一覧を取得
         const playersRes = await fetch(`${apiUrl}/api/players`)
         if (!playersRes.ok) {
@@ -38,7 +42,15 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
         }
         const playersData = await playersRes.json()
         setPlayers(playersData)
-        
+
+        // 地域マスタを取得
+        const wardsRes = await fetch(`${apiUrl}/api/wards`)
+        if (!wardsRes.ok) {
+          throw new Error(`地域取得失敗: ${wardsRes.status}`)
+        }
+        const wardsData = await wardsRes.json()
+        setAllWards(wardsData)
+
         setError('')
       } catch (err: any) {
         setError(err.message || 'データの取得に失敗しました')
@@ -46,14 +58,14 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
         setLoading(false)
       }
     }
-    
+
     loadData()
   }, [])
   
   // Discord IDが設定されたら、または再読み込みトリガーで申込可能な大会を取得
   useEffect(() => {
     const loadAvailableTournaments = async () => {
-      if (!formData.discordId) return
+      if (!formData.discordId || allWards.length === 0) return
 
       try {
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -63,19 +75,36 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
         if (!tournamentsRes.ok) {
           throw new Error(`大会取得失敗: ${tournamentsRes.status}`)
         }
-        let tournamentsData = await tournamentsRes.json()
+        const tournamentsData = await tournamentsRes.json()
 
-        // wardIdが指定されている場合、registrated_wardでフィルタリング
-        if (wardId) {
-          const wardIdNumber = parseInt(wardId, 10)
+        // 全大会データを保存
+        setAllTournaments(tournamentsData)
+
+        // 申込可能な大会がある地域のみを表示
+        const uniqueWardIds = [...new Set(tournamentsData.map((t: any) => t.registrated_ward))]
+        const wardsArray = uniqueWardIds
+          .map(wardId => {
+            const ward = allWards.find((w: any) => w.ward_id === wardId)
+            return ward ? { id: ward.ward_id, name: ward.ward_name } : null
+          })
+          .filter((ward): ward is { id: number; name: string } => ward !== null)
+          .sort((a, b) => a.id - b.id)
+
+        setAvailableWards(wardsArray)
+
+        // 地域が選択されている場合はフィルタリング
+        if (formData.wardId) {
+          const wardIdNumber = parseInt(formData.wardId, 10)
           if (!isNaN(wardIdNumber)) {
-            tournamentsData = tournamentsData.filter(
+            const filtered = tournamentsData.filter(
               (tournament: any) => tournament.registrated_ward === wardIdNumber
             )
+            setTournaments(filtered)
           }
+        } else {
+          // 地域未選択の場合は空にする
+          setTournaments([])
         }
-
-        setTournaments(tournamentsData)
 
         // 選手一覧も再取得
         const playersRes = await fetch(`${apiUrl}/api/players`)
@@ -89,9 +118,57 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
     }
 
     loadAvailableTournaments()
-  }, [formData.discordId, refreshTrigger, wardId])
+  }, [formData.discordId, refreshTrigger, allWards])
+
+  // 地域選択時に大会をフィルタリング
+  useEffect(() => {
+    if (formData.wardId && allTournaments.length > 0) {
+      const wardIdNumber = parseInt(formData.wardId, 10)
+      if (!isNaN(wardIdNumber)) {
+        const filtered = allTournaments.filter(
+          (tournament: any) => tournament.registrated_ward === wardIdNumber
+        )
+        setTournaments(filtered)
+      }
+    } else {
+      setTournaments([])
+    }
+    // 地域変更時に大会選択をリセット
+    setFormData(prev => ({ ...prev, tournamentId: '', type: '' }))
+  }, [formData.wardId, allTournaments])
 
   const selectedTournament = tournaments.find(t => t.tournament_id === formData.tournamentId)
+
+  const calculateAge = (birthDate: string, referenceDate: string): number => {
+    const birth = new Date(birthDate)
+    const ref = new Date(referenceDate)
+    let age = ref.getFullYear() - birth.getFullYear()
+    const monthDiff = ref.getMonth() - birth.getMonth()
+    if (monthDiff < 0 || (monthDiff === 0 && ref.getDate() < birth.getDate())) {
+      age--
+    }
+    return age
+  }
+
+  const getFilteredPlayers = () => {
+    let filtered = players.filter(p => p.discord_id !== formData.discordId)
+
+    if (formData.type && selectedTournament) {
+      const typeValue = formData.type
+      const tournamentDate = selectedTournament.tournament_date
+
+      if ((typeValue === '35' || typeValue === '45') && tournamentDate) {
+        const minAge = parseInt(typeValue)
+        filtered = filtered.filter(p => {
+          if (!p.birth_date) return false
+          const age = calculateAge(p.birth_date, tournamentDate)
+          return age >= minAge
+        })
+      }
+    }
+
+    return filtered
+  }
   
   // Discord IDが取得できていれば自動設定
   useEffect(() => {
@@ -263,19 +340,19 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
   // 完了画面を表示
   if (isCompleted && completedData) {
     return (
-      <CompletePage 
+      <CompletePage
         tournamentName={completedData.tournamentName}
         type={completedData.type}
         pairName={completedData.pairName}
         onBackToForm={() => {
           setIsCompleted(false)
-          setFormData({ ...formData, tournamentId: '', type: '', pairId: '' })
+          setFormData({ ...formData, wardId: '', tournamentId: '', type: '', pairId: '' })
           setShowPlayerForm(false)
           setNewPlayerData(null)
-          
+
           // DBデータを再取得
           setRefreshTrigger(prev => prev + 1)
-          
+
           // 親コンポーネントに完了状態解除を通知
           if (onCompletedChange) {
             onCompletedChange(false)
@@ -301,6 +378,38 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* 地域選択 */}
+        <div>
+          <label style={labelStyle}>地域 *</label>
+          <select
+            value={formData.wardId}
+            onChange={(e) => setFormData({ ...formData, wardId: e.target.value })}
+            required
+            style={inputStyle}
+          >
+            <option value="">選択してください</option>
+            {availableWards.map(ward => (
+              <option key={ward.id} value={ward.id}>
+                {ward.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* 申込可能な大会がない場合のメッセージ */}
+        {formData.wardId && tournaments.length === 0 && (
+          <div style={{
+            padding: '12px 16px',
+            backgroundColor: '#0c1220',
+            borderRadius: '8px',
+            border: '1px solid #475569',
+            color: '#94a3b8',
+            fontSize: '14px'
+          }}>
+            現在、選択された地域で申込可能な大会はありません
+          </div>
+        )}
+
         {/* 大会選択 */}
         <div>
           <label style={labelStyle}>大会名 *</label>
@@ -308,14 +417,26 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
             value={formData.tournamentId}
             onChange={(e) => setFormData({ ...formData, tournamentId: e.target.value, type: '' })}
             required
-            style={inputStyle}
+            disabled={!formData.wardId}
+            style={{
+              ...inputStyle,
+              opacity: !formData.wardId ? 0.5 : 1,
+              cursor: !formData.wardId ? 'not-allowed' : 'pointer'
+            }}
           >
-            <option value="">選択してください</option>
-            {tournaments.map(t => (
-              <option key={t.tournament_id} value={t.tournament_id}>
-                {t.tournament_name}
-              </option>
-            ))}
+            <option value="">
+              {!formData.wardId ? '先に地域を選択してください' : '選択してください'}
+            </option>
+            {tournaments.map(t => {
+              const date = t.tournament_date ? new Date(t.tournament_date) : null
+              const dateStr = date ? `${date.getMonth() + 1}/${date.getDate()}` : ''
+              const types = Array.isArray(t.type) ? t.type.join('・') : ''
+              return (
+                <option key={t.tournament_id} value={t.tournament_id}>
+                  {t.tournament_name}（{dateStr} {types}）
+                </option>
+              )
+            })}
           </select>
         </div>
 
@@ -324,7 +445,11 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
           <label style={labelStyle}>種別 *</label>
           <select
             value={formData.type}
-            onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, type: e.target.value, pairId: '' })
+              setShowPlayerForm(false)
+              setNewPlayerData(null)
+            }}
             required
             disabled={!selectedTournament}
             style={{
@@ -359,16 +484,21 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
               }
             }}
             required={!showPlayerForm}
-            style={inputStyle}
+            disabled={!formData.type}
+            style={{
+              ...inputStyle,
+              opacity: !formData.type ? 0.5 : 1,
+              cursor: !formData.type ? 'not-allowed' : 'pointer'
+            }}
           >
-            <option value="">選択してください</option>
-            {players
-              .filter(p => p.discord_id !== formData.discordId)
-              .map(p => (
-                <option key={p.player_id} value={p.player_id}>
-                  {p.player_name}
-                </option>
-              ))}
+            <option value="">
+              {!formData.type ? '先に種別を選択してください' : '選択してください'}
+            </option>
+            {getFilteredPlayers().map(p => (
+              <option key={p.player_id} value={p.player_id}>
+                {p.player_name}
+              </option>
+            ))}
             <option value="add_player">+ 選手追加</option>
           </select>
         </div>

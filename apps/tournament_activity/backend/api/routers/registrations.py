@@ -28,11 +28,16 @@ async def create_registration(registration: RegistrationCreate):
     """新規申込を登録"""
     try:
         data = registration.model_dump()
-        result = db.client.table('tournament_registration')\
-            .insert(data)\
-            .execute()
-        
-        return result.data[0]
+        result = await db.execute_query(
+            'tournament_registration',
+            operation='insert',
+            data=data
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        return result.get('data', [{}])[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -41,12 +46,17 @@ async def create_registration(registration: RegistrationCreate):
 async def get_user_registrations(discord_id: str):
     """ユーザーの申込一覧を取得"""
     try:
-        result = db.client.table('tournament_registration')\
-            .select('*')\
-            .eq('discord_id', discord_id)\
-            .execute()
-        
-        return result.data
+        result = await db.execute_query(
+            'tournament_registration',
+            operation='select',
+            filters={'discord_id': discord_id},
+            json_fields=['pair2']
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        return result.get('data', [])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

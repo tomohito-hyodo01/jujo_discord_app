@@ -22,7 +22,7 @@ class TournamentService:
             大会リスト
         """
         result = await db.execute_query('tournament_mst', operation='select')
-        return result.data if result.data else []
+        return result['data'] if result['data'] else []
     
     @staticmethod
     async def get_tournament_by_id(tournament_id: str) -> Optional[Dict[str, Any]]:
@@ -40,7 +40,7 @@ class TournamentService:
             operation='select',
             filters={'tournament_id': tournament_id}
         )
-        return result.data[0] if result.data else None
+        return result['data'][0] if result['data'] else None
     
     @staticmethod
     async def get_tournament_types(tournament_id: str) -> List[str]:

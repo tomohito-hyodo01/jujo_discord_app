@@ -29,28 +29,49 @@ async def get_available_tournaments(discord_id: str):
     """
     try:
         # discord_idからplayer_idを取得
-        player_result = db.client.table('player_mst')\
-            .select('player_id')\
-            .eq('discord_id', discord_id)\
-            .execute()
-        
+        player_result = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'discord_id': discord_id},
+            columns='player_id'
+        )
+
+        if player_result.get('error'):
+            raise HTTPException(status_code=500, detail=player_result['error'])
+
         player_id = None
-        if player_result.data and len(player_result.data) > 0:
-            player_id = player_result.data[0]['player_id']
-        
+        player_data = player_result.get('data', [])
+        if player_data:
+            player_id = player_data[0]['player_id']
+
         # 全大会を取得
-        tournaments_result = db.client.table('tournament_mst').select('*').execute()
-        all_tournaments = tournaments_result.data if tournaments_result.data else []
-        
+        tournaments_result = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            json_fields=['type']
+        )
+
+        if tournaments_result.get('error'):
+            raise HTTPException(status_code=500, detail=tournaments_result['error'])
+
+        all_tournaments = tournaments_result.get('data', [])
+
         # 全ての申込データを取得
-        all_registrations_result = db.client.table('tournament_registration')\
-            .select('tournament_id, discord_id, pair1, pair2')\
-            .execute()
+        all_registrations_result = await db.execute_query(
+            'tournament_registration',
+            operation='select',
+            columns='tournament_id, discord_id, pair1, pair2',
+            json_fields=['pair2']
+        )
+
+        if all_registrations_result.get('error'):
+            raise HTTPException(status_code=500, detail=all_registrations_result['error'])
         
         # 除外すべき大会IDを収集
         excluded_tournament_ids = set()
-        if all_registrations_result.data:
-            for reg in all_registrations_result.data:
+        all_registrations = all_registrations_result.get('data', [])
+        if all_registrations:
+            for reg in all_registrations:
                 # 条件1: 自分が申し込んだ大会
                 if reg['discord_id'] == discord_id:
                     excluded_tournament_ids.add(reg['tournament_id'])

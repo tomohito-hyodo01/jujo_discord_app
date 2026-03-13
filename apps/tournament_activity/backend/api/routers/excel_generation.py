@@ -102,15 +102,21 @@ async def generate_excel(request: ExcelGenerationRequest):
     """
     try:
         # 1. 大会情報を取得
-        tournament_result = db.client.table('tournament_mst')\
-            .select('*')\
-            .eq('tournament_id', request.tournament_id)\
-            .execute()
+        tournament_result = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': request.tournament_id},
+            json_fields=['type']
+        )
 
-        if not tournament_result.data:
+        if tournament_result.get('error'):
+            raise HTTPException(status_code=500, detail=tournament_result['error'])
+
+        tournament_data = tournament_result.get('data', [])
+        if not tournament_data:
             raise HTTPException(status_code=404, detail=f"Tournament not found: {request.tournament_id}")
 
-        tournament = tournament_result.data[0]
+        tournament = tournament_data[0]
         ward_id = tournament.get('registrated_ward')
         tournament_name = tournament.get('tournament_name')
 
@@ -118,12 +124,18 @@ async def generate_excel(request: ExcelGenerationRequest):
             raise HTTPException(status_code=400, detail="Tournament does not have registrated_ward")
 
         # 2. 申込データを取得
-        registration_result = db.client.table('tournament_registration')\
-            .select('*')\
-            .eq('tournament_id', request.tournament_id)\
-            .execute()
+        registration_result = await db.execute_query(
+            'tournament_registration',
+            operation='select',
+            filters={'tournament_id': request.tournament_id},
+            json_fields=['pair2']
+        )
 
-        if not registration_result.data:
+        if registration_result.get('error'):
+            raise HTTPException(status_code=500, detail=registration_result['error'])
+
+        registrations = registration_result.get('data', [])
+        if not registrations:
             return ExcelGenerationResponse(
                 success=False,
                 tournament_id=request.tournament_id,
@@ -131,22 +143,25 @@ async def generate_excel(request: ExcelGenerationRequest):
                 error="No registrations found for this tournament"
             )
 
-        registrations = registration_result.data
-
         # 3. 選手情報を取得して申込データに結合
         enriched_registrations = []
 
         for reg in registrations:
             # 1行目: discord_idと一致する選手（申込者本人）
-            applicant_result = db.client.table('player_mst')\
-                .select('*')\
-                .eq('discord_id', reg['discord_id'])\
-                .execute()
+            applicant_result = await db.execute_query(
+                'player_mst',
+                operation='select',
+                filters={'discord_id': reg['discord_id']}
+            )
 
-            if not applicant_result.data:
+            if applicant_result.get('error'):
                 continue
 
-            applicant_player = applicant_result.data[0]
+            applicant_data = applicant_result.get('data', [])
+            if not applicant_data:
+                continue
+
+            applicant_player = applicant_data[0]
             applicant = {
                 'player_id': applicant_player.get('player_id'),
                 'player_name': applicant_player.get('player_name'),
@@ -163,13 +178,16 @@ async def generate_excel(request: ExcelGenerationRequest):
             # 2行目: pair1と一致する選手（ペア相手）
             partner = None
             if reg.get('pair1'):
-                partner_result = db.client.table('player_mst')\
-                    .select('*')\
-                    .eq('player_id', reg['pair1'])\
-                    .execute()
+                partner_result = await db.execute_query(
+                    'player_mst',
+                    operation='select',
+                    filters={'player_id': reg['pair1']}
+                )
 
-                if partner_result.data:
-                    partner_player = partner_result.data[0]
+                if not partner_result.get('error'):
+                    partner_data = partner_result.get('data', [])
+                    if partner_data:
+                        partner_player = partner_data[0]
                     partner = {
                         'player_id': partner_player.get('player_id'),
                         'player_name': partner_player.get('player_name'),
@@ -247,35 +265,49 @@ async def test_tournament_data(tournament_id: str):
     """
     try:
         # 大会情報
-        tournament_result = db.client.table('tournament_mst')\
-            .select('*')\
-            .eq('tournament_id', tournament_id)\
-            .execute()
+        tournament_result = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': tournament_id},
+            json_fields=['type']
+        )
 
-        if not tournament_result.data:
+        if tournament_result.get('error'):
+            raise HTTPException(status_code=500, detail=tournament_result['error'])
+
+        tournament_data = tournament_result.get('data', [])
+        if not tournament_data:
             raise HTTPException(status_code=404, detail="Tournament not found")
 
-        tournament = tournament_result.data[0]
+        tournament = tournament_data[0]
 
         # 申込データ
-        registration_result = db.client.table('tournament_registration')\
-            .select('*')\
-            .eq('tournament_id', tournament_id)\
-            .execute()
+        registration_result = await db.execute_query(
+            'tournament_registration',
+            operation='select',
+            filters={'tournament_id': tournament_id},
+            json_fields=['pair2']
+        )
 
-        registrations = registration_result.data
+        if registration_result.get('error'):
+            raise HTTPException(status_code=500, detail=registration_result['error'])
+
+        registrations = registration_result.get('data', [])
 
         # 選手情報を付与
         enriched_registrations = []
         for reg in registrations:
-            player_result = db.client.table('player_mst')\
-                .select('*')\
-                .eq('player_id', reg['pair1'])\
-                .execute()
+            player_result = await db.execute_query(
+                'player_mst',
+                operation='select',
+                filters={'player_id': reg['pair1']}
+            )
 
-            if player_result.data:
-                enriched_reg = {**reg, 'player1_info': player_result.data[0]}
-                enriched_registrations.append(enriched_reg)
+            if not player_result.get('error'):
+                player_data = player_result.get('data', [])
+                if player_data:
+                    enriched_reg = {**reg, 'player1_info': player_data[0]}
+                    enriched_registrations.append(enriched_reg)
 
         return {
             "tournament": tournament,
@@ -305,12 +337,17 @@ async def process_tournament_deadlines():
         tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
 
         # 明日締切の大会を検索
-        tournaments_result = db.client.table('tournament_mst')\
-            .select('*')\
-            .eq('deadline_date', tomorrow)\
-            .execute()
+        tournaments_result = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'deadline_date': tomorrow},
+            json_fields=['type']
+        )
 
-        tournaments = tournaments_result.data
+        if tournaments_result.get('error'):
+            raise HTTPException(status_code=500, detail=tournaments_result['error'])
+
+        tournaments = tournaments_result.get('data', [])
 
         if not tournaments:
             return {
@@ -331,12 +368,14 @@ async def process_tournament_deadlines():
 
             try:
                 # 申込データを取得
-                registration_result = db.client.table('tournament_registration')\
-                    .select('*')\
-                    .eq('tournament_id', tournament_id)\
-                    .execute()
+                registration_result = await db.execute_query(
+                    'tournament_registration',
+                    operation='select',
+                    filters={'tournament_id': tournament_id},
+                    json_fields=['pair2']
+                )
 
-                if not registration_result.data:
+                if registration_result.get('error') or not registration_result.get('data'):
                     results.append({
                         "tournament_id": tournament_id,
                         "tournament_name": tournament_name,
@@ -345,21 +384,26 @@ async def process_tournament_deadlines():
                     })
                     continue
 
-                registrations = registration_result.data
+                registrations = registration_result.get('data', [])
 
                 # 選手情報を取得して申込データに結合
                 enriched_registrations = []
                 for reg in registrations:
                     # 1行目: discord_idと一致する選手（申込者本人）
-                    applicant_result = db.client.table('player_mst')\
-                        .select('*')\
-                        .eq('discord_id', reg['discord_id'])\
-                        .execute()
+                    applicant_result = await db.execute_query(
+                        'player_mst',
+                        operation='select',
+                        filters={'discord_id': reg['discord_id']}
+                    )
 
-                    if not applicant_result.data:
+                    if applicant_result.get('error'):
                         continue
 
-                    applicant_player = applicant_result.data[0]
+                    applicant_data = applicant_result.get('data', [])
+                    if not applicant_data:
+                        continue
+
+                    applicant_player = applicant_data[0]
 
                     # applicantオブジェクトを作成
                     applicant = {
@@ -378,13 +422,16 @@ async def process_tournament_deadlines():
                     # 2行目: pair1と一致する選手（ペア相手）
                     partner = None
                     if reg.get('pair1'):
-                        partner_result = db.client.table('player_mst')\
-                            .select('*')\
-                            .eq('player_id', reg['pair1'])\
-                            .execute()
+                        partner_result = await db.execute_query(
+                            'player_mst',
+                            operation='select',
+                            filters={'player_id': reg['pair1']}
+                        )
 
-                        if partner_result.data:
-                            partner_player = partner_result.data[0]
+                        if not partner_result.get('error'):
+                            partner_data = partner_result.get('data', [])
+                            if partner_data:
+                                partner_player = partner_data[0]
                             partner = {
                                 'player_id': partner_player.get('player_id'),
                                 'player_name': partner_player.get('player_name'),

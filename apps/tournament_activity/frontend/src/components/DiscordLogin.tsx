@@ -5,14 +5,14 @@ export default function DiscordLogin() {
 
   const handleLogin = () => {
     setLoading(true)
-    
+
     // Discord OAuth2認証URL
     const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID || '1427563635773018182'
-    const redirectUri = encodeURIComponent(window.location.origin + '/auth/callback')
+    const redirectUri = encodeURIComponent(window.location.origin + '/')
     const scope = 'identify'
-    
+
     const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}`
-    
+
     // 認証画面を開く
     window.location.href = authUrl
   }

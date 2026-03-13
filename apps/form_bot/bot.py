@@ -52,7 +52,15 @@ async def on_ready():
     print(f'✅ {bot.user.name} (ID: {bot.user.id}) が起動しました')
     print(f'📡 接続中のサーバー数: {len(bot.guilds)}')
     print('-' * 50)
-    
+
+    # データベース初期化（MariaDB）
+    try:
+        from services.database import db
+        await db.initialize()
+        print('✅ データベース接続を初期化しました')
+    except Exception as e:
+        print(f'❌ データベース初期化エラー: {e}')
+
     # Cogsを読み込む
     await load_cogs()
     

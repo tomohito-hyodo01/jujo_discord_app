@@ -94,28 +94,16 @@ class PDFParserService:
 
     async def _parse_with_gemini(self, pdf_content: bytes) -> Dict[str, Any]:
         """Gemini APIを使用してPDF解析"""
-        import io
-        from PIL import Image
-        import fitz  # PyMuPDF
-
         prompt = self._get_extraction_prompt()
 
-        # PDFを画像に変換（GeminiはPDFを直接サポートしていないため）
-        pdf_document = fitz.open(stream=pdf_content, filetype="pdf")
-        images = []
-
-        for page_num in range(len(pdf_document)):
-            page = pdf_document[page_num]
-            # 高解像度で画像化（DPI=300）
-            pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
-            img_data = pix.tobytes("png")
-            img = Image.open(io.BytesIO(img_data))
-            images.append(img)
-
-        pdf_document.close()
-
-        # Geminiに画像とプロンプトを送信
-        response = self.client.generate_content([prompt] + images)
+        # PDFを直接Geminiに送信
+        response = self.client.generate_content([
+            {
+                "mime_type": "application/pdf",
+                "data": pdf_content
+            },
+            prompt
+        ])
         response_text = response.text.strip()
 
         return self._extract_json_from_response(response_text)
@@ -124,7 +112,19 @@ class PDFParserService:
         """PDF情報抽出用のプロンプトを取得"""
         return """このPDFは大会要項です。以下の情報を抽出してJSON形式で返してください。
 
-必須フィールド:
+**重要**: 種別によって開催日が異なる場合は、開催日ごとに別のレコードとして返してください。
+その場合、JSON配列として複数のオブジェクトを返してください。
+
+例: 一般が9/13、35・45が9/6、ミックスが9/20の場合:
+[
+  {"tournament_name": "大会名", "tournament_date": "2026-09-06", "type": ["35", "45"], ...},
+  {"tournament_name": "大会名", "tournament_date": "2026-09-13", "type": ["一般"], ...},
+  {"tournament_name": "大会名", "tournament_date": "2026-09-20", "type": ["ミックス"], ...}
+]
+
+全種別が同じ日程の場合は、単一オブジェクトで返してください（配列不要）。
+
+各レコードの必須フィールド:
 {
   "tournament_id": "大会名と日付からMD5ハッシュで自動生成（例: tournament_a1b2c3d4）",
   "tournament_name": "大会名（完全な名称）",
@@ -132,8 +132,8 @@ class PDFParserService:
   "deadline_date": "申込締切日（YYYY-MM-DD形式、例: 2024-03-15）",
   "tournament_date": "大会開催日（YYYY-MM-DD形式、例: 2024-03-20）",
   "classification": 競技形式（個人戦=0, 団体戦=1）,
-  "mix_flg": ミックスダブルスか（true/false）,
-  "type": ["一般", "35", "45"]  // 該当する年齢種別の配列（一般、35、45のみ）
+  "mix_flg": false,
+  "type": ["一般", "35", "ミックス"]  // 該当する種別の配列
 }
 
 主催区のIDマッピング:
@@ -148,17 +148,45 @@ class PDFParserService:
 
 重要な注意事項:
 1. 日付は必ずYYYY-MM-DD形式に変換してください（和暦の場合は西暦に変換）
-2. tournament_idは大会名と日付からMD5ハッシュ8文字で生成し、"tournament_"プレフィックスを付けてください
+2. tournament_idは大会名と日付からMD5ハッシュ8文字で生成し、"tournament_"プレフィックスを付けてください。日付ごとに異なるIDを生成してください
 3. 主催が「東京都」「関東」「東日本」「全日本」などの広域の場合は registrated_ward = 99 を設定してください
 4. 主催区が上記リストにない場合（例：世田谷区、練馬区など）は registrated_ward = -1 を設定してください
-5. **重要**: 種別(type)には「一般」「35」「45」のみを抽出してください。「シニア」「55」「60」「65」「70」などは無視してください
-6. **重要**: tournament_date（大会開催日）は「一般」または「35」の種別の日付を選択してください。「シニア」「55以上」の種別の日付は無視してください
+5. **重要**: 種別(type)には「一般」「35」「45」「ミックス」のみを抽出してください。「シニア」「55」「60」「65」「70」「シニアミックス」などは無視してください
+6. mix_flgは常にfalseにしてください（ミックスはtype配列で管理します）
 7. JSONのみを返し、説明文やマークダウンは不要です
 
 JSON:"""
 
-    def _extract_json_from_response(self, response_text: str) -> Dict[str, Any]:
-        """AIレスポンスからJSONを抽出してパース"""
+    def _validate_tournament(self, tournament_data: Dict[str, Any]) -> Dict[str, Any]:
+        """個別の大会データを検証・補正"""
+        import hashlib
+
+        # 主催区の検証
+        allowed_ward_ids = {1, 13, 17, 18, 22, 23, 99}
+        ward_id = tournament_data.get("registrated_ward", 0)
+
+        if ward_id == -1 or (ward_id != 0 and ward_id not in allowed_ward_ids):
+            raise ValueError("INVALID_WARD")
+
+        # tournament_idの生成
+        if not tournament_data.get("tournament_id") or tournament_data["tournament_id"] == "":
+            id_source = f"{tournament_data.get('tournament_name', 'unknown')}_{tournament_data.get('tournament_date', '')}"
+            hash_value = hashlib.md5(id_source.encode()).hexdigest()[:8]
+            tournament_data["tournament_id"] = f"tournament_{hash_value}"
+
+        # 種別のフィルタリング：一般、35、45、ミックスのみを許可
+        if "type" in tournament_data and isinstance(tournament_data["type"], list):
+            allowed_types = {"一般", "35", "45", "ミックス"}
+            filtered_types = [
+                t for t in tournament_data["type"]
+                if t in allowed_types or (t.isdigit() and int(t) < 55)
+            ]
+            tournament_data["type"] = filtered_types
+
+        return tournament_data
+
+    def _extract_json_from_response(self, response_text: str):
+        """AIレスポンスからJSONを抽出してパース。単一または配列を返す"""
         # マークダウンコードブロックを削除（もしあれば）
         if response_text.startswith('```'):
             response_text = response_text.split('```')[1]
@@ -167,31 +195,11 @@ JSON:"""
             response_text = response_text.strip()
 
         # JSONをパース
-        tournament_data = json.loads(response_text)
+        parsed = json.loads(response_text)
 
-        # 主催区の検証
-        allowed_ward_ids = {1, 13, 17, 18, 22, 23, 99}  # 中央区、江東区、北区、荒川区、墨田区、江戸川区、広域
-        ward_id = tournament_data.get("registrated_ward", 0)
+        # 配列の場合は各要素を検証
+        if isinstance(parsed, list):
+            return [self._validate_tournament(item) for item in parsed]
 
-        if ward_id == -1 or (ward_id != 0 and ward_id not in allowed_ward_ids):
-            # 対象外の区が検出された場合
-            raise ValueError("INVALID_WARD")
-
-        # tournament_idの生成（AIが生成していない場合）
-        if not tournament_data.get("tournament_id") or tournament_data["tournament_id"] == "":
-            import hashlib
-            id_source = f"{tournament_data.get('tournament_name', 'unknown')}_{tournament_data.get('tournament_date', '')}"
-            hash_value = hashlib.md5(id_source.encode()).hexdigest()[:8]
-            tournament_data["tournament_id"] = f"tournament_{hash_value}"
-
-        # 種別のフィルタリング：一般、35、45のみを許可
-        if "type" in tournament_data and isinstance(tournament_data["type"], list):
-            allowed_types = {"一般", "35", "45"}
-            # シニア、55以上の種別を除外
-            filtered_types = [
-                t for t in tournament_data["type"]
-                if t in allowed_types or (t.isdigit() and int(t) < 55)
-            ]
-            tournament_data["type"] = filtered_types
-
-        return tournament_data
+        # 単一オブジェクトの場合
+        return self._validate_tournament(parsed)

@@ -1,0 +1,44 @@
+name: Deploy Frontend to X-Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/tournament_activity/frontend/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/tournament_activity/frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.XSERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p 10022 -H sv13283.xserver.jp >> ~/.ssh/known_hosts
+
+      - name: Deploy to X-Server
+        run: |
+          scp -i ~/.ssh/id_rsa -P 10022 -o StrictHostKeyChecking=no -r dist/* fromround@sv13283.xserver.jp:~/jujo-softtennis.com/public_html/tournament.jujo-softtennis.com/
+
+      - name: Deployment complete
+        run: echo "✅ Frontend deployment to X-Server completed successfully"

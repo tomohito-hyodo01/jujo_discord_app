@@ -22,7 +22,7 @@ class PlayerService:
             選手リスト
         """
         result = await db.execute_query('player_mst', operation='select')
-        return result.data if result.data else []
+        return result['data'] if result['data'] else []
     
     @staticmethod
     async def get_player_by_discord_id(discord_id: str) -> Optional[Dict[str, Any]]:
@@ -40,8 +40,8 @@ class PlayerService:
             operation='select',
             filters={'discord_id': discord_id}
         )
-        return result.data[0] if result.data else None
-    
+        return result['data'][0] if result['data'] else None
+
     @staticmethod
     async def get_player_by_id(player_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -58,8 +58,8 @@ class PlayerService:
             operation='select',
             filters={'player_id': player_id}
         )
-        return result.data[0] if result.data else None
-    
+        return result['data'][0] if result['data'] else None
+
     @staticmethod
     async def create_player(player_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -76,8 +76,8 @@ class PlayerService:
             operation='insert',
             data=player_data
         )
-        return result.data[0] if result.data else None
-    
+        return result['data'][0] if result['data'] else None
+
     @staticmethod
     async def update_player(discord_id: str, player_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -96,5 +96,5 @@ class PlayerService:
             filters={'discord_id': discord_id},
             data=player_data
         )
-        return result.data[0] if result.data else None
+        return result['data'][0] if result['data'] else None
 

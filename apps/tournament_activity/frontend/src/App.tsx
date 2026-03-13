@@ -6,8 +6,17 @@ import DiscordLogin from './components/DiscordLogin'
 import AuthCallback from './components/AuthCallback'
 
 function App() {
+  // Hash Routingを使用（サーバー設定不要で確実に動作）
+  const hash = window.location.hash.replace('#', '')
+
+  // URLパラメータも後方互換のために残す
+  const urlParams = new URLSearchParams(window.location.search)
+  const viewParam = urlParams.get('view')
+
   // Check if this is the tournament registration page (no auth required)
-  const isTournamentRegisterPage = window.location.pathname === '/tournament-register'
+  const isTournamentRegisterPage = hash === '/tournament-register' ||
+                                   window.location.pathname === '/tournament-register' ||
+                                   viewParam === 'tournament-register'
 
   // If tournament registration page, render it directly without auth
   if (isTournamentRegisterPage) {
@@ -46,9 +55,8 @@ function App() {
   const DEV_DISCORD_ID = '1427112485047242945'
   const isLocalDev = import.meta.env.DEV || window.location.hostname === 'localhost'
 
-  // URLパラメータからビューとセッションID、認証コード、ward_idを取得
-  const urlParams = new URLSearchParams(window.location.search)
-  const initialView = urlParams.get('view') === 'tournament' ? 'tournament' : 'player'
+  // URLパラメータとハッシュからビューとセッションID、認証コード、ward_idを取得
+  const initialView = (hash === '/tournament' || viewParam === 'tournament') ? 'tournament' : 'player'
   const sessionId = urlParams.get('session')
   const authCode = urlParams.get('code')
   const wardId = urlParams.get('ward')  // ward_idを取得

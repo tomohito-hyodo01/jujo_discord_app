@@ -25,7 +25,10 @@ function TournamentRegistrationForm() {
   const [isUploading, setIsUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
-  const [selectedModel, setSelectedModel] = useState<'claude' | 'gemini'>('claude')
+  const [pendingTournaments, setPendingTournaments] = useState<TournamentData[]>([])
+  const [registeredTournament, setRegisteredTournament] = useState<{ name: string, date: string } | null>(null)
+  const [registeredCount, setRegisteredCount] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -39,7 +42,7 @@ function TournamentRegistrationForm() {
     { id: 99, name: '広域' }
   ]
 
-  const typeOptions = ['一般', '35', '45', '55', '60', '65', '70']
+  const typeOptions = ['一般', '35', '45', '55', '60', '65', '70', 'ミックス']
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target as HTMLInputElement
@@ -72,12 +75,16 @@ function TournamentRegistrationForm() {
     setMessage(null)
 
     try {
-      const uploadFormData = new FormData()
-      uploadFormData.append('file', file)
+      // PDFをBase64エンコードしてJSON送信（X-Server WAF回避）
+      const arrayBuffer = await file.arrayBuffer()
+      const base64String = btoa(
+        new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      )
 
-      const response = await fetch(`${apiUrl}/api/tournaments/parse-pdf?model=${selectedModel}`, {
+      const response = await fetch(`${apiUrl}/api/tournaments/parse-pdf-base64`, {
         method: 'POST',
-        body: uploadFormData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_base64: base64String, model: 'gemini' })
       })
 
       if (!response.ok) {
@@ -88,14 +95,26 @@ function TournamentRegistrationForm() {
       const result = await response.json()
 
       if (result.success && result.data) {
-        setFormData(prev => ({
-          ...prev,
-          ...result.data
-        }))
-        setMessage({
-          type: 'success',
-          text: `PDFから情報を抽出しました（使用モデル: ${result.model_used === 'claude' ? 'Claude Sonnet 4' : 'Gemini 2.5 Flash'}）`
-        })
+        if (Array.isArray(result.data)) {
+          const tournaments = result.data as TournamentData[]
+          setFormData(prev => ({ ...prev, ...tournaments[0] }))
+          setPendingTournaments(tournaments.slice(1))
+          setTotalCount(tournaments.length)
+          setRegisteredCount(0)
+          setMessage({
+            type: 'success',
+            text: `PDFから${tournaments.length}件の大会情報を抽出しました（1/${tournaments.length}件目を表示中）`
+          })
+        } else {
+          setFormData(prev => ({ ...prev, ...result.data }))
+          setPendingTournaments([])
+          setTotalCount(1)
+          setRegisteredCount(0)
+          setMessage({
+            type: 'success',
+            text: 'PDFから情報を抽出しました'
+          })
+        }
       }
     } catch (error) {
       console.error('PDF upload error:', error)
@@ -127,8 +146,11 @@ function TournamentRegistrationForm() {
       const result = await response.json()
 
       if (result.success) {
-        setMessage({ type: 'success', text: result.message })
-        // フォームをリセット
+        setRegisteredCount(prev => prev + 1)
+        setRegisteredTournament({
+          name: formData.tournament_name,
+          date: formData.tournament_date
+        })
         setFormData({
           tournament_id: '',
           tournament_name: '',
@@ -179,6 +201,80 @@ function TournamentRegistrationForm() {
     fontWeight: '600',
     cursor: 'pointer',
     transition: 'all 0.2s'
+  }
+
+  const handleNextTournament = () => {
+    if (pendingTournaments.length > 0) {
+      const next = pendingTournaments[0]
+      setPendingTournaments(pendingTournaments.slice(1))
+      setFormData(prev => ({ ...prev, ...next }))
+    }
+    setRegisteredTournament(null)
+    setMessage(null)
+  }
+
+  const handleNewRegistration = () => {
+    setRegisteredTournament(null)
+    setPendingTournaments([])
+    setRegisteredCount(0)
+    setTotalCount(0)
+    setMessage(null)
+    setFormData({
+      tournament_id: '',
+      tournament_name: '',
+      registrated_ward: 0,
+      deadline_date: '',
+      tournament_date: '',
+      classification: 0,
+      mix_flg: false,
+      type: []
+    })
+  }
+
+  if (registeredTournament) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0' }}>
+        <div style={{
+          width: '80px',
+          height: '80px',
+          margin: '0 auto 24px',
+          backgroundColor: '#064e3b',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h2 style={{ fontSize: '24px', fontWeight: '600', color: '#e2e8f0', marginBottom: '12px' }}>
+          登録完了{totalCount > 1 && `（${registeredCount}/${totalCount}件）`}
+        </h2>
+        <p style={{ color: '#94a3b8', fontSize: '16px', marginBottom: '8px' }}>
+          {registeredTournament.name}
+        </p>
+        <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '40px' }}>
+          開催日: {registeredTournament.date}
+        </p>
+
+        {pendingTournaments.length > 0 ? (
+          <button
+            onClick={handleNextTournament}
+            style={buttonStyle}
+          >
+            次へ
+          </button>
+        ) : (
+          <button
+            onClick={handleNewRegistration}
+            style={buttonStyle}
+          >
+            新しい大会を登録
+          </button>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -252,88 +348,25 @@ function TournamentRegistrationForm() {
         </div>
       )}
 
-      {/* PDF Upload Section */}
-      <div style={{ marginBottom: '32px' }}>
-        <label style={labelStyle}>
-          PDF要項アップロード（任意）
-        </label>
-
-        {/* AI Model Selection */}
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ ...labelStyle, marginBottom: '12px' }}>
-            使用するAIモデル
+      {/* PDF Upload Section - PDF解析からの登録フロー中は非表示 */}
+      {registeredCount === 0 && pendingTournaments.length === 0 && (
+        <div style={{ marginBottom: '32px' }}>
+          <label style={labelStyle}>
+            PDF要項アップロード（任意）
           </label>
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              padding: '12px 16px',
-              backgroundColor: selectedModel === 'claude' ? '#1e3a8a' : '#0f172a',
-              border: `1px solid ${selectedModel === 'claude' ? '#3b82f6' : '#1e293b'}`,
-              borderRadius: '8px',
-              color: '#e2e8f0',
-              fontSize: '15px',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              flex: 1
-            }}>
-              <input
-                type="radio"
-                name="model"
-                value="claude"
-                checked={selectedModel === 'claude'}
-                onChange={(e) => setSelectedModel(e.target.value as 'claude' | 'gemini')}
-                style={{ marginRight: '8px', cursor: 'pointer' }}
-              />
-              <div>
-                <div style={{ fontWeight: '600' }}>Claude Sonnet 4</div>
-                <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-                  高精度・約6.8円/回
-                </div>
-              </div>
-            </label>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              padding: '12px 16px',
-              backgroundColor: selectedModel === 'gemini' ? '#1e3a8a' : '#0f172a',
-              border: `1px solid ${selectedModel === 'gemini' ? '#3b82f6' : '#1e293b'}`,
-              borderRadius: '8px',
-              color: '#e2e8f0',
-              fontSize: '15px',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              flex: 1
-            }}>
-              <input
-                type="radio"
-                name="model"
-                value="gemini"
-                checked={selectedModel === 'gemini'}
-                onChange={(e) => setSelectedModel(e.target.value as 'claude' | 'gemini')}
-                style={{ marginRight: '8px', cursor: 'pointer' }}
-              />
-              <div>
-                <div style={{ fontWeight: '600' }}>Gemini 2.5 Flash</div>
-                <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-                  高速・約0.8円/回
-                </div>
-              </div>
-            </label>
-          </div>
-        </div>
 
-        <input
-          type="file"
-          accept=".pdf"
-          onChange={handlePdfUpload}
-          disabled={isUploading}
-          style={{
-            ...inputStyle,
-            padding: '12px'
-          }}
-        />
-      </div>
+          <input
+            type="file"
+            accept=".pdf"
+            onChange={handlePdfUpload}
+            disabled={isUploading}
+            style={{
+              ...inputStyle,
+              padding: '12px'
+            }}
+          />
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         {/* Tournament Name */}
@@ -420,8 +453,8 @@ function TournamentRegistrationForm() {
           </select>
         </div>
 
-        {/* Mix Flag */}
-        <div style={{ marginBottom: '24px' }}>
+        {/* Mix Flag (deprecated - now handled via type array) */}
+        <div style={{ marginBottom: '24px', display: 'none' }}>
           <label style={{
             display: 'flex',
             alignItems: 'center',

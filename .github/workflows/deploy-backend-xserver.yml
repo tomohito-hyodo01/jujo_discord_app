@@ -1,0 +1,146 @@
+name: Deploy Backend & Bot to X-Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/tournament_activity/backend/**'
+      - 'apps/form_bot/**'
+  workflow_dispatch:
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend API
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.XSERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p 10022 -H sv13283.xserver.jp >> ~/.ssh/known_hosts
+
+      - name: Deploy Backend to X-Server
+        run: |
+          # バックエンドコードをアップロード
+          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no" \
+            --exclude '__pycache__' \
+            --exclude '.env' \
+            --exclude 'venv' \
+            --exclude '*.pyc' \
+            --exclude 'fly.toml' \
+            --exclude 'Dockerfile' \
+            apps/tournament_activity/backend/ \
+            fromround@sv13283.xserver.jp:~/api.jujo-softtennis.com/backend/
+
+          # 依存関係のインストールとプロセス再起動
+          ssh -i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no fromround@sv13283.xserver.jp << 'EOF'
+            cd ~/api.jujo-softtennis.com/backend
+
+            # virtualenvが無ければ作成
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+
+            # 既存プロセスを停止
+            pkill -f "uvicorn api.main:app" || true
+            sleep 2
+
+            # .env.xserverを.envとしてコピー（初回のみ）
+            if [ ! -f ".env" ] && [ -f ".env.xserver" ]; then
+              cp .env.xserver .env
+            fi
+
+            # バックグラウンドで起動
+            nohup venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+
+            sleep 3
+            if pgrep -f "uvicorn api.main:app" > /dev/null; then
+              echo "✅ Backend API started successfully"
+            else
+              echo "❌ Backend API failed to start"
+              cat uvicorn.log
+              exit 1
+            fi
+          EOF
+
+      - name: Verify Backend
+        run: |
+          sleep 5
+          response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://api.jujo-softtennis.com/)
+          if [ "$response" -eq 200 ]; then
+            echo "✅ Backend API is running"
+          else
+            echo "⚠️ Backend returned HTTP $response"
+          fi
+
+  deploy-bot:
+    name: Deploy Discord Bot
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.XSERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p 10022 -H sv13283.xserver.jp >> ~/.ssh/known_hosts
+
+      - name: Deploy Bot to X-Server
+        run: |
+          # Botコードをアップロード
+          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no" \
+            --exclude '__pycache__' \
+            --exclude '.env' \
+            --exclude 'venv' \
+            --exclude '*.pyc' \
+            --exclude 'fly.toml' \
+            --exclude 'Dockerfile' \
+            apps/form_bot/ \
+            fromround@sv13283.xserver.jp:~/api.jujo-softtennis.com/form_bot/
+
+          # 依存関係のインストールとプロセス再起動
+          ssh -i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no fromround@sv13283.xserver.jp << 'EOF'
+            cd ~/api.jujo-softtennis.com/form_bot
+
+            # virtualenvが無ければ作成
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+
+            # 既存プロセスを停止
+            pkill -f "python3 bot.py" || true
+            pkill -f "python bot.py" || true
+            sleep 2
+
+            # .env.xserverを.envとしてコピー（初回のみ）
+            if [ ! -f ".env" ] && [ -f ".env.xserver" ]; then
+              cp .env.xserver .env
+            fi
+
+            # バックグラウンドで起動
+            nohup venv/bin/python bot.py > bot.log 2>&1 &
+
+            sleep 5
+            if pgrep -f "python.*bot.py" > /dev/null; then
+              echo "✅ Discord Bot started successfully"
+            else
+              echo "❌ Discord Bot failed to start"
+              cat bot.log
+              exit 1
+            fi
+          EOF

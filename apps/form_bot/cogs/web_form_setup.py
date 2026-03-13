@@ -43,12 +43,12 @@ class WebFormSetupCog(commands.Cog):
         channel_id = interaction.channel.id
         ward_id = self.CHANNEL_WARD_MAPPING.get(channel_id, 0)
 
-        # URLパラメータを構築
+        # URLパラメータを構築（Hash Routing使用）
         if ward_id > 0:
-            url = f'{form_url}?view=tournament&ward={ward_id}'
+            url = f'{form_url}#/tournament?ward={ward_id}'
             ward_info = f'（対象区: ward_id={ward_id}）'
         else:
-            url = f'{form_url}?view=tournament'
+            url = f'{form_url}#/tournament'
             ward_info = '（全区対象）'
 
         # Embed

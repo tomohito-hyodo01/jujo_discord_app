@@ -30,19 +30,27 @@ async def create_session(session: SessionCreate):
     """
     session_id = str(uuid.uuid4())
     
-    # Supabaseに保存
+    # MariaDBに保存
     try:
-        # セッション用テーブルがない場合は作成（初回のみ）
-        result = db.client.table('sessions').insert({
-            'session_id': session_id,
-            'discord_id': session.discord_id,
-            'username': session.username,
-            'created_at': datetime.now().isoformat()
-        }).execute()
-        
+        result = await db.execute_query(
+            'sessions',
+            operation='insert',
+            data={
+                'session_id': session_id,
+                'discord_id': session.discord_id,
+                'username': session.username,
+                'created_at': datetime.now().isoformat()
+            }
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
         print(f'セッション作成: {session_id} for {session.discord_id}')
-        
+
         return {'session_id': session_id}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f'セッション作成エラー: {e}')
         raise HTTPException(status_code=500, detail=str(e))
@@ -57,19 +65,24 @@ async def get_session(session_id: str):
         discord_id, username
     """
     try:
-        result = db.client.table('sessions')\
-            .select('*')\
-            .eq('session_id', session_id)\
-            .execute()
-        
-        if not result.data or len(result.data) == 0:
+        result = await db.execute_query(
+            'sessions',
+            operation='select',
+            filters={'session_id': session_id}
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        data = result.get('data', [])
+        if not data:
             print(f'セッション未発見: {session_id}')
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        session_data = result.data[0]
-        
+
+        session_data = data[0]
+
         print(f'セッション取得成功: {session_id}')
-        
+
         return {
             'discord_id': session_data['discord_id'],
             'username': session_data['username']

@@ -18,13 +18,35 @@ from api.routers import players, tournaments, registrations, auth, session, avai
 app = FastAPI(title="Tournament Activity API")
 
 # CORS設定
+frontend_url = os.getenv('FRONTEND_URL', '*')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 本番環境では制限すること
+    allow_origins=[frontend_url] if frontend_url != '*' else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# データベース初期化
+@app.on_event("startup")
+async def startup_event():
+    """起動時にデータベース接続を初期化"""
+    from api.database import db
+    await db.initialize()
+    print("✅ データベース接続を初期化しました")
+
+    # OAuth2設定の確認（デバッグ用）
+    oauth_redirect = os.getenv('OAUTH_REDIRECT_URI', 'NOT_SET')
+    discord_client_id = os.getenv('DISCORD_CLIENT_ID', 'NOT_SET')
+    print(f"🔐 OAuth2設定: OAUTH_REDIRECT_URI={oauth_redirect}")
+    print(f"🔐 OAuth2設定: DISCORD_CLIENT_ID={discord_client_id}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """終了時にデータベース接続をクローズ"""
+    from api.database import db
+    await db.close()
+    print("✅ データベース接続をクローズしました")
 
 # ルーター登録
 app.include_router(auth.router, prefix="/api", tags=["auth"])

@@ -26,7 +26,7 @@ class TournamentFormSetupCog(commands.Cog):
     async def set_tournament_form(self, interaction: discord.Interaction):
         """大会登録ボタンを設置"""
         form_url = os.getenv('FORM_URL', 'http://localhost:3000')
-        url = f'{form_url}/tournament-register'
+        url = f'{form_url}#/tournament-register'
 
         print(f'⚙️  /set_tournament_form 実行: {interaction.user.name}')
 

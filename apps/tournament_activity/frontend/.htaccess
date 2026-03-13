@@ -1,0 +1,19 @@
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # すべてのリクエストを index.html にリダイレクト（クエリパラメータを保持）
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ /index.html [L,QSA]
+</IfModule>
+
+# MIME Type
+AddType application/javascript .js
+AddType text/css .css
+AddType image/svg+xml .svg
+AddType image/png .png
+
+# UTF-8
+AddDefaultCharset UTF-8

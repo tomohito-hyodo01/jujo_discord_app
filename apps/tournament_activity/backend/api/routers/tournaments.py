@@ -67,7 +67,7 @@ def to_romaji(text: str) -> str:
     return ''.join(result)
 
 
-def generate_tournament_id(tournament_name: str, tournament_date: str, registrated_ward: int) -> str:
+async def generate_tournament_id(tournament_name: str, tournament_date: str, registrated_ward: int) -> str:
     """
     大会IDを自動生成
     形式: 区＋年月＋大会名のローマ字＋連番
@@ -111,16 +111,21 @@ def generate_tournament_id(tournament_name: str, tournament_date: str, registrat
 
     try:
         # 同じプレフィックスで始まる大会IDを検索
-        existing = db.client.table('tournament_mst')\
-            .select('tournament_id')\
-            .like('tournament_id', f'{prefix}_%')\
-            .execute()
+        # MariaDBではLIKEクエリを直接実行
+        existing = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            columns='tournament_id'
+        )
+
+        # プレフィックスでフィルタリング
+        filtered_data = [item for item in (existing.get('data') or []) if item['tournament_id'].startswith(f'{prefix}_')]
 
         # 連番を決定
-        if existing.data:
+        if filtered_data:
             # 既存のIDから最大の連番を取得
             max_seq = 0
-            for item in existing.data:
+            for item in filtered_data:
                 tid = item['tournament_id']
                 # 最後の_以降が数字ならそれを取得
                 parts = tid.split('_')
@@ -151,8 +156,10 @@ class TournamentRegisterRequest(BaseModel):
 async def get_tournaments():
     """全大会を取得"""
     try:
-        result = db.client.table('tournament_mst').select('*').execute()
-        return result.data
+        result = await db.execute_query('tournament_mst', operation='select', json_fields=['type'])
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+        return result.get('data', [])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -161,15 +168,23 @@ async def get_tournaments():
 async def get_tournament(tournament_id: str):
     """大会IDで大会を取得"""
     try:
-        result = db.client.table('tournament_mst')\
-            .select('*')\
-            .eq('tournament_id', tournament_id)\
-            .execute()
+        result = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': tournament_id},
+            json_fields=['type']
+        )
 
-        if not result.data:
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        data = result.get('data', [])
+        if not data:
             raise HTTPException(status_code=404, detail="Tournament not found")
 
-        return result.data[0]
+        return data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -180,7 +195,7 @@ async def register_tournament(request: TournamentRegisterRequest):
     try:
         # tournament_idが指定されていない場合は自動生成
         if not request.tournament_id:
-            tournament_id = generate_tournament_id(
+            tournament_id = await generate_tournament_id(
                 request.tournament_name,
                 request.tournament_date,
                 request.registrated_ward
@@ -189,32 +204,41 @@ async def register_tournament(request: TournamentRegisterRequest):
             tournament_id = request.tournament_id
 
         # 既存の大会を確認
-        existing = db.client.table('tournament_mst')\
-            .select('tournament_id')\
-            .eq('tournament_id', tournament_id)\
-            .execute()
+        existing = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': tournament_id},
+            columns='tournament_id'
+        )
 
         tournament_data = request.model_dump()
         tournament_data['tournament_id'] = tournament_id
 
-        if existing.data:
+        if existing.get('data'):
             # 更新
-            result = db.client.table('tournament_mst')\
-                .update(tournament_data)\
-                .eq('tournament_id', tournament_id)\
-                .execute()
+            result = await db.execute_query(
+                'tournament_mst',
+                operation='update',
+                filters={'tournament_id': tournament_id},
+                data=tournament_data
+            )
             message = "大会情報を更新しました"
         else:
             # 新規登録
-            result = db.client.table('tournament_mst')\
-                .insert(tournament_data)\
-                .execute()
+            result = await db.execute_query(
+                'tournament_mst',
+                operation='insert',
+                data=tournament_data
+            )
             message = "大会を登録しました"
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
 
         return {
             "success": True,
             "message": message,
-            "tournament": result.data[0]
+            "tournament": result.get('data', [{}])[0]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -226,34 +250,55 @@ async def parse_pdf(
     model: str = "claude"  # "claude" or "gemini"
 ):
     """
-    PDFから大会情報を抽出（Claude または Gemini 使用）
-
-    Args:
-        file: PDFファイル
-        model: 使用するモデル（"claude" または "gemini"）
+    PDFから大会情報を抽出（multipart/form-data版）
     """
     try:
         from services.pdf_parser import PDFParserService
-
-        # PDFファイルを読み込む
         pdf_content = await file.read()
-
-        # PDF解析サービスを使用
         parser = PDFParserService(model=model)
         tournament_data = await parser.parse_tournament_pdf(pdf_content)
-
-        return {
-            "success": True,
-            "data": tournament_data,
-            "model_used": model
-        }
+        return {"success": True, "data": tournament_data, "model_used": model}
     except ValueError as e:
         if str(e) == "INVALID_WARD":
-            raise HTTPException(
-                status_code=400,
-                detail="登録可能な地域の大会要項を選択してください。"
-            )
+            raise HTTPException(status_code=400, detail="登録可能な地域の大会要項を選択してください。")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PdfBase64Request(BaseModel):
+    file_base64: str
+    model: str = "claude"
+
+
+@router.post("/tournaments/parse-pdf-base64")
+async def parse_pdf_base64(request: PdfBase64Request):
+    """
+    PDFから大会情報を抽出（Base64 JSON版 — X-Server WAF回避用）
+    """
+    try:
+        import base64
+        from services.pdf_parser import PDFParserService
+        pdf_content = base64.b64decode(request.file_base64)
+        parser = PDFParserService(model=request.model)
+        tournament_data = await parser.parse_tournament_pdf(pdf_content)
+        return {"success": True, "data": tournament_data, "model_used": request.model}
+    except ValueError as e:
+        if str(e) == "INVALID_WARD":
+            raise HTTPException(status_code=400, detail="登録可能な地域の大会要項を選択してください。")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/wards")
+async def get_wards():
+    """地域マスタを取得"""
+    try:
+        result = await db.execute_query('ward_mst', operation='select')
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+        return result.get('data', [])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

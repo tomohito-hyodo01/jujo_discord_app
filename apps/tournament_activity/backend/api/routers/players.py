@@ -29,8 +29,10 @@ class PlayerCreate(BaseModel):
 async def get_players():
     """全選手を取得"""
     try:
-        result = db.client.table('player_mst').select('*').execute()
-        return result.data
+        result = await db.execute_query('player_mst', operation='select')
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+        return result.get('data', [])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -39,15 +41,22 @@ async def get_players():
 async def get_player(player_id: int):
     """選手IDで選手を取得"""
     try:
-        result = db.client.table('player_mst')\
-            .select('*')\
-            .eq('player_id', player_id)\
-            .execute()
-        
-        if not result.data:
+        result = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'player_id': player_id}
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        data = result.get('data', [])
+        if not data:
             raise HTTPException(status_code=404, detail="Player not found")
-        
-        return result.data[0]
+
+        return data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -56,11 +65,16 @@ async def get_player(player_id: int):
 async def create_player(player: PlayerCreate):
     """新規選手を登録"""
     try:
-        result = db.client.table('player_mst')\
-            .insert(player.model_dump())\
-            .execute()
-        
-        return result.data[0]
+        result = await db.execute_query(
+            'player_mst',
+            operation='insert',
+            data=player.model_dump()
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        return result.get('data', [{}])[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -69,15 +83,20 @@ async def create_player(player: PlayerCreate):
 async def get_player_by_discord_id(discord_id: str):
     """Discord IDで選手を取得"""
     try:
-        result = db.client.table('player_mst')\
-            .select('*')\
-            .eq('discord_id', discord_id)\
-            .execute()
-        
-        if not result.data:
+        result = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'discord_id': discord_id}
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        data = result.get('data', [])
+        if not data:
             return None
-        
-        return result.data[0]
+
+        return data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
