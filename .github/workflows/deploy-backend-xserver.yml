@@ -59,8 +59,9 @@ jobs:
               cp .env.xserver .env
             fi
 
-            # バックグラウンドで起動
-            nohup venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+            # .env読み込み＆バックグラウンドで起動
+            set -a && source .env.xserver && set +a
+            nohup venv/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*" > uvicorn.log 2>&1 &
 
             sleep 3
             if pgrep -f "uvicorn api.main:app" > /dev/null; then
