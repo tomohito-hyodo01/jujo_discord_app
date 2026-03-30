@@ -28,7 +28,7 @@ jobs:
             response=$(curl -s -w "\n%{http_code}" -X POST \
               --max-time 300 \
               --connect-timeout 30 \
-              "https://tournament-api-jujo.fly.dev/api/excel/process-deadlines" \
+              "https://api.jujo-softtennis.com/api/excel/process-deadlines" \
               -H "Content-Type: application/json")
 
             http_code=$(echo "$response" | tail -n1)

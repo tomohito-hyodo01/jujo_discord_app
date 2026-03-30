@@ -9,7 +9,7 @@ export default function DiscordLogin() {
     // Discord OAuth2認証URL
     const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID || '1427563635773018182'
     const redirectUri = encodeURIComponent(window.location.origin + '/')
-    const scope = 'identify'
+    const scope = 'identify guilds.members.read'
 
     const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}`
 

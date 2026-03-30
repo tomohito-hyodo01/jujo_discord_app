@@ -7,6 +7,7 @@ Excel生成ルーター
 """
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from api.database import db
@@ -80,6 +81,7 @@ class ExcelGenerationResponse(BaseModel):
     tournament_id: str
     tournament_name: str
     file_urls: Optional[Dict[str, str]] = None
+    generated_files: Optional[Dict[str, str]] = None
     error: Optional[str] = None
 
 
@@ -238,11 +240,15 @@ async def generate_excel(request: ExcelGenerationRequest):
             file_paths=file_paths
         )
 
+        # file_pathsからファイル名を抽出
+        generated_files = {key: Path(path).name for key, path in file_paths.items()}
+
         return ExcelGenerationResponse(
             success=True,
             tournament_id=request.tournament_id,
             tournament_name=tournament_name,
-            file_urls=file_urls
+            file_urls=file_urls,
+            generated_files=generated_files
         )
 
     except ValueError as e:
@@ -250,6 +256,86 @@ async def generate_excel(request: ExcelGenerationRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+# outputディレクトリのパス
+OUTPUT_DIR = Path(__file__).parent.parent.parent / "output"
+
+
+@router.get("/excel/files/{tournament_id}")
+async def list_excel_files(tournament_id: str):
+    """
+    大会の生成済みExcelファイル一覧を取得
+
+    Args:
+        tournament_id: 大会ID
+
+    Returns:
+        ファイル情報のリスト
+    """
+    try:
+        if not OUTPUT_DIR.exists():
+            return {"files": []}
+
+        # 大会情報を取得して大会名を得る
+        tournament_result = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': tournament_id},
+            json_fields=['type']
+        )
+
+        if tournament_result.get('error'):
+            raise HTTPException(status_code=500, detail=tournament_result['error'])
+
+        tournament_data = tournament_result.get('data', [])
+        if not tournament_data:
+            raise HTTPException(status_code=404, detail=f"Tournament not found: {tournament_id}")
+
+        tournament_name = tournament_data[0].get('tournament_name', '')
+
+        # outputディレクトリ内で大会名を含むxlsxファイルを検索
+        files = []
+        for f in OUTPUT_DIR.glob("*.xlsx"):
+            if tournament_name and tournament_name in f.name:
+                files.append({
+                    "filename": f.name,
+                    "path": str(f),
+                })
+
+        return {"files": files}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/excel/download/{filename}")
+async def download_excel_file(filename: str):
+    """
+    生成済みExcelファイルをダウンロード
+
+    Args:
+        filename: ファイル名
+
+    Returns:
+        Excelファイル
+    """
+    file_path = OUTPUT_DIR / filename
+
+    # パストラバーサル対策
+    if not file_path.resolve().parent == OUTPUT_DIR.resolve():
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @router.get("/excel/test/{tournament_id}")

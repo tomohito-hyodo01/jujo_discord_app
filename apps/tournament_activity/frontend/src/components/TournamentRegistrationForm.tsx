@@ -9,10 +9,15 @@ interface TournamentData {
   classification: number
   mix_flg: boolean
   type: string[]
+  venue: string
+  reception_time: string
+  opening_time: string
+  match_start_time: string
+  entry_fee: string
 }
 
 function TournamentRegistrationForm() {
-  const [formData, setFormData] = useState<TournamentData>({
+  const initialFormData: TournamentData = {
     tournament_id: '',
     tournament_name: '',
     registrated_ward: 0,
@@ -20,8 +25,15 @@ function TournamentRegistrationForm() {
     tournament_date: '',
     classification: 0,
     mix_flg: false,
-    type: []
-  })
+    type: [],
+    venue: '',
+    reception_time: '',
+    opening_time: '',
+    match_start_time: '',
+    entry_fee: ''
+  }
+  const [formData, setFormData] = useState<TournamentData>(initialFormData)
+  const [guidelinePdf, setGuidelinePdf] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
@@ -146,21 +158,25 @@ function TournamentRegistrationForm() {
       const result = await response.json()
 
       if (result.success) {
+        const tournamentId = result.tournament?.tournament_id || formData.tournament_id
+
+        // 要項PDFがあればアップロード
+        if (guidelinePdf && tournamentId) {
+          const pdfFormData = new FormData()
+          pdfFormData.append('file', guidelinePdf)
+          await fetch(`${apiUrl}/api/tournaments/upload-guideline/${tournamentId}`, {
+            method: 'POST',
+            body: pdfFormData
+          })
+        }
+
         setRegisteredCount(prev => prev + 1)
         setRegisteredTournament({
           name: formData.tournament_name,
           date: formData.tournament_date
         })
-        setFormData({
-          tournament_id: '',
-          tournament_name: '',
-          registrated_ward: 0,
-          deadline_date: '',
-          tournament_date: '',
-          classification: 0,
-          mix_flg: false,
-          type: []
-        })
+        setFormData(initialFormData)
+        setGuidelinePdf(null)
       }
     } catch (error) {
       console.error('Submit error:', error)
@@ -219,16 +235,8 @@ function TournamentRegistrationForm() {
     setRegisteredCount(0)
     setTotalCount(0)
     setMessage(null)
-    setFormData({
-      tournament_id: '',
-      tournament_name: '',
-      registrated_ward: 0,
-      deadline_date: '',
-      tournament_date: '',
-      classification: 0,
-      mix_flg: false,
-      type: []
-    })
+    setFormData(initialFormData)
+    setGuidelinePdf(null)
   }
 
   if (registeredTournament) {
@@ -517,6 +525,85 @@ function TournamentRegistrationForm() {
               </label>
             ))}
           </div>
+        </div>
+
+        {/* Venue */}
+        <div style={{ marginBottom: '24px' }}>
+          <label style={labelStyle}>会場</label>
+          <input
+            type="text"
+            name="venue"
+            value={formData.venue}
+            onChange={handleInputChange}
+            style={inputStyle}
+            placeholder="例: 江戸川区スポーツセンター"
+          />
+        </div>
+
+        {/* Times */}
+        <div style={{ marginBottom: '24px' }}>
+          <label style={labelStyle}>時刻</label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+            <div>
+              <label style={{ ...labelStyle, fontSize: '12px', marginBottom: '4px' }}>受付</label>
+              <input
+                type="time"
+                name="reception_time"
+                value={formData.reception_time}
+                onChange={handleInputChange}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ ...labelStyle, fontSize: '12px', marginBottom: '4px' }}>開会式</label>
+              <input
+                type="time"
+                name="opening_time"
+                value={formData.opening_time}
+                onChange={handleInputChange}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ ...labelStyle, fontSize: '12px', marginBottom: '4px' }}>試合開始</label>
+              <input
+                type="time"
+                name="match_start_time"
+                value={formData.match_start_time}
+                onChange={handleInputChange}
+                style={inputStyle}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Entry Fee */}
+        <div style={{ marginBottom: '24px' }}>
+          <label style={labelStyle}>参加費</label>
+          <input
+            type="text"
+            name="entry_fee"
+            value={formData.entry_fee}
+            onChange={handleInputChange}
+            style={inputStyle}
+            placeholder="例: 1組 3,000円"
+          />
+        </div>
+
+        {/* Guideline PDF Upload */}
+        <div style={{ marginBottom: '32px' }}>
+          <label style={labelStyle}>大会要項PDF（保存用）</label>
+          <input
+            type="file"
+            accept=".pdf"
+            onChange={(e) => setGuidelinePdf(e.target.files?.[0] || null)}
+            style={{ ...inputStyle, padding: '12px' }}
+          />
+          {guidelinePdf && (
+            <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>
+              選択中: {guidelinePdf.name}
+            </p>
+          )}
         </div>
 
         {/* Submit Button */}

@@ -11,6 +11,14 @@ import os
 
 router = APIRouter()
 
+# Discordロール → memberLevel マッピング
+GUILD_ID = os.getenv('DISCORD_GUILD_ID', '1427113747306123409')
+ROLE_MEMBER_LEVEL_MAP = {
+    '1485309908424593589': 0,  # 正会員（都連登録者）
+    '1485310538807377991': 1,  # 準会員
+    '1485311046993448980': 2,  # ゲスト
+}
+
 
 class OAuth2Callback(BaseModel):
     code: str
@@ -20,25 +28,28 @@ class OAuth2Callback(BaseModel):
 async def oauth2_callback(callback: OAuth2Callback):
     """
     Discord OAuth2コールバック
-    
+
     Args:
         callback: 認証コード
-    
+
     Returns:
         user_id: Discord User ID
+        username: Discord Username
+        member_level: ロールから判定した会員レベル (0:正会員, 1:準会員, 2:ゲスト, 3:未所属)
+        roles: Discordロール名リスト
     """
     client_id = os.getenv('DISCORD_CLIENT_ID')
     client_secret = os.getenv('DISCORD_CLIENT_SECRET')
-    redirect_uri = os.getenv('OAUTH_REDIRECT_URI', 'https://tournament-form-jujo.fly.dev/auth/callback')
+    redirect_uri = os.getenv('OAUTH_REDIRECT_URI', 'https://tournament.jujo-softtennis.com/')
 
     print(f'OAuth2 Callback: redirect_uri={redirect_uri}, code={callback.code[:10]}...')
 
     if not client_id or not client_secret:
         raise HTTPException(status_code=500, detail='OAuth2設定エラー')
-    
+
     try:
-        # トークン交換
         async with httpx.AsyncClient() as client:
+            # トークン交換
             token_data_params = {
                 'client_id': client_id,
                 'client_secret': client_secret,
@@ -56,40 +67,67 @@ async def oauth2_callback(callback: OAuth2Callback):
                 },
                 timeout=10.0
             )
-            
+
             if token_response.status_code != 200:
                 error_detail = token_response.text
                 print(f'トークン交換失敗: {token_response.status_code}')
                 print(f'Discord APIエラーレスポンス: {error_detail}')
                 raise HTTPException(status_code=400, detail=f'トークン交換失敗: {error_detail}')
-            
+
             token_data = token_response.json()
             access_token = token_data['access_token']
-            
+
+            auth_headers = {'Authorization': f'Bearer {access_token}'}
+
             # ユーザー情報を取得
             user_response = await client.get(
                 'https://discord.com/api/users/@me',
-                headers={
-                    'Authorization': f'Bearer {access_token}'
-                },
+                headers=auth_headers,
                 timeout=10.0
             )
-            
+
             if user_response.status_code != 200:
                 raise HTTPException(status_code=400, detail='ユーザー情報取得失敗')
-            
+
             user_data = user_response.json()
-            
-            print(f'OAuth2認証成功: {user_data["id"]} ({user_data["username"]})')
-            
+
+            # ギルドメンバー情報を取得（ロール判定用）
+            member_level = 3  # デフォルト: 未所属
+            role_names = []
+
+            try:
+                member_response = await client.get(
+                    f'https://discord.com/api/users/@me/guilds/{GUILD_ID}/member',
+                    headers=auth_headers,
+                    timeout=10.0
+                )
+
+                if member_response.status_code == 200:
+                    member_data = member_response.json()
+                    user_roles = member_data.get('roles', [])
+
+                    # ロールIDからmemberLevelを判定（最も高い権限を採用）
+                    for role_id, level in ROLE_MEMBER_LEVEL_MAP.items():
+                        if role_id in user_roles:
+                            if level < member_level:
+                                member_level = level
+
+                    print(f'ギルドメンバーロール: {user_roles} → memberLevel={member_level}')
+                else:
+                    print(f'ギルドメンバー情報取得失敗: {member_response.status_code} (サーバー未参加の可能性)')
+            except Exception as e:
+                print(f'ギルドメンバー情報取得エラー: {e}')
+
+            print(f'OAuth2認証成功: {user_data["id"]} ({user_data["username"]}) memberLevel={member_level}')
+
             return {
                 'user_id': user_data['id'],
-                'username': user_data['username']
+                'username': user_data['username'],
+                'member_level': member_level,
             }
-    
+
     except HTTPException:
         raise
     except Exception as e:
         print(f'OAuth2エラー: {e}')
         raise HTTPException(status_code=500, detail=str(e))
-

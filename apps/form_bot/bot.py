@@ -45,6 +45,12 @@ async def load_cogs():
     except Exception as e:
         print(f'❌ tournament_form_setup Cog読み込みエラー: {e}')
 
+    try:
+        await bot.load_extension('cogs.excel_generation')
+        print('✅ excel_generation Cogを読み込みました')
+    except Exception as e:
+        print(f'❌ excel_generation Cog読み込みエラー: {e}')
+
 
 @bot.event
 async def on_ready():

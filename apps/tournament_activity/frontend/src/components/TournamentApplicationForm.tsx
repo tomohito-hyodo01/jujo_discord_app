@@ -5,10 +5,11 @@ import CompletePage from './CompletePage'
 interface TournamentApplicationFormProps {
   auth: any
   wardId?: string  // チャンネルから送信されたward_id
+  initialTournamentId?: string  // ダッシュボードから選択された大会ID
   onCompletedChange?: (isCompleted: boolean) => void
 }
 
-export default function TournamentApplicationForm({ auth, wardId, onCompletedChange }: TournamentApplicationFormProps) {
+export default function TournamentApplicationForm({ auth, wardId, initialTournamentId, onCompletedChange }: TournamentApplicationFormProps) {
   const [allTournaments, setAllTournaments] = useState<any[]>([])  // 全大会データ
   const [tournaments, setTournaments] = useState<any[]>([])  // フィルタ後の大会データ
   const [allWards, setAllWards] = useState<any[]>([])  // 地域マスタデータ
@@ -120,6 +121,20 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
     loadAvailableTournaments()
   }, [formData.discordId, refreshTrigger, allWards])
 
+  // initialTournamentIdが指定されている場合、地域と大会を自動選択
+  useEffect(() => {
+    if (initialTournamentId && allTournaments.length > 0) {
+      const target = allTournaments.find((t: any) => t.tournament_id === initialTournamentId)
+      if (target) {
+        setFormData(prev => ({
+          ...prev,
+          wardId: String(target.registrated_ward),
+          tournamentId: initialTournamentId,
+        }))
+      }
+    }
+  }, [initialTournamentId, allTournaments])
+
   // 地域選択時に大会をフィルタリング
   useEffect(() => {
     if (formData.wardId && allTournaments.length > 0) {
@@ -133,8 +148,13 @@ export default function TournamentApplicationForm({ auth, wardId, onCompletedCha
     } else {
       setTournaments([])
     }
-    // 地域変更時に大会選択をリセット
-    setFormData(prev => ({ ...prev, tournamentId: '', type: '' }))
+    // 地域変更時に大会選択をリセット（initialTournamentIdによる自動選択時はスキップ）
+    setFormData(prev => {
+      if (initialTournamentId && prev.tournamentId === initialTournamentId) {
+        return prev
+      }
+      return { ...prev, tournamentId: '', type: '' }
+    })
   }, [formData.wardId, allTournaments])
 
   const selectedTournament = tournaments.find(t => t.tournament_id === formData.tournamentId)

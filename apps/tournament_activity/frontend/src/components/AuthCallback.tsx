@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 interface AuthCallbackProps {
-  onAuthComplete: (userId: string, needsRegistration: boolean) => void
+  onAuthComplete: (userId: string, needsRegistration: boolean, username?: string, memberLevel?: number) => void
 }
 
 export default function AuthCallback({ onAuthComplete }: AuthCallbackProps) {
@@ -36,23 +36,25 @@ export default function AuthCallback({ onAuthComplete }: AuthCallbackProps) {
 
         const data = await response.json()
         const userId = data.user_id
-        
+        const returnedUsername = data.username || 'ユーザー'
+        const memberLevel = data.member_level ?? 3
+
         // player_mstに存在するかチェック
         const playerRes = await fetch(`${apiUrl}/api/players/discord/${userId}`)
         let needsRegistration = true
-        
+
         if (playerRes.ok) {
           const playerData = await playerRes.json()
           if (playerData && playerData.player_id) {
             needsRegistration = false
           }
         }
-        
+
         // Discord IDと選手登録が必要かを親コンポーネントに渡す
-        onAuthComplete(userId, needsRegistration)
+        onAuthComplete(userId, needsRegistration, returnedUsername, memberLevel)
         
         // URLを元に戻す（codeパラメータを削除）
-        window.history.replaceState({}, '', '/?view=tournament')
+        window.history.replaceState({}, '', window.location.origin + window.location.pathname)
         
       } catch (err: any) {
         console.error('認証エラー:', err)

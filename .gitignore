@@ -38,3 +38,6 @@ Thumbs.db
 *.log
 logs/
 
+# サーバー接続情報
+.xserver_access.md
+

@@ -7,12 +7,19 @@
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date, datetime
 from api.database import db
+import json
+import os
 import re
 import unicodedata
+
+# PDF保存ディレクトリ
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'uploads', 'guidelines')
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter()
 
@@ -150,6 +157,12 @@ class TournamentRegisterRequest(BaseModel):
     classification: int  # 0=個人戦, 1=団体戦など
     mix_flg: bool
     type: List[str]  # ["一般", "35", "45"]など
+    venue: Optional[str] = None  # 会場
+    reception_time: Optional[str] = None  # 受付時刻
+    opening_time: Optional[str] = None  # 開会式時刻
+    match_start_time: Optional[str] = None  # 試合開始時刻
+    entry_fee: Optional[str] = None  # 参加費
+    guideline_pdf_path: Optional[str] = None  # 要項PDFパス
 
 
 @router.get("/tournaments")
@@ -287,6 +300,160 @@ async def parse_pdf_base64(request: PdfBase64Request):
         if str(e) == "INVALID_WARD":
             raise HTTPException(status_code=400, detail="登録可能な地域の大会要項を選択してください。")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class TournamentUpdate(BaseModel):
+    """大会更新リクエスト"""
+    tournament_name: Optional[str] = None
+    registrated_ward: Optional[int] = None
+    deadline_date: Optional[str] = None
+    tournament_date: Optional[str] = None
+    classification: Optional[int] = None
+    mix_flg: Optional[bool] = None
+    type: Optional[List[str]] = None
+    venue: Optional[str] = None
+    reception_time: Optional[str] = None
+    opening_time: Optional[str] = None
+    match_start_time: Optional[str] = None
+    entry_fee: Optional[str] = None
+    guideline_pdf_path: Optional[str] = None
+
+
+@router.put("/tournaments/{tournament_id}")
+async def update_tournament(tournament_id: str, request: TournamentUpdate):
+    """大会情報を更新"""
+    try:
+        # 大会の存在確認
+        existing = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': tournament_id},
+            json_fields=['type']
+        )
+
+        if existing.get('error'):
+            raise HTTPException(status_code=500, detail=existing['error'])
+
+        if not existing.get('data'):
+            raise HTTPException(status_code=404, detail="大会が見つかりません")
+
+        # None値を除外
+        update_data = request.model_dump(exclude_none=True)
+
+        if not update_data:
+            return existing['data'][0]
+
+        # typeフィールドはJSON文字列に変換
+        if 'type' in update_data:
+            update_data['type'] = json.dumps(update_data['type'])
+
+        result = await db.execute_query(
+            'tournament_mst',
+            operation='update',
+            filters={'tournament_id': tournament_id},
+            data=update_data
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        # 更新後のデータを取得して返す
+        updated = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': tournament_id},
+            json_fields=['type']
+        )
+
+        return updated.get('data', [{}])[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/tournaments/{tournament_id}")
+async def delete_tournament(tournament_id: str):
+    """大会を削除"""
+    try:
+        # 大会の存在確認
+        existing = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': tournament_id},
+            columns='tournament_id'
+        )
+
+        if existing.get('error'):
+            raise HTTPException(status_code=500, detail=existing['error'])
+
+        if not existing.get('data'):
+            raise HTTPException(status_code=404, detail="大会が見つかりません")
+
+        # 削除
+        result = await db.execute_query(
+            'tournament_mst',
+            operation='delete',
+            filters={'tournament_id': tournament_id}
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        return {"success": True, "message": "大会を削除しました"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tournaments/upload-guideline/{tournament_id}")
+async def upload_guideline(tournament_id: str, file: UploadFile = File(...)):
+    """大会要項PDFをアップロード・保存"""
+    try:
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="PDFファイルのみアップロード可能です")
+
+        # ファイル名: tournament_id.pdf
+        safe_id = re.sub(r'[^\w\-]', '_', tournament_id)
+        filename = f"{safe_id}.pdf"
+        filepath = os.path.join(UPLOAD_DIR, filename)
+
+        content = await file.read()
+        with open(filepath, 'wb') as f:
+            f.write(content)
+
+        # DBのguideline_pdf_pathを更新
+        relative_path = f"uploads/guidelines/{filename}"
+        await db.execute_query(
+            'tournament_mst',
+            operation='update',
+            filters={'tournament_id': tournament_id},
+            data={'guideline_pdf_path': relative_path}
+        )
+
+        return {"success": True, "path": relative_path}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tournaments/guideline/{tournament_id}")
+async def get_guideline(tournament_id: str):
+    """大会要項PDFを取得"""
+    try:
+        safe_id = re.sub(r'[^\w\-]', '_', tournament_id)
+        filepath = os.path.join(UPLOAD_DIR, f"{safe_id}.pdf")
+
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="要項PDFが見つかりません")
+
+        return FileResponse(filepath, media_type='application/pdf', filename=f"{tournament_id}.pdf")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

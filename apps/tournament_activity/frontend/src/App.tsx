@@ -1,348 +1,247 @@
 import { useState, useEffect } from 'react'
-import PlayerRegistrationForm from './components/PlayerRegistrationForm'
-import TournamentApplicationForm from './components/TournamentApplicationForm'
-import TournamentRegistrationForm from './components/TournamentRegistrationForm'
 import DiscordLogin from './components/DiscordLogin'
 import AuthCallback from './components/AuthCallback'
+import Portal from './components/Portal'
+import type { UserPermissionInfo } from './utils/permissions'
+
+const DEV_DISCORD_ID = '1427112485047242945'
+const AUTH_STORAGE_KEY = 'jujo_auth'
+
+const fullScreenCenter = {
+  height: '100%',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: '#0a1628',
+}
+
+function saveAuth(userId: string, username: string, memberLevel?: number) {
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ userId, username, memberLevel }))
+}
+
+function loadAuth(): { userId: string; username: string; memberLevel?: number } | null {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+    if (!raw) return null
+    const data = JSON.parse(raw)
+    if (data.userId) return data
+    return null
+  } catch {
+    return null
+  }
+}
+
+function clearAuth() {
+  localStorage.removeItem(AUTH_STORAGE_KEY)
+}
 
 function App() {
-  // Hash Routingを使用（サーバー設定不要で確実に動作）
-  const hash = window.location.hash.replace('#', '')
-
-  // URLパラメータも後方互換のために残す
   const urlParams = new URLSearchParams(window.location.search)
-  const viewParam = urlParams.get('view')
-
-  // Check if this is the tournament registration page (no auth required)
-  const isTournamentRegisterPage = hash === '/tournament-register' ||
-                                   window.location.pathname === '/tournament-register' ||
-                                   viewParam === 'tournament-register'
-
-  // If tournament registration page, render it directly without auth
-  if (isTournamentRegisterPage) {
-    return (
-      <div style={{
-        width: '100%',
-        maxWidth: '800px',
-        backgroundColor: '#0a1628',
-        borderRadius: '16px',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
-        overflow: 'hidden',
-        border: '1px solid #1e293b'
-      }}>
-        <div style={{
-          padding: '40px',
-          background: 'linear-gradient(135deg, #0c1e3d 0%, #0f172a 100%)',
-          color: '#ffffff',
-          borderBottom: '1px solid #1e293b'
-        }}>
-          <h1 style={{
-            fontSize: '32px',
-            fontWeight: '600',
-            margin: 0,
-            letterSpacing: '-0.5px'
-          }}>
-            十条クラブ　大会登録フォーム
-          </h1>
-        </div>
-        <div style={{ padding: '40px', backgroundColor: '#0a1628' }}>
-          <TournamentRegistrationForm />
-        </div>
-      </div>
-    )
-  }
-
-  const DEV_DISCORD_ID = '1427112485047242945'
+  const authCode = urlParams.get('code')
+  const sessionId = urlParams.get('session')
   const isLocalDev = import.meta.env.DEV || window.location.hostname === 'localhost'
 
-  // URLパラメータとハッシュからビューとセッションID、認証コード、ward_idを取得
-  const initialView = (hash === '/tournament' || viewParam === 'tournament') ? 'tournament' : 'player'
-  const sessionId = urlParams.get('session')
-  const authCode = urlParams.get('code')
-  const wardId = urlParams.get('ward')  // ward_idを取得
-
-  const [view, setView] = useState<'player' | 'tournament'>(initialView)
   const [discordUserId, setDiscordUserId] = useState('')
+  const [username, setUsername] = useState('')
+  const [permissionInfo, setPermissionInfo] = useState<UserPermissionInfo>({ adminRole: 2, memberLevel: 2 })
   const [loading, setLoading] = useState(true)
-  const [isCompleted, setIsCompleted] = useState(false)
-  const [isPlayerRegistrationRequired, setIsPlayerRegistrationRequired] = useState(false)
   const [needsOAuth, setNeedsOAuth] = useState(false)
+  const [needsPlayerRegistration, setNeedsPlayerRegistration] = useState(false)
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false)
+  const [accessDenied, setAccessDenied] = useState(false)
 
-  // 全てのuseEffectを条件分岐の前に配置
-  useEffect(() => {
-    // ローカル開発ではDiscord認証をスキップし、固定IDで動作検証
-    const handleLocalBypass = async () => {
-      setDiscordUserId(DEV_DISCORD_ID)
-      setNeedsOAuth(false)
-
-      try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-        const playerRes = await fetch(`${apiUrl}/api/players/discord/${DEV_DISCORD_ID}`)
-
-        if (playerRes.ok) {
-          const playerData = await playerRes.json()
-
-          if (playerData && playerData.player_id) {
-            setIsPlayerRegistrationRequired(false)
-          } else {
-            setIsPlayerRegistrationRequired(true)
-            setView('player')
-          }
-        } else {
-          setIsPlayerRegistrationRequired(true)
-          setView('player')
-        }
-      } catch {
-        setIsPlayerRegistrationRequired(true)
-        setView('player')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    if (isLocalDev) {
-      handleLocalBypass()
-      return
-    }
-
-    // 認証コールバック処理（OAuth2）
-    if (authCode) {
-      // AuthCallbackコンポーネントで処理
-      return
-    }
-    
-    // セッションIDからDiscord情報を取得（従来方式）
-    if (sessionId) {
+  const checkPlayerAndPermissions = async (userId: string, memberLevel?: number): Promise<{ needsRegistration: boolean; needsCompletion: boolean; perms: UserPermissionInfo }> => {
+    const defaultPerms: UserPermissionInfo = { adminRole: 2, memberLevel: 2 }
+    try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-      
-      fetch(`${apiUrl}/api/session/${sessionId}`)
-        .then(res => res.json())
-        .then(async data => {
-          setDiscordUserId(data.discord_id)
-          
-          // player_mstに存在するかチェック
-          const playerRes = await fetch(`${apiUrl}/api/players/discord/${data.discord_id}`)
-          
-          if (playerRes.ok) {
-            const playerData = await playerRes.json()
-            
-            if (playerData && playerData.player_id) {
-              // 選手登録済み
-            } else {
-              setIsPlayerRegistrationRequired(true)
-              setView('player')
-            }
-          } else {
-            setIsPlayerRegistrationRequired(true)
-            setView('player')
+      const playerRes = await fetch(`${apiUrl}/api/players/discord/${userId}`)
+      if (playerRes.ok) {
+        const playerData = await playerRes.json()
+        if (playerData && playerData.player_id) {
+          const perms = {
+            adminRole: playerData.admin_role ?? 2,
+            memberLevel: playerData.member_level ?? 2,
           }
-          
+          // 正会員・準会員で必須項目が未入力ならプロフィール補完が必要
+          const ml = memberLevel ?? perms.memberLevel
+          let needsCompletion = false
+          if (ml < 2) {
+            const requiredFields = ['birth_date', 'post_number', 'address', 'phone_number']
+            needsCompletion = requiredFields.some(f => !playerData[f])
+          }
+          return { needsRegistration: false, needsCompletion, perms }
+        }
+      }
+      return { needsRegistration: true, needsCompletion: false, perms: defaultPerms }
+    } catch {
+      return { needsRegistration: true, needsCompletion: false, perms: defaultPerms }
+    }
+  }
+
+  useEffect(() => {
+    const init = async () => {
+      // ローカル開発
+      if (isLocalDev) {
+        setDiscordUserId(DEV_DISCORD_ID)
+        setUsername('開発ユーザー')
+        const { needsRegistration, needsCompletion, perms } = await checkPlayerAndPermissions(DEV_DISCORD_ID)
+        setNeedsPlayerRegistration(needsRegistration)
+        setNeedsProfileCompletion(needsCompletion)
+        setPermissionInfo(perms)
+        setLoading(false)
+        return
+      }
+
+      // OAuth2コールバック中
+      if (authCode) {
+        return
+      }
+
+      // セッションID（従来方式）
+      if (sessionId) {
+        try {
+          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+          const res = await fetch(`${apiUrl}/api/session/${sessionId}`)
+          const data = await res.json()
+          setDiscordUserId(data.discord_id)
+          setUsername(data.username || 'ユーザー')
+          saveAuth(data.discord_id, data.username || 'ユーザー')
+          const { needsRegistration, needsCompletion, perms } = await checkPlayerAndPermissions(data.discord_id)
+          setNeedsPlayerRegistration(needsRegistration)
+          setNeedsProfileCompletion(needsCompletion)
+          setPermissionInfo(perms)
+        } catch {
+          // セッション取得失敗
+        }
+        setLoading(false)
+        return
+      }
+
+      // localStorageから復元
+      const saved = loadAuth()
+      if (saved) {
+        // memberLevelが未保存（旧データ）の場合は再認証を促す
+        if (saved.memberLevel === undefined) {
+          clearAuth()
+          setNeedsOAuth(true)
           setLoading(false)
-        })
-        .catch(() => {
+          return
+        }
+        if (saved.memberLevel > 2) {
+          setAccessDenied(true)
           setLoading(false)
-        })
-    } else {
-      // セッションIDもなし → OAuth2ログインが必要
+          return
+        }
+        setDiscordUserId(saved.userId)
+        setUsername(saved.username)
+        const { needsRegistration, needsCompletion, perms } = await checkPlayerAndPermissions(saved.userId, saved.memberLevel)
+        setNeedsPlayerRegistration(needsRegistration)
+        setNeedsProfileCompletion(needsCompletion)
+        setPermissionInfo({ ...perms, memberLevel: saved.memberLevel })
+        setLoading(false)
+        return
+      }
+
+      // 認証なし
       setNeedsOAuth(true)
       setLoading(false)
     }
+
+    init()
   }, [sessionId, authCode, isLocalDev])
-  
-  useEffect(() => {
-    // URLパラメータの変更を検知
-    const view = urlParams.get('view')
-    if (view === 'tournament') {
-      setView('tournament')
-    } else {
-      setView('player')
-    }
-  }, [])
-  
-  const auth = {
-    user: {
-      id: discordUserId || 'unknown',
-      username: 'user'
-    }
+
+  // アクセス拒否画面（OAuth2コールバックより先に評価）
+  if (accessDenied) {
+    return (
+      <div style={fullScreenCenter}>
+        <div style={{ textAlign: 'center', padding: '40px 20px', maxWidth: '400px' }}>
+          <p style={{ fontSize: '20px', fontWeight: '600', color: '#f87171', lineHeight: '1.8' }}>
+            利用権限がありません。<br />管理者にお問い合わせください。
+          </p>
+        </div>
+      </div>
+    )
   }
-  
-  // OAuth2認証コールバック処理
+
+  // OAuth2コールバック処理
   if (authCode) {
     return (
-      <div style={{ 
-        width: '100%',
-        maxWidth: '800px',
-        backgroundColor: '#0a1628',
-        borderRadius: '16px',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
-        overflow: 'hidden',
-        border: '1px solid #1e293b'
-      }}>
-        <div style={{ 
-          padding: '40px',
-          background: 'linear-gradient(135deg, #0c1e3d 0%, #0f172a 100%)',
-          color: '#ffffff',
-          borderBottom: '1px solid #1e293b'
-        }}>
-          <h1 style={{ 
-            fontSize: '32px',
-            fontWeight: '600',
-            margin: 0,
-            letterSpacing: '-0.5px'
-          }}>
-            十条クラブ　大会申込フォーム
-          </h1>
-        </div>
-        <div style={{ padding: '40px', backgroundColor: '#0a1628' }}>
-          <AuthCallback onAuthComplete={(userId, needsRegistration) => {
-            setDiscordUserId(userId)
-            setNeedsOAuth(false)
-            if (needsRegistration) {
-              setIsPlayerRegistrationRequired(true)
-              setView('player')
-            } else {
-              setView('tournament')
-            }
+      <div style={fullScreenCenter}>
+        <AuthCallback onAuthComplete={async (userId, needsRegistration, returnedUsername, memberLevel) => {
+          const uname = returnedUsername || 'ユーザー'
+          const ml = memberLevel ?? 3
+          if (ml > 2) {
+            setAccessDenied(true)
             setLoading(false)
-          }} />
-        </div>
+            window.history.replaceState({}, '', window.location.origin + window.location.pathname)
+            return
+          }
+          setDiscordUserId(userId)
+          setUsername(uname)
+          setNeedsPlayerRegistration(needsRegistration)
+          saveAuth(userId, uname, ml)
+          if (!needsRegistration) {
+            const { needsCompletion, perms } = await checkPlayerAndPermissions(userId, ml)
+            setNeedsProfileCompletion(needsCompletion)
+            setPermissionInfo({ ...perms, memberLevel: ml })
+          } else {
+            setPermissionInfo(prev => ({ ...prev, memberLevel: ml }))
+          }
+          setNeedsOAuth(false)
+          setLoading(false)
+          window.history.replaceState({}, '', window.location.origin + window.location.pathname)
+        }} />
       </div>
     )
   }
 
-  // OAuth2ログインが必要
+  // ログイン画面
   if (needsOAuth && !discordUserId) {
     return (
-      <div style={{ 
-        width: '100%',
-        maxWidth: '800px',
-        backgroundColor: '#0a1628',
-        borderRadius: '16px',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
-        overflow: 'hidden',
-        border: '1px solid #1e293b'
-      }}>
-        <div style={{ 
-          padding: '40px',
-          background: 'linear-gradient(135deg, #0c1e3d 0%, #0f172a 100%)',
-          color: '#ffffff',
-          borderBottom: '1px solid #1e293b'
-        }}>
-          <h1 style={{ 
-            fontSize: '32px',
-            fontWeight: '600',
-            margin: 0,
-            letterSpacing: '-0.5px'
-          }}>
-            十条クラブ　大会申込フォーム
-          </h1>
-        </div>
-        <div style={{ padding: '40px', backgroundColor: '#0a1628' }}>
-          <DiscordLogin />
-        </div>
+      <div style={fullScreenCenter}>
+        <DiscordLogin />
       </div>
     )
   }
 
+  // ローディング
   if (loading) {
     return (
-      <div style={{
-        padding: '40px',
-        textAlign: 'center',
-        color: '#94a3b8'
-      }}>
-        <h2>読み込み中...</h2>
-        <p>認証情報を取得しています</p>
+      <div style={fullScreenCenter}>
+        <div style={{
+          width: '40px', height: '40px',
+          border: '3px solid #1e293b', borderTop: '3px solid #3b82f6',
+          borderRadius: '50%', animation: 'spin 1s linear infinite',
+          margin: '0 auto 16px'
+        }} />
+        <p style={{ color: '#94a3b8' }}>認証情報を取得しています...</p>
+        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
 
+  // ポータル
   return (
-    <div style={{ 
-      width: '100%',
-      maxWidth: '800px',
-      backgroundColor: '#0a1628',
-      borderRadius: '16px',
-      boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
-      overflow: 'hidden',
-      border: '1px solid #1e293b'
-    }}>
-      <div style={{ 
-        padding: '40px',
-        background: 'linear-gradient(135deg, #0c1e3d 0%, #0f172a 100%)',
-        color: '#ffffff',
-        borderBottom: '1px solid #1e293b'
-      }}>
-        <h1 style={{ 
-          fontSize: '32px',
-          fontWeight: '600',
-          margin: 0,
-          letterSpacing: '-0.5px'
-        }}>
-          十条クラブ　大会申込フォーム
-        </h1>
-      </div>
-      
-      {!isCompleted && !isPlayerRegistrationRequired && (
-        <div style={{ 
-          display: 'flex',
-          borderBottom: '1px solid #1e293b',
-          backgroundColor: '#0a1628'
-        }}>
-          <button 
-            onClick={() => setView('player')}
-            style={{ 
-              flex: 1,
-              padding: '16px',
-              border: 'none',
-              backgroundColor: view === 'player' ? '#0f172a' : 'transparent',
-              color: view === 'player' ? '#60a5fa' : '#64748b',
-              fontSize: '15px',
-              fontWeight: view === 'player' ? '600' : '400',
-              borderBottom: view === 'player' ? '3px solid #3b82f6' : '3px solid transparent',
-              transition: 'all 0.2s'
-            }}
-          >
-            選手登録
-          </button>
-          <button 
-            onClick={() => setView('tournament')}
-            style={{ 
-              flex: 1,
-              padding: '16px',
-              border: 'none',
-              backgroundColor: view === 'tournament' ? '#0f172a' : 'transparent',
-              color: view === 'tournament' ? '#60a5fa' : '#64748b',
-              fontSize: '15px',
-              fontWeight: view === 'tournament' ? '600' : '400',
-              borderBottom: view === 'tournament' ? '3px solid #3b82f6' : '3px solid transparent',
-              transition: 'all 0.2s'
-            }}
-          >
-            大会申込
-          </button>
-        </div>
-      )}
-
-      <div style={{ padding: '40px', backgroundColor: '#0a1628' }}>
-        {view === 'player' ? (
-          <PlayerRegistrationForm 
-            auth={auth}
-            isRequired={isPlayerRegistrationRequired}
-            onCompleted={() => {
-              setIsPlayerRegistrationRequired(false)
-              setView('tournament')
-            }}
-          />
-        ) : (
-          <TournamentApplicationForm
-            auth={auth}
-            wardId={wardId || undefined}
-            onCompletedChange={(completed) => setIsCompleted(completed)}
-          />
-        )}
-      </div>
-    </div>
+    <Portal
+      discordId={discordUserId}
+      username={username}
+      permissionInfo={permissionInfo}
+      needsPlayerRegistration={needsPlayerRegistration}
+      needsProfileCompletion={needsProfileCompletion}
+      onPlayerRegistered={async () => {
+        setNeedsPlayerRegistration(false)
+        setNeedsProfileCompletion(false)
+        const { perms } = await checkPlayerAndPermissions(discordUserId, permissionInfo.memberLevel)
+        setPermissionInfo(perms)
+      }}
+      onProfileCompleted={async () => {
+        setNeedsProfileCompletion(false)
+        const { perms } = await checkPlayerAndPermissions(discordUserId, permissionInfo.memberLevel)
+        setPermissionInfo(perms)
+      }}
+      onLogout={clearAuth}
+    />
   )
 }
 
