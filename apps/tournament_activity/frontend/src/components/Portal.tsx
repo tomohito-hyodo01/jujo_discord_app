@@ -11,6 +11,7 @@ import MyRegistrations from './MyRegistrations'
 import PracticeManagement from './PracticeManagement'
 import MyProfile from './MyProfile'
 import ProfileCompletionForm from './ProfileCompletionForm'
+import AppLogViewer from './AppLogViewer'
 import { hasPermission, getMemberLevelName, type Permission, type UserPermissionInfo } from '../utils/permissions'
 
 interface PortalProps {
@@ -41,6 +42,7 @@ const MENU_ITEMS: MenuItem[] = [
   { id: 'admin-excel', label: '申込書出力', permission: 'view_excel_download' },
   { id: 'admin-practice', label: '練習日程管理', permission: 'view_practice_manage' },
   { id: 'admin-members', label: 'メンバー一覧', permission: 'view_member_list' },
+  { id: 'admin-logs', label: 'ログ', permission: 'view_app_logs' },
 ]
 
 export default function Portal({ discordId, username, permissionInfo, needsPlayerRegistration, needsProfileCompletion, onPlayerRegistered, onProfileCompleted, onLogout }: PortalProps) {
@@ -79,7 +81,27 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
     setCurrentPage(page)
     setSidebarOpen(false)
     setAccountMenuOpen(false)
+    window.history.pushState({ page, tournamentId }, '', `#${page}`)
   }
+
+  // ブラウザの戻る/進むに対応
+  useEffect(() => {
+    // 初回ロード時に現在のページを履歴に登録
+    const initialPage = needsPlayerRegistration ? 'player' : 'dashboard'
+    window.history.replaceState({ page: initialPage }, '', `#${initialPage}`)
+
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state?.page) {
+        setCurrentPage(e.state.page)
+        setSelectedTournamentId(e.state.tournamentId)
+        setIsCompleted(false)
+        setSidebarOpen(false)
+        setAccountMenuOpen(false)
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   const handleLogout = () => {
     onLogout()
@@ -93,7 +115,7 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
           auth={auth}
           permissionInfo={permissionInfo}
           isRequired={true}
-          onCompleted={onPlayerRegistered}
+          onCompleted={() => { onPlayerRegistered(); setCurrentPage('dashboard') }}
         />
       )
     }
@@ -123,6 +145,7 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
             auth={auth}
             initialTournamentId={selectedTournamentId}
             onCompletedChange={(completed) => setIsCompleted(completed)}
+            onNavigate={navigate}
           />
         )
       case 'my-registrations':
@@ -152,6 +175,11 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
           return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>
         }
         return <MemberList />
+      case 'admin-logs':
+        if (!hasPermission(permissionInfo, 'view_app_logs')) {
+          return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>
+        }
+        return <AppLogViewer />
       default:
         return <Home discordId={discordId} permissionInfo={permissionInfo} onNavigate={navigate} />
     }

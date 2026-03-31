@@ -61,10 +61,10 @@ function App() {
         if (playerData && playerData.player_id) {
           const perms = {
             adminRole: playerData.admin_role ?? 2,
-            memberLevel: playerData.member_level ?? 2,
+            memberLevel: memberLevel ?? playerData.member_level ?? 2,
           }
           // 正会員・準会員で必須項目が未入力ならプロフィール補完が必要
-          const ml = memberLevel ?? perms.memberLevel
+          const ml = perms.memberLevel
           let needsCompletion = false
           if (ml < 2) {
             const requiredFields = ['birth_date', 'post_number', 'address', 'phone_number']
@@ -129,6 +129,7 @@ function App() {
           return
         }
         if (saved.memberLevel > 2) {
+          setDiscordUserId(saved.userId)
           setAccessDenied(true)
           setLoading(false)
           return
@@ -159,6 +160,11 @@ function App() {
           <p style={{ fontSize: '20px', fontWeight: '600', color: '#f87171', lineHeight: '1.8' }}>
             利用権限がありません。<br />管理者にお問い合わせください。
           </p>
+          {discordUserId && (
+            <p style={{ fontSize: '12px', color: '#475569', marginTop: '16px' }}>
+              Discord ID: {discordUserId}
+            </p>
+          )}
         </div>
       </div>
     )
@@ -172,6 +178,7 @@ function App() {
           const uname = returnedUsername || 'ユーザー'
           const ml = memberLevel ?? 3
           if (ml > 2) {
+            setDiscordUserId(userId)
             setAccessDenied(true)
             setLoading(false)
             window.history.replaceState({}, '', window.location.origin + window.location.pathname)
@@ -233,12 +240,12 @@ function App() {
         setNeedsPlayerRegistration(false)
         setNeedsProfileCompletion(false)
         const { perms } = await checkPlayerAndPermissions(discordUserId, permissionInfo.memberLevel)
-        setPermissionInfo(perms)
+        setPermissionInfo({ ...perms, memberLevel: permissionInfo.memberLevel })
       }}
       onProfileCompleted={async () => {
         setNeedsProfileCompletion(false)
         const { perms } = await checkPlayerAndPermissions(discordUserId, permissionInfo.memberLevel)
-        setPermissionInfo(perms)
+        setPermissionInfo({ ...perms, memberLevel: permissionInfo.memberLevel })
       }}
       onLogout={clearAuth}
     />

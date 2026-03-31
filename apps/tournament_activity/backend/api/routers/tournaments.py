@@ -206,6 +206,15 @@ async def get_tournament(tournament_id: str):
 async def register_tournament(request: TournamentRegisterRequest):
     """大会を登録"""
     try:
+        # 締切日と開催日のバリデーション
+        try:
+            deadline = datetime.strptime(request.deadline_date, '%Y-%m-%d').date()
+            tournament = datetime.strptime(request.tournament_date, '%Y-%m-%d').date()
+            if deadline >= tournament:
+                raise HTTPException(status_code=400, detail="締切日は開催日より前の日付を指定してください")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="日付の形式が不正です（YYYY-MM-DD）")
+
         # tournament_idが指定されていない場合は自動生成
         if not request.tournament_id:
             tournament_id = await generate_tournament_id(
@@ -263,13 +272,13 @@ async def parse_pdf(
     model: str = "claude"  # "claude" or "gemini"
 ):
     """
-    PDFから大会情報を抽出（multipart/form-data版）
+    ファイルから大会情報を抽出（multipart/form-data版、PDF/画像/Excel対応）
     """
     try:
         from services.pdf_parser import PDFParserService
-        pdf_content = await file.read()
+        content = await file.read()
         parser = PDFParserService(model=model)
-        tournament_data = await parser.parse_tournament_pdf(pdf_content)
+        tournament_data = await parser.parse_tournament_pdf(content, filename=file.filename)
         return {"success": True, "data": tournament_data, "model_used": model}
     except ValueError as e:
         if str(e) == "INVALID_WARD":
@@ -282,19 +291,20 @@ async def parse_pdf(
 class PdfBase64Request(BaseModel):
     file_base64: str
     model: str = "claude"
+    filename: Optional[str] = None
 
 
 @router.post("/tournaments/parse-pdf-base64")
 async def parse_pdf_base64(request: PdfBase64Request):
     """
-    PDFから大会情報を抽出（Base64 JSON版 — X-Server WAF回避用）
+    ファイルから大会情報を抽出（Base64 JSON版 — X-Server WAF回避用、PDF/画像/Excel対応）
     """
     try:
         import base64
         from services.pdf_parser import PDFParserService
-        pdf_content = base64.b64decode(request.file_base64)
+        content = base64.b64decode(request.file_base64)
         parser = PDFParserService(model=request.model)
-        tournament_data = await parser.parse_tournament_pdf(pdf_content)
+        tournament_data = await parser.parse_tournament_pdf(content, filename=request.filename)
         return {"success": True, "data": tournament_data, "model_used": request.model}
     except ValueError as e:
         if str(e) == "INVALID_WARD":
@@ -344,6 +354,21 @@ async def update_tournament(tournament_id: str, request: TournamentUpdate):
 
         if not update_data:
             return existing['data'][0]
+
+        # 締切日と開催日のバリデーション
+        new_deadline = update_data.get('deadline_date')
+        new_tournament = update_data.get('tournament_date')
+        existing_data = existing['data'][0]
+        deadline_str = new_deadline or existing_data.get('deadline_date')
+        tournament_str = new_tournament or existing_data.get('tournament_date')
+        if deadline_str and tournament_str:
+            try:
+                d = datetime.strptime(str(deadline_str), '%Y-%m-%d').date()
+                t = datetime.strptime(str(tournament_str), '%Y-%m-%d').date()
+                if d >= t:
+                    raise HTTPException(status_code=400, detail="締切日は開催日より前の日付を指定してください")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="日付の形式が不正です（YYYY-MM-DD）")
 
         # typeフィールドはJSON文字列に変換
         if 'type' in update_data:
@@ -409,49 +434,79 @@ async def delete_tournament(tournament_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class GuidelineBase64Request(BaseModel):
+    file_base64: str
+    filename: Optional[str] = None
+
+
+def _save_guideline(tournament_id: str, content: bytes, original_filename: Optional[str] = None) -> str:
+    """要項ファイルを保存して相対パスを返す"""
+    safe_id = re.sub(r'[^\w\-]', '_', tournament_id)
+    ext = '.pdf'
+    if original_filename:
+        _, file_ext = os.path.splitext(original_filename.lower())
+        if file_ext in ('.pdf', '.jpg', '.jpeg', '.png', '.xlsx', '.xls'):
+            ext = file_ext
+    filename = f"{safe_id}{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    with open(filepath, 'wb') as f:
+        f.write(content)
+    return f"uploads/guidelines/{filename}"
+
+
 @router.post("/tournaments/upload-guideline/{tournament_id}")
 async def upload_guideline(tournament_id: str, file: UploadFile = File(...)):
-    """大会要項PDFをアップロード・保存"""
+    """大会要項をアップロード・保存（multipart版）"""
     try:
-        if not file.filename.lower().endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="PDFファイルのみアップロード可能です")
-
-        # ファイル名: tournament_id.pdf
-        safe_id = re.sub(r'[^\w\-]', '_', tournament_id)
-        filename = f"{safe_id}.pdf"
-        filepath = os.path.join(UPLOAD_DIR, filename)
-
         content = await file.read()
-        with open(filepath, 'wb') as f:
-            f.write(content)
-
-        # DBのguideline_pdf_pathを更新
-        relative_path = f"uploads/guidelines/{filename}"
+        relative_path = _save_guideline(tournament_id, content, file.filename)
         await db.execute_query(
-            'tournament_mst',
-            operation='update',
+            'tournament_mst', operation='update',
             filters={'tournament_id': tournament_id},
             data={'guideline_pdf_path': relative_path}
         )
-
         return {"success": True, "path": relative_path}
-    except HTTPException:
-        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tournaments/upload-guideline-base64/{tournament_id}")
+async def upload_guideline_base64(tournament_id: str, request: GuidelineBase64Request):
+    """大会要項をアップロード・保存（Base64版 — WAF回避用）"""
+    try:
+        import base64
+        content = base64.b64decode(request.file_base64)
+        relative_path = _save_guideline(tournament_id, content, request.filename)
+        await db.execute_query(
+            'tournament_mst', operation='update',
+            filters={'tournament_id': tournament_id},
+            data={'guideline_pdf_path': relative_path}
+        )
+        return {"success": True, "path": relative_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/tournaments/guideline/{tournament_id}")
 async def get_guideline(tournament_id: str):
-    """大会要項PDFを取得"""
+    """大会要項ファイルを取得"""
     try:
         safe_id = re.sub(r'[^\w\-]', '_', tournament_id)
-        filepath = os.path.join(UPLOAD_DIR, f"{safe_id}.pdf")
+        # 拡張子を探す
+        filepath = None
+        for ext in ('.pdf', '.jpg', '.jpeg', '.png', '.xlsx', '.xls'):
+            candidate = os.path.join(UPLOAD_DIR, f"{safe_id}{ext}")
+            if os.path.exists(candidate):
+                filepath = candidate
+                break
 
-        if not os.path.exists(filepath):
-            raise HTTPException(status_code=404, detail="要項PDFが見つかりません")
+        if not filepath:
+            raise HTTPException(status_code=404, detail="要項ファイルが見つかりません")
 
-        return FileResponse(filepath, media_type='application/pdf', filename=f"{tournament_id}.pdf")
+        import mimetypes
+        mime = mimetypes.guess_type(filepath)[0] or 'application/octet-stream'
+        dl_filename = os.path.basename(filepath)
+        return FileResponse(filepath, media_type=mime, filename=dl_filename)
     except HTTPException:
         raise
     except Exception as e:

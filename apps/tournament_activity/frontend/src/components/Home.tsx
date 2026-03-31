@@ -4,7 +4,7 @@ import { hasPermission, type UserPermissionInfo } from '../utils/permissions'
 interface HomeProps {
   discordId: string
   permissionInfo: UserPermissionInfo
-  onNavigate: (page: string) => void
+  onNavigate: (page: string, tournamentId?: string) => void
 }
 
 interface MenuCard {
@@ -29,8 +29,11 @@ const MENU_CARDS: MenuCard[] = [
 export default function Home({ discordId, permissionInfo, onNavigate }: HomeProps) {
   const [notices, setNotices] = useState<any[]>([])
   const [upcomingRegistrations, setUpcomingRegistrations] = useState<any[]>([])
+  const [myRegistrations, setMyRegistrations] = useState<any[]>([])
+  const [wards, setWards] = useState<any[]>([])
   const [myPractices, setMyPractices] = useState<any[]>([])
   const [myPlayerId, setMyPlayerId] = useState<number | null>(null)
+  const [selectedTournament, setSelectedTournament] = useState<any | null>(null)
   const [selectedPractice, setSelectedPractice] = useState<any | null>(null)
   const [practiceParticipants, setPracticeParticipants] = useState<any[]>([])
   const [modalLoading, setModalLoading] = useState(false)
@@ -53,13 +56,16 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
         }
 
         // 自分が申込済み＆1週間以内に開催される大会
-        const [tRes, regRes] = await Promise.all([
+        const [tRes, regRes, wardRes] = await Promise.all([
           fetch(`${apiUrl}/api/tournaments`),
           fetch(`${apiUrl}/api/registrations/user/${discordId}`),
+          fetch(`${apiUrl}/api/wards`),
         ])
+        if (wardRes.ok) setWards(await wardRes.json())
         if (tRes.ok && regRes.ok) {
           const tournaments = await tRes.json()
           const registrations = await regRes.json()
+          setMyRegistrations(registrations)
           const regIds = new Set(registrations.map((r: any) => r.tournament_id))
           const today = new Date(); today.setHours(0, 0, 0, 0)
           const upcoming = tournaments.filter((t: any) => {
@@ -117,6 +123,14 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
 
   const formatTime = (t: string) => t?.slice(0, 5) || ''
 
+  const getWardName = (wardId: number) => {
+    const w = wards.find((wd: any) => wd.ward_id === wardId)
+    return w?.ward_name || ''
+  }
+
+  const getMyRegistration = (tournamentId: string) =>
+    myRegistrations.find(r => r.tournament_id === tournamentId)
+
   const openPracticeDetail = async (practice: any) => {
     setSelectedPractice(practice)
     setModalLoading(true)
@@ -160,7 +174,13 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
                 return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
               })()
               return (
-                <div key={t.tournament_id} style={{ fontSize: '13px', color: '#94a3b8', padding: '4px 0', borderBottom: '1px solid #1e293b' }}>
+                <div key={t.tournament_id} onClick={() => setSelectedTournament(t)} style={{
+                  fontSize: '13px', color: '#94a3b8', padding: '6px 0', borderBottom: '1px solid #1e293b',
+                  cursor: 'pointer', transition: 'opacity 0.15s',
+                }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = '0.7')}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                >
                   {t.tournament_name} - {formatDate(t.tournament_date)}
                   <span style={{ color: days <= 3 ? '#f59e0b' : '#64748b', marginLeft: '8px' }}>
                     {days === 0 ? '今日' : `あと${days}日`}
@@ -254,6 +274,81 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
         ))}
       </div>
 
+      {/* 大会詳細モーダル */}
+      {selectedTournament && (() => {
+        const t = selectedTournament
+        const reg = getMyRegistration(t.tournament_id)
+        return (
+          <div onClick={() => setSelectedTournament(null)} style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 200,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '12px', boxSizing: 'border-box',
+          }}>
+            <div onClick={e => e.stopPropagation()} style={{
+              backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b',
+              maxWidth: '500px', width: '100%', maxHeight: '80vh', overflowY: 'auto', boxSizing: 'border-box',
+            }}>
+              <div style={{
+                padding: '16px 20px', borderBottom: '1px solid #1e293b',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+              }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', margin: 0 }}>{t.tournament_name}</h3>
+                <button onClick={() => setSelectedTournament(null)} style={{
+                  padding: '4px 10px', borderRadius: '5px', fontSize: '12px',
+                  backgroundColor: 'transparent', color: '#94a3b8', border: '1px solid #334155', cursor: 'pointer',
+                }}>✕</button>
+              </div>
+              <div style={{ padding: '16px 20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '8px 12px', fontSize: '13px' }}>
+                  <span style={{ color: '#64748b', fontWeight: '500' }}>開催日</span>
+                  <span style={{ color: '#e2e8f0' }}>{formatDate(t.tournament_date)}</span>
+                  <span style={{ color: '#64748b', fontWeight: '500' }}>締切日</span>
+                  <span style={{ color: '#e2e8f0' }}>{formatDate(t.deadline_date)}</span>
+                  <span style={{ color: '#64748b', fontWeight: '500' }}>主催</span>
+                  <span style={{ color: '#e2e8f0' }}>{getWardName(t.registrated_ward)}</span>
+                  <span style={{ color: '#64748b', fontWeight: '500' }}>種別</span>
+                  <span style={{ color: '#e2e8f0' }}>
+                    <span style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {(Array.isArray(t.type) ? t.type : []).map((tp: string) => (
+                        <span key={tp} style={{ padding: '1px 7px', borderRadius: '6px', fontSize: '11px', backgroundColor: '#1e293b', color: '#94a3b8' }}>{tp}</span>
+                      ))}
+                    </span>
+                  </span>
+                  <span style={{ color: '#64748b', fontWeight: '500' }}>形式</span>
+                  <span style={{ color: '#e2e8f0' }}>{t.classification === 0 ? '個人戦' : '団体戦'}</span>
+                  {t.venue && (<><span style={{ color: '#64748b', fontWeight: '500' }}>会場</span><span style={{ color: '#e2e8f0' }}>{t.venue}</span></>)}
+                  {(t.reception_time || t.opening_time || t.match_start_time) && (<>
+                    <span style={{ color: '#64748b', fontWeight: '500' }}>時刻</span>
+                    <span style={{ color: '#e2e8f0' }}>{[
+                      t.reception_time && `受付 ${formatTime(t.reception_time)}`,
+                      t.opening_time && `開会式 ${formatTime(t.opening_time)}`,
+                      t.match_start_time && `試合開始 ${formatTime(t.match_start_time)}`,
+                    ].filter(Boolean).join(' / ')}</span>
+                  </>)}
+                  {t.entry_fee && (<><span style={{ color: '#64748b', fontWeight: '500' }}>参加費</span><span style={{ color: '#e2e8f0' }}>{t.entry_fee}</span></>)}
+                </div>
+                {reg && (
+                  <div style={{ marginTop: '16px', padding: '12px 14px', borderRadius: '8px', backgroundColor: '#1e3a8a20', border: '1px solid #1e3a8a' }}>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#93c5fd', marginBottom: '6px' }}>あなたの申込情報</div>
+                    <div style={{ fontSize: '13px', color: '#cbd5e1' }}>種別: {reg.type}</div>
+                  </div>
+                )}
+                {t.guideline_pdf_path && (
+                  <div style={{ marginTop: '12px' }}>
+                    <a href={`${apiUrl}/api/tournaments/guideline/${t.tournament_id}`} target="_blank" rel="noopener noreferrer" style={{
+                      display: 'inline-block', padding: '8px 16px', borderRadius: '6px',
+                      backgroundColor: '#1e293b', color: '#93c5fd', border: '1px solid #334155',
+                      fontSize: '13px', textDecoration: 'none', cursor: 'pointer',
+                    }}>大会要項PDFを表示</a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* 練習詳細モーダル */}
       {selectedPractice && (
         <div onClick={() => setSelectedPractice(null)} style={{
@@ -285,6 +380,14 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
                 <span style={{ color: '#e2e8f0' }}>{formatTime(selectedPractice.start_time)} - {formatTime(selectedPractice.end_time)}</span>
                 <span style={{ color: '#64748b', fontWeight: '500' }}>場所</span>
                 <span style={{ color: '#e2e8f0' }}>{selectedPractice.location}</span>
+                {selectedPractice.deadline_date && (<>
+                  <span style={{ color: '#64748b', fontWeight: '500' }}>回答期限</span>
+                  <span style={{ color: '#e2e8f0' }}>{(() => {
+                    const d = new Date(selectedPractice.deadline_date)
+                    const wd = ['日','月','火','水','木','金','土'][d.getDay()]
+                    return `${d.getMonth() + 1}/${d.getDate()}(${wd}) ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+                  })()}</span>
+                </>)}
               </div>
 
               <div style={{ marginBottom: '20px' }}>

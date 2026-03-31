@@ -45,8 +45,10 @@ export default function PlayerRegistrationFormInline({ discordId, onDataChange }
   const handlePostalCodeChange = async (postalCode: string) => {
     const newData = { ...formData, postalCode }
     
-    // ハイフンを除去して7桁になったら自動検索
-    const cleanCode = postalCode.replace('-', '').replace('−', '')
+    // 全角→半角変換、ハイフン除去して7桁になったら自動検索
+    const cleanCode = postalCode
+      .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+      .replace(/[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u30FC\uFF0D\uFF70]/g, '')
     if (cleanCode.length === 7 && /^\d{7}$/.test(cleanCode)) {
       try {
         const response = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${cleanCode}`)
@@ -158,6 +160,7 @@ export default function PlayerRegistrationFormInline({ discordId, onDataChange }
         <label style={labelStyle}>郵便番号 *</label>
         <input
           type="text"
+          inputMode="tel"
           value={formData.postalCode}
           onChange={(e) => handlePostalCodeChange(e.target.value)}
           required

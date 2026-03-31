@@ -11,7 +11,7 @@ export default function DiscordLogin() {
     const redirectUri = encodeURIComponent(window.location.origin + '/')
     const scope = 'identify guilds.members.read'
 
-    const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}`
+    const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&prompt=consent`
 
     // 認証画面を開く
     window.location.href = authUrl

@@ -24,6 +24,8 @@ class PlayerCreate(BaseModel):
     phone_number: str
     birth_date: str
     sex: int
+    affiliated_club: Optional[str] = None  # 所属クラブ
+    member_level: Optional[int] = None  # Discordロールから取得した会員レベル
     created_by: Optional[str] = None  # 登録者のDiscord ID
 
 
@@ -51,6 +53,9 @@ class PlayerWardFlagsUpdate(BaseModel):
     koto_flg: Optional[bool] = None
     chuo_flg: Optional[bool] = None
     sumida_flg: Optional[bool] = None
+    arakawa_flg: Optional[bool] = None
+    adachi_flg: Optional[bool] = None
+    itabashi_flg: Optional[bool] = None
 
 
 @router.get("/players")
@@ -93,6 +98,16 @@ async def get_player(player_id: int):
 async def create_player(player: PlayerCreate):
     """新規選手を登録"""
     try:
+        # discord_idが指定されている場合、重複チェック
+        if player.discord_id:
+            existing = await db.execute_query(
+                'player_mst',
+                operation='select',
+                filters={'discord_id': player.discord_id}
+            )
+            if existing.get('data'):
+                raise HTTPException(status_code=409, detail="この選手は既に登録されています")
+
         result = await db.execute_query(
             'player_mst',
             operation='insert',
@@ -103,6 +118,8 @@ async def create_player(player: PlayerCreate):
             raise HTTPException(status_code=500, detail=result['error'])
 
         return result.get('data', [{}])[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -258,6 +275,33 @@ async def update_player_ward_flags(player_id: int, flags: PlayerWardFlagsUpdate)
             raise HTTPException(status_code=500, detail=result['error'])
 
         return {"success": True, "message": "区登録状況を更新しました"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/players/{player_id}")
+async def delete_player(player_id: int):
+    """選手を削除"""
+    try:
+        existing = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'player_id': player_id}
+        )
+        if not existing.get('data'):
+            raise HTTPException(status_code=404, detail="選手が見つかりません")
+
+        result = await db.execute_query(
+            'player_mst',
+            operation='delete',
+            filters={'player_id': player_id}
+        )
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        return {"success": True, "message": "選手を削除しました"}
     except HTTPException:
         raise
     except Exception as e:

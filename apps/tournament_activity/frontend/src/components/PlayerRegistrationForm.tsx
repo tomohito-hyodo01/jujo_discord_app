@@ -30,16 +30,22 @@ export default function PlayerRegistrationForm({ auth, permissionInfo, isRequire
 
   const handlePostalCodeChange = async (postalCode: string) => {
     setFormData(prev => ({ ...prev, postalCode }))
-    const cleanCode = postalCode.replace(/[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u30FC\uFF0D\uFF70]/g, '')
+    const cleanCode = postalCode
+      .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+      .replace(/[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u30FC\uFF0D\uFF70]/g, '')
+    console.log('[郵便番号]', { input: postalCode, cleanCode, len: cleanCode.length, match: /^\d{7}$/.test(cleanCode) })
     if (cleanCode.length === 7 && /^\d{7}$/.test(cleanCode)) {
       try {
         const response = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${cleanCode}`)
         const data = await response.json()
+        console.log('[郵便番号] API response:', data.status, data.results?.[0])
         if (data.status === 200 && data.results) {
           const result = data.results[0]
           setFormData(prev => ({ ...prev, postalCode, address: `${result.address1}${result.address2}${result.address3}` }))
         }
-      } catch {}
+      } catch (err) {
+        console.error('[郵便番号] fetch error:', err)
+      }
     }
   }
 
@@ -62,6 +68,8 @@ export default function PlayerRegistrationForm({ auth, permissionInfo, isRequire
         post_number: formData.postalCode,
         address: formData.address,
         phone_number: formData.phoneNumber,
+        affiliated_club: formData.affiliatedClub || null,
+        member_level: permissionInfo?.memberLevel ?? null,
         created_by: auth.user.id,
       }
 
@@ -111,7 +119,8 @@ export default function PlayerRegistrationForm({ auth, permissionInfo, isRequire
         }}>✓</div>
         <h2 style={{ fontSize: '28px', fontWeight: '600', color: '#f1f5f9', marginBottom: '16px' }}>選手登録完了</h2>
         <p style={{ fontSize: '15px', color: '#94a3b8' }}>
-          選手情報の登録が完了しました<br />引き続き大会申込を行います
+          選手情報の登録が完了しました<br />
+          ダッシュボードが表示されますのでお待ちください。
         </p>
       </div>
     )
@@ -197,7 +206,7 @@ export default function PlayerRegistrationForm({ auth, permissionInfo, isRequire
         <>
         <div>
           <label style={labelStyle}>郵便番号 *</label>
-          <input type="text" value={formData.postalCode}
+          <input type="text" inputMode="tel" value={formData.postalCode}
             onChange={(e) => handlePostalCodeChange(e.target.value)}
             required placeholder="123-4567（7桁入力で自動検索）" style={inputStyle} />
         </div>

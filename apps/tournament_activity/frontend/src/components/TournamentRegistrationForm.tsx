@@ -51,10 +51,10 @@ function TournamentRegistrationForm() {
     { id: 13, name: '江東区' },
     { id: 1, name: '中央区' },
     { id: 22, name: '墨田区' },
-    { id: 99, name: '広域' }
+    { id: 99, name: '東京都・その他広域' }
   ]
 
-  const typeOptions = ['一般', '35', '45', '55', '60', '65', '70', 'ミックス']
+  const typeOptions = ['一般', '35', '45', '55', '60', '65', '70', 'ミックス（一般）', 'ミックス（35）', 'シングルス']
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target as HTMLInputElement
@@ -83,6 +83,8 @@ function TournamentRegistrationForm() {
     const file = e.target.files?.[0]
     if (!file) return
 
+    // 解析用と保存用に同じファイルをセット
+    setGuidelinePdf(file)
     setIsUploading(true)
     setMessage(null)
 
@@ -96,7 +98,7 @@ function TournamentRegistrationForm() {
       const response = await fetch(`${apiUrl}/api/tournaments/parse-pdf-base64`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_base64: base64String, model: 'gemini' })
+        body: JSON.stringify({ file_base64: base64String, model: 'claude', filename: file.name })
       })
 
       if (!response.ok) {
@@ -160,13 +162,14 @@ function TournamentRegistrationForm() {
       if (result.success) {
         const tournamentId = result.tournament?.tournament_id || formData.tournament_id
 
-        // 要項PDFがあればアップロード
+        // 要項ファイルがあればBase64でアップロード
         if (guidelinePdf && tournamentId) {
-          const pdfFormData = new FormData()
-          pdfFormData.append('file', guidelinePdf)
-          await fetch(`${apiUrl}/api/tournaments/upload-guideline/${tournamentId}`, {
+          const buf = await guidelinePdf.arrayBuffer()
+          const b64 = btoa(new Uint8Array(buf).reduce((d, b) => d + String.fromCharCode(b), ''))
+          await fetch(`${apiUrl}/api/tournaments/upload-guideline-base64/${tournamentId}`, {
             method: 'POST',
-            body: pdfFormData
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_base64: b64, filename: guidelinePdf.name })
           })
         }
 
@@ -267,17 +270,13 @@ function TournamentRegistrationForm() {
         </p>
 
         {pendingTournaments.length > 0 ? (
-          <button
-            onClick={handleNextTournament}
-            style={buttonStyle}
-          >
-            次へ
-          </button>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+            <button onClick={handleNextTournament} style={buttonStyle}>
+              次へ
+            </button>
+          </div>
         ) : (
-          <button
-            onClick={handleNewRegistration}
-            style={buttonStyle}
-          >
+          <button onClick={handleNewRegistration} style={buttonStyle}>
             新しい大会を登録
           </button>
         )}
@@ -316,7 +315,7 @@ function TournamentRegistrationForm() {
             fontWeight: '600',
             marginTop: '24px'
           }}>
-            PDFを解析中...
+            ファイル解析中...
           </p>
           <p style={{
             color: '#94a3b8',
@@ -360,12 +359,12 @@ function TournamentRegistrationForm() {
       {registeredCount === 0 && pendingTournaments.length === 0 && (
         <div style={{ marginBottom: '32px' }}>
           <label style={labelStyle}>
-            PDF要項アップロード（任意）
+            大会要項ファイル（自動入力＋保存）
           </label>
 
           <input
             type="file"
-            accept=".pdf"
+            accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls"
             onChange={handlePdfUpload}
             disabled={isUploading}
             style={{
@@ -590,22 +589,6 @@ function TournamentRegistrationForm() {
           />
         </div>
 
-        {/* Guideline PDF Upload */}
-        <div style={{ marginBottom: '32px' }}>
-          <label style={labelStyle}>大会要項PDF（保存用）</label>
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={(e) => setGuidelinePdf(e.target.files?.[0] || null)}
-            style={{ ...inputStyle, padding: '12px' }}
-          />
-          {guidelinePdf && (
-            <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>
-              選択中: {guidelinePdf.name}
-            </p>
-          )}
-        </div>
-
         {/* Submit Button */}
         <button
           type="submit"
@@ -618,6 +601,31 @@ function TournamentRegistrationForm() {
         >
           {isSubmitting ? '登録中...' : '大会を登録'}
         </button>
+
+        {/* スキップボタン: 複数大会抽出時のみ表示 */}
+        {(pendingTournaments.length > 0 || (totalCount > 1 && registeredCount < totalCount)) && (
+          <button
+            type="button"
+            onClick={() => {
+              if (pendingTournaments.length > 0) {
+                const next = pendingTournaments[0]
+                setPendingTournaments(pendingTournaments.slice(1))
+                setFormData(prev => ({ ...prev, ...next }))
+                setMessage({ type: 'success', text: `スキップしました（${pendingTournaments.length}件残り）` })
+              } else {
+                handleNewRegistration()
+              }
+            }}
+            style={{
+              width: '100%', padding: '14px', marginTop: '10px',
+              backgroundColor: 'transparent', color: '#94a3b8',
+              border: '1px solid #334155', borderRadius: '8px',
+              fontSize: '16px', cursor: 'pointer',
+            }}
+          >
+            この大会をスキップ
+          </button>
+        )}
       </form>
     </div>
   )

@@ -187,7 +187,7 @@ export default function PracticeSchedule({ discordId }: PracticeScheduleProps) {
                 </div>
                 <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>
                   {(() => {
-                    const deadlinePassed = p.deadline_date && new Date(p.deadline_date + 'T23:59:59') < new Date()
+                    const deadlinePassed = p.deadline_date && new Date(p.deadline_date) < new Date()
                     if (joined) {
                       return <span style={{ padding: '6px 14px', borderRadius: '6px', fontSize: '13px', color: '#64748b', backgroundColor: '#1e293b' }}>参加済</span>
                     }
@@ -237,6 +237,11 @@ export default function PracticeSchedule({ discordId }: PracticeScheduleProps) {
                   ['日付', formatDate(selectedPractice.practice_date)],
                   ['時間', `${formatTime(selectedPractice.start_time)} - ${formatTime(selectedPractice.end_time)}`],
                   ['場所', selectedPractice.location],
+                  ...(selectedPractice.deadline_date ? [['回答期限', (() => {
+                    const d = new Date(selectedPractice.deadline_date)
+                    const wd = ['日','月','火','水','木','金','土'][d.getDay()]
+                    return `${d.getMonth() + 1}/${d.getDate()}(${wd}) ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+                  })()]] : []),
                 ].map(([label, val]) => (
                   <div key={String(label)} style={{
                     display: 'flex', padding: '8px 0', borderBottom: '1px solid #1e293b', fontSize: '14px',

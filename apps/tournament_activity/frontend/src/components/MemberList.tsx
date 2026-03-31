@@ -14,6 +14,7 @@ export default function MemberList() {
   const [wards, setWards] = useState<any[]>([])
   const [editWardFlags, setEditWardFlags] = useState({
     tokyo_flg: false, edogawa_flg: false, koto_flg: false, chuo_flg: false, sumida_flg: false,
+    arakawa_flg: false, adachi_flg: false, itabashi_flg: false,
   })
   const [savingWard, setSavingWard] = useState(false)
   const [wardSaveMessage, setWardSaveMessage] = useState('')
@@ -260,7 +261,7 @@ export default function MemberList() {
             {filtered.map(p => (
               <tr
                 key={p.player_id}
-                onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg }); setWardSaveMessage('') }}
+                onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage('') }}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#111b2e')}
                 onMouseLeave={e => (e.currentTarget.style.backgroundColor = '')}
@@ -282,7 +283,7 @@ export default function MemberList() {
         {filtered.map(p => (
           <div
             key={p.player_id}
-            onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg }); setWardSaveMessage('') }}
+            onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage('') }}
             style={{
               padding: '14px 16px', backgroundColor: '#0c1220',
               borderRadius: '10px', border: '1px solid #1e293b', cursor: 'pointer',
@@ -450,6 +451,9 @@ export default function MemberList() {
                   { key: 'koto_flg' as const, label: '江東区' },
                   { key: 'chuo_flg' as const, label: '中央区' },
                   { key: 'sumida_flg' as const, label: '墨田区' },
+                  { key: 'arakawa_flg' as const, label: '荒川区' },
+                  { key: 'adachi_flg' as const, label: '足立区' },
+                  { key: 'itabashi_flg' as const, label: '板橋区' },
                 ]).map(({ key, label }) => (
                   <label key={key} style={{
                     display: 'flex', alignItems: 'center', gap: '6px',
@@ -469,7 +473,10 @@ export default function MemberList() {
                 editWardFlags.edogawa_flg !== !!selectedPlayer.edogawa_flg ||
                 editWardFlags.koto_flg !== !!selectedPlayer.koto_flg ||
                 editWardFlags.chuo_flg !== !!selectedPlayer.chuo_flg ||
-                editWardFlags.sumida_flg !== !!selectedPlayer.sumida_flg) && (
+                editWardFlags.sumida_flg !== !!selectedPlayer.sumida_flg ||
+                editWardFlags.arakawa_flg !== !!selectedPlayer.arakawa_flg ||
+                editWardFlags.adachi_flg !== !!selectedPlayer.adachi_flg ||
+                editWardFlags.itabashi_flg !== !!selectedPlayer.itabashi_flg) && (
                 <div style={{ padding: '4px 0' }}>
                   <button
                     onClick={async () => {
@@ -516,6 +523,31 @@ export default function MemberList() {
                     return creator ? creator.player_name : selectedPlayer.created_by
                   })()}</div>
                 )}
+              </div>
+
+              <div style={{ borderTop: '1px solid #1e293b', marginTop: '12px', paddingTop: '12px' }}>
+                <button
+                  onClick={async () => {
+                    if (!confirm(`「${selectedPlayer.player_name}」を削除しますか？この操作は取り消せません。`)) return
+                    try {
+                      const res = await fetch(`${apiUrl}/api/players/${selectedPlayer.player_id}`, { method: 'DELETE' })
+                      if (res.ok) {
+                        setPlayers(prev => prev.filter(p => p.player_id !== selectedPlayer.player_id))
+                        setSelectedPlayer(null)
+                      } else {
+                        const err = await res.json()
+                        alert(`削除に失敗しました: ${err.detail || ''}`)
+                      }
+                    } catch { alert('通信エラー') }
+                  }}
+                  style={{
+                    padding: '8px 16px', borderRadius: '6px', backgroundColor: 'transparent',
+                    color: '#f87171', border: '1px solid #7f1d1d', fontSize: '13px',
+                    cursor: 'pointer', width: '100%',
+                  }}
+                >
+                  このメンバーを削除
+                </button>
               </div>
             </div>
           </div>

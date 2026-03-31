@@ -22,7 +22,11 @@ export default function TournamentManagement() {
           fetch(`${apiUrl}/api/tournaments`),
           fetch(`${apiUrl}/api/wards`),
         ])
-        if (tRes.ok) setTournaments(await tRes.json())
+        if (tRes.ok) {
+          const data = await tRes.json()
+          data.sort((a: any, b: any) => (a.tournament_date || '').localeCompare(b.tournament_date || ''))
+          setTournaments(data)
+        }
         if (wRes.ok) setWards(await wRes.json())
       } catch {} finally { setLoading(false) }
     }
@@ -49,6 +53,8 @@ export default function TournamentManagement() {
     } catch {} finally { setRegLoading(false) }
   }
 
+  const typeOptions = ['一般', '35', '45', '55', '60', '65', '70', 'ミックス（一般）', 'ミックス（35）', 'シングルス']
+
   const openEdit = (t: any) => {
     setEditData({
       tournament_name: t.tournament_name,
@@ -56,7 +62,7 @@ export default function TournamentManagement() {
       deadline_date: t.deadline_date?.split('T')[0] || '',
       tournament_date: t.tournament_date?.split('T')[0] || '',
       classification: t.classification,
-      type: Array.isArray(t.type) ? t.type.join(', ') : '',
+      type: Array.isArray(t.type) ? [...t.type] : [],
     })
     setModalMode('edit')
     setMessage('')
@@ -66,7 +72,7 @@ export default function TournamentManagement() {
     if (!selectedTournament) return
     setSaving(true); setMessage('')
     try {
-      const typeArr = editData.type.split(/[,、]/).map((s: string) => s.trim()).filter(Boolean)
+      const typeArr = Array.isArray(editData.type) ? editData.type : []
       const res = await fetch(`${apiUrl}/api/tournaments/${selectedTournament.tournament_id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -209,12 +215,39 @@ export default function TournamentManagement() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div><label style={{ fontSize: '12px', color: '#64748b' }}>大会名</label>
                     <input value={editData.tournament_name} onChange={e => setEditData({ ...editData, tournament_name: e.target.value })} style={inputStyle} /></div>
+                  <div><label style={{ fontSize: '12px', color: '#64748b' }}>主催区</label>
+                    <select value={editData.registrated_ward} onChange={e => setEditData({ ...editData, registrated_ward: parseInt(e.target.value) })} style={inputStyle}>
+                      {wards.map(w => <option key={w.ward_id} value={w.ward_id}>{w.ward_name}</option>)}
+                    </select></div>
                   <div><label style={{ fontSize: '12px', color: '#64748b' }}>開催日</label>
                     <input type="date" value={editData.tournament_date} onChange={e => setEditData({ ...editData, tournament_date: e.target.value })} style={inputStyle} /></div>
                   <div><label style={{ fontSize: '12px', color: '#64748b' }}>締切日</label>
                     <input type="date" value={editData.deadline_date} onChange={e => setEditData({ ...editData, deadline_date: e.target.value })} style={inputStyle} /></div>
-                  <div><label style={{ fontSize: '12px', color: '#64748b' }}>種別（カンマ区切り）</label>
-                    <input value={editData.type} onChange={e => setEditData({ ...editData, type: e.target.value })} style={inputStyle} placeholder="一般, 35, 45" /></div>
+                  <div>
+                    <label style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px', display: 'block' }}>種別</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {typeOptions.map(tp => {
+                        const checked = Array.isArray(editData.type) && editData.type.includes(tp)
+                        return (
+                          <label key={tp} style={{
+                            display: 'flex', alignItems: 'center', padding: '6px 12px',
+                            backgroundColor: checked ? '#1e3a8a' : '#0c1220',
+                            border: `1px solid ${checked ? '#3b82f6' : '#1e293b'}`,
+                            borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#e2e8f0',
+                          }}>
+                            <input type="checkbox" checked={checked}
+                              onChange={() => {
+                                const current = Array.isArray(editData.type) ? editData.type : []
+                                const next = checked ? current.filter((t: string) => t !== tp) : [...current, tp]
+                                setEditData({ ...editData, type: next })
+                              }}
+                              style={{ marginRight: '6px', cursor: 'pointer' }} />
+                            {tp}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                     <button onClick={handleSave} disabled={saving} style={{
                       padding: '8px 20px', borderRadius: '6px', backgroundColor: '#1e3a8a', color: '#93c5fd',

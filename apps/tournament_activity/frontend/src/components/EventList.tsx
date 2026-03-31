@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import TournamentCalendar from './TournamentCalendar'
+import { filterPairCandidates } from '../utils/playerFilter'
 
 interface EventListProps {
   discordId: string
@@ -19,6 +20,15 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const [myPlayerId, setMyPlayerId] = useState<number | null>(null)
   const [joinedPracticeIds, setJoinedPracticeIds] = useState<Set<number>>(new Set())
   const [joiningId, setJoiningId] = useState<number | null>(null)
+  const [selectedTournament, setSelectedTournament] = useState<any>(null)
+  const [tournamentReg, setTournamentReg] = useState<any>(null)
+  const [players, setPlayers] = useState<any[]>([])
+  const [editingPair, setEditingPair] = useState(false)
+  const [updatingPair, setUpdatingPair] = useState(false)
+  const [cancellingReg, setCancellingReg] = useState(false)
+  const [selectedPractice, setSelectedPractice] = useState<any>(null)
+  const [practiceParticipants, setPracticeParticipants] = useState<any[]>([])
+  const [modalLoading, setModalLoading] = useState(false)
 
   useEffect(() => {
     const loadData = async () => {
@@ -53,6 +63,8 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
           if (wardRes.ok) setWards(await wardRes.json())
           if (regRes.ok) setRegistrations(await regRes.json())
+          const plRes = await fetch(`${apiUrl}/api/players`)
+          if (plRes.ok) setPlayers(await plRes.json())
           if (practRes.ok) {
             practiceData = await practRes.json()
             setPractices(practiceData)
@@ -96,6 +108,57 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
   const apiUrlRef = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+  const openTournamentModal = (t: any) => {
+    setSelectedTournament(t)
+    setEditingPair(false)
+    // 自分の申込情報を探す
+    const reg = registrations.find(r => r.tournament_id === t.tournament_id)
+    setTournamentReg(reg || null)
+  }
+  const handleRegPairChange = async (registrationId: number, newPairId: number) => {
+    setUpdatingPair(true)
+    try {
+      const res = await fetch(`${apiUrlRef}/api/registrations/${registrationId}/pair`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pair1: newPairId }),
+      })
+      if (res.ok) {
+        setTournamentReg((prev: any) => prev ? { ...prev, pair1: newPairId } : prev)
+        setRegistrations(prev => prev.map(r => r.registration_id === registrationId ? { ...r, pair1: newPairId } : r))
+        setEditingPair(false)
+      } else {
+        const err = await res.json()
+        alert(`ペア変更に失敗しました: ${err.detail || ''}`)
+      }
+    } catch { alert('通信エラー') }
+    finally { setUpdatingPair(false) }
+  }
+
+  const handleRegCancel = async (registrationId: number, tournamentName: string) => {
+    if (!confirm(`「${tournamentName}」の申込をキャンセルしますか？`)) return
+    setCancellingReg(true)
+    try {
+      const res = await fetch(`${apiUrlRef}/api/registrations/${registrationId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setRegistrations(prev => prev.filter(r => r.registration_id !== registrationId))
+        setSelectedTournament(null)
+      } else {
+        const err = await res.json()
+        alert(`キャンセルに失敗しました: ${err.detail || ''}`)
+      }
+    } catch { alert('通信エラー') }
+    finally { setCancellingReg(false) }
+  }
+
+  const openPracticeModal = async (p: any) => {
+    setSelectedPractice(p)
+    setModalLoading(true)
+    try {
+      const res = await fetch(`${apiUrlRef}/api/practice/${p.id}/participants`)
+      if (res.ok) setPracticeParticipants(await res.json())
+    } catch {} finally { setModalLoading(false) }
+  }
+
   const handlePracticeJoin = async (practiceId: number) => {
     if (!myPlayerId || joinedPracticeIds.has(practiceId)) return
     setJoiningId(practiceId)
@@ -130,6 +193,11 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     const target = new Date(dateStr); target.setHours(0, 0, 0, 0)
     return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
   }
+
+  // 申込済み大会IDのSet
+  const registeredTournamentIds = useMemo(() => {
+    return new Set(registrations.map(r => r.tournament_id))
+  }, [registrations])
 
   // 大会と練習を統合して日付順にソート
   const upcomingPractices = useMemo(() => {
@@ -251,27 +319,47 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
             backgroundColor: '#0c1220', overflow: 'hidden',
           }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {allEvents.map((ev, i) => ev.kind === 'tournament' ? (
+              {allEvents.map((ev, i) => ev.kind === 'tournament' ? (() => {
+                const t = ev.data
+                const isRegistered = registeredTournamentIds.has(t.tournament_id)
+                const deadlineClosed = t.deadline_date && new Date(t.deadline_date) < new Date()
+                const clickable = !deadlineClosed
+
+                let tagText = '大会申込'
+                let tagBg = '#1e3a8a'
+                let tagColor = '#93c5fd'
+                let tagBorder = '#2563eb'
+                if (isRegistered && deadlineClosed) {
+                  tagText = '大会（申込済）'; tagBg = '#1e293b'; tagColor = '#64748b'; tagBorder = '#334155'
+                } else if (isRegistered) {
+                  tagText = '大会（申込済）'; tagBg = '#1e293b'; tagColor = '#64748b'; tagBorder = '#334155'
+                } else if (deadlineClosed) {
+                  tagText = '受付終了'; tagBg = '#1e293b'; tagColor = '#475569'; tagBorder = '#334155'
+                }
+
+                return (
                 <div
-                  key={`t-${ev.data.tournament_id}-${i}`}
-                  onClick={() => onNavigate('apply', ev.data.tournament_id)}
+                  key={`t-${t.tournament_id}-${i}`}
+                  onClick={() => clickable && openTournamentModal(t)}
                   style={{
                     padding: '12px 16px', borderBottom: '1px solid #1e293b',
-                    cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    cursor: clickable ? 'pointer' : 'default',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     transition: 'background-color 0.15s',
+                    opacity: deadlineClosed ? 0.6 : 1,
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#162032')}
+                  onMouseEnter={e => clickable && (e.currentTarget.style.backgroundColor = '#162032')}
                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                       <span style={{ fontSize: '12px', color: '#64748b', flexShrink: 0 }}>{formatDate(ev.date)}</span>
                       <span style={{ fontSize: '14px', fontWeight: '500', color: '#e2e8f0' }}>
-                        {ev.data.tournament_name}
+                        {t.tournament_name}
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                      {(Array.isArray(ev.data.type) ? ev.data.type : []).map((tp: string) => (
+                      {(Array.isArray(t.type) ? t.type : []).map((tp: string) => (
                         <span key={tp} style={{
                           padding: '1px 7px', borderRadius: '6px', fontSize: '11px',
                           backgroundColor: '#1e293b', color: '#94a3b8',
@@ -281,17 +369,27 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   </div>
                   <span style={{
                     padding: '3px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '500',
-                    backgroundColor: '#1e3a8a', color: '#93c5fd', border: '1px solid #2563eb',
+                    backgroundColor: tagBg, color: tagColor, border: `1px solid ${tagBorder}`,
                     flexShrink: 0, marginLeft: '12px',
-                  }}>大会</span>
+                  }}>{tagText}</span>
                 </div>
-              ) : (
+                )
+              })() : (() => {
+                const p = ev.data
+                const pDeadlinePassed = p.deadline_date && new Date(p.deadline_date) < new Date()
+                const pClickable = !pDeadlinePassed
+                return (
                 <div
-                  key={`p-${ev.data.id}-${i}`}
+                  key={`p-${p.id}-${i}`}
+                  onClick={() => pClickable && openPracticeModal(p)}
                   style={{
                     padding: '12px 16px', borderBottom: '1px solid #1e293b',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    cursor: pClickable ? 'pointer' : 'default', transition: 'background-color 0.15s',
+                    opacity: pDeadlinePassed ? 0.6 : 1,
                   }}
+                  onMouseEnter={e => pClickable && (e.currentTarget.style.backgroundColor = '#162032')}
+                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -310,12 +408,12 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0, marginLeft: '12px' }}>
                     {(() => {
                       const p = ev.data
-                      const deadlinePassed = p.deadline_date && new Date(p.deadline_date + 'T23:59:59') < new Date()
+                      const deadlinePassed = p.deadline_date && new Date(p.deadline_date) < new Date()
                       if (joinedPracticeIds.has(p.id)) {
-                        return <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b' }}>参加済</span>
+                        return <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b' }}>練習（参加済）</span>
                       }
                       if (deadlinePassed) {
-                        return <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b' }}>申込終了</span>
+                        return <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b' }}>練習（申込終了）</span>
                       }
                       return (
                         <button onClick={() => handlePracticeJoin(p.id)} disabled={joiningId === p.id || !myPlayerId} style={{
@@ -323,16 +421,207 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                           backgroundColor: '#4a1d96', color: '#c4b5fd',
                           border: '1px solid #6d28d9', cursor: !myPlayerId ? 'not-allowed' : 'pointer',
                           opacity: !myPlayerId ? 0.5 : 1,
-                        }}>{joiningId === p.id ? '...' : '参加'}</button>
+                        }}>{joiningId === p.id ? '...' : '練習参加'}</button>
                       )
                     })()}
                   </div>
                 </div>
-              ))}
+                )
+              })())}
             </div>
           </div>
         )}
       </>
+      )}
+
+      {/* 大会詳細モーダル */}
+      {selectedTournament && (
+        <div onClick={() => setSelectedTournament(null)} style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 200,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b',
+            maxWidth: '500px', width: '100%', maxHeight: '80vh', overflowY: 'auto',
+          }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>{selectedTournament.tournament_name}</h3>
+              <button onClick={() => setSelectedTournament(null)} style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', backgroundColor: 'transparent', color: '#94a3b8', border: '1px solid #334155', cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding: '16px 20px' }}>
+              {[
+                ['開催日', formatDate(selectedTournament.tournament_date)],
+                ['締切日', formatDate(selectedTournament.deadline_date)],
+                ['主催', wards.find((w: any) => w.ward_id === selectedTournament.registrated_ward)?.ward_name || ''],
+                ['形式', selectedTournament.classification === 0 ? '個人戦' : '団体戦'],
+              ].map(([label, val]) => (
+                <div key={String(label)} style={{ display: 'flex', padding: '8px 0', borderBottom: '1px solid #1e293b', fontSize: '14px' }}>
+                  <span style={{ width: '80px', flexShrink: 0, color: '#64748b', fontSize: '13px' }}>{label}</span>
+                  <span style={{ color: '#e2e8f0' }}>{val}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', padding: '8px 0', borderBottom: '1px solid #1e293b', fontSize: '14px' }}>
+                <span style={{ width: '80px', flexShrink: 0, color: '#64748b', fontSize: '13px' }}>種別</span>
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {(Array.isArray(selectedTournament.type) ? selectedTournament.type : []).map((tp: string) => (
+                    <span key={tp} style={{ padding: '1px 7px', borderRadius: '6px', fontSize: '11px', backgroundColor: '#1e293b', color: '#94a3b8' }}>{tp}</span>
+                  ))}
+                </div>
+              </div>
+
+              {tournamentReg ? (
+                <div style={{ marginTop: '16px' }}>
+                  <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#0c1220', border: '1px solid #1e293b', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>申込情報</div>
+                    <div style={{ fontSize: '14px', color: '#e2e8f0', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                      <span>種別: {tournamentReg.type}</span>
+                      <span>ペア: {(() => {
+                        const isApplicant = tournamentReg.is_applicant !== false
+                        const p = isApplicant
+                          ? players.find(pl => pl.player_id === tournamentReg.pair1)
+                          : players.find(pl => pl.discord_id === tournamentReg.discord_id)
+                        return p?.player_name || '-'
+                      })()}</span>
+                    </div>
+                  </div>
+
+                  {/* ペア変更 */}
+                  {tournamentReg.is_applicant !== false && (
+                    editingPair ? (
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                        <select
+                          defaultValue={tournamentReg.pair1}
+                          onChange={e => handleRegPairChange(tournamentReg.registration_id, parseInt(e.target.value))}
+                          disabled={updatingPair}
+                          style={{ flex: 1, padding: '8px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #334155', fontSize: '13px' }}
+                        >
+                          {(() => {
+                            const me = players.find(pl => pl.discord_id === discordId)
+                            return filterPairCandidates(
+                              players, discordId, me?.sex ?? null,
+                              tournamentReg.type, selectedTournament?.tournament_date
+                            ).map(p => (
+                              <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
+                            ))
+                          })()}
+                        </select>
+                        <button onClick={() => setEditingPair(false)} style={{
+                          padding: '8px 12px', borderRadius: '6px', backgroundColor: 'transparent',
+                          color: '#94a3b8', border: '1px solid #334155', fontSize: '13px', cursor: 'pointer',
+                        }}>戻る</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setEditingPair(true)} style={{
+                        width: '100%', padding: '10px', borderRadius: '6px', marginBottom: '8px',
+                        backgroundColor: '#1e3a8a', color: '#93c5fd', border: '1px solid #2563eb',
+                        fontSize: '14px', cursor: 'pointer',
+                      }}>ペア変更</button>
+                    )
+                  )}
+
+                  {/* キャンセル */}
+                  <button
+                    onClick={() => handleRegCancel(tournamentReg.registration_id, selectedTournament.tournament_name)}
+                    disabled={cancellingReg}
+                    style={{
+                      width: '100%', padding: '10px', borderRadius: '6px',
+                      backgroundColor: 'transparent', color: '#f87171', border: '1px solid #7f1d1d',
+                      fontSize: '14px', cursor: cancellingReg ? 'not-allowed' : 'pointer',
+                    }}
+                  >{cancellingReg ? 'キャンセル中...' : '申込をキャンセル'}</button>
+                </div>
+              ) : (
+                <button onClick={() => { setSelectedTournament(null); onNavigate('apply', selectedTournament.tournament_id) }} style={{
+                  marginTop: '16px', width: '100%', padding: '10px', borderRadius: '8px',
+                  backgroundColor: '#1e3a8a', color: '#93c5fd', border: '1px solid #2563eb',
+                  fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                }}>この大会に申し込む</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 練習詳細モーダル */}
+      {selectedPractice && (
+        <div onClick={() => setSelectedPractice(null)} style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 200,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b',
+            maxWidth: '480px', width: '100%', maxHeight: '80vh', overflowY: 'auto',
+          }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>練習詳細</h3>
+              <button onClick={() => setSelectedPractice(null)} style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', backgroundColor: 'transparent', color: '#94a3b8', border: '1px solid #334155', cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding: '16px 20px' }}>
+              {[
+                ['日付', formatDate(selectedPractice.practice_date)],
+                ['時間', `${formatTime(selectedPractice.start_time)} - ${formatTime(selectedPractice.end_time)}`],
+                ['場所', selectedPractice.location],
+                ...(selectedPractice.deadline_date ? [['回答期限', (() => {
+                  const d = new Date(selectedPractice.deadline_date)
+                  const wd = ['日','月','火','水','木','金','土'][d.getDay()]
+                  return `${d.getMonth() + 1}/${d.getDate()}(${wd}) ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+                })()]] : []),
+              ].map(([label, val]) => (
+                <div key={String(label)} style={{ display: 'flex', padding: '8px 0', borderBottom: '1px solid #1e293b', fontSize: '14px' }}>
+                  <span style={{ width: '60px', flexShrink: 0, color: '#64748b', fontSize: '13px' }}>{label}</span>
+                  <span style={{ color: '#e2e8f0' }}>{val}</span>
+                </div>
+              ))}
+
+              {/* 参加/キャンセルボタン */}
+              {myPlayerId && (() => {
+                const deadlinePassed = selectedPractice.deadline_date && new Date(selectedPractice.deadline_date) < new Date()
+                if (joinedPracticeIds.has(selectedPractice.id)) {
+                  return <button onClick={() => { handlePracticeLeave(selectedPractice.id); setSelectedPractice(null) }} style={{
+                    marginTop: '16px', width: '100%', padding: '10px', borderRadius: '6px',
+                    backgroundColor: 'transparent', color: '#f87171', border: '1px solid #7f1d1d',
+                    fontSize: '14px', fontWeight: '500', cursor: 'pointer',
+                  }}>参加をキャンセル</button>
+                }
+                if (deadlinePassed) {
+                  return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>申込終了</div>
+                }
+                return <button onClick={() => { handlePracticeJoin(selectedPractice.id); setSelectedPractice(null) }} disabled={joiningId === selectedPractice.id} style={{
+                  marginTop: '16px', width: '100%', padding: '10px', borderRadius: '6px',
+                  backgroundColor: '#3b82f6', color: '#fff', border: 'none',
+                  fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                }}>参加する</button>
+              })()}
+
+              {/* 参加者一覧 */}
+              <div style={{ marginTop: '20px' }}>
+                <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#e2e8f0', marginBottom: '10px' }}>
+                  参加者（{practiceParticipants.length}名）
+                </h4>
+                {modalLoading ? (
+                  <p style={{ color: '#94a3b8', fontSize: '13px' }}>読み込み中...</p>
+                ) : practiceParticipants.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px' }}>まだ参加者がいません</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {practiceParticipants.map((pt: any) => (
+                      <div key={pt.player_id} style={{
+                        padding: '8px 12px', backgroundColor: '#0c1220', borderRadius: '6px',
+                        border: '1px solid #1e293b', fontSize: '14px', color: '#e2e8f0',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      }}>
+                        <span>{pt.player_name}</span>
+                        {pt.player_id === myPlayerId && <span style={{ fontSize: '11px', color: '#64748b' }}>あなた</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

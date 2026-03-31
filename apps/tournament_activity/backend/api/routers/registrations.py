@@ -20,7 +20,7 @@ class RegistrationCreate(BaseModel):
     tournament_id: str
     type: str
     sex: int
-    pair1: int
+    pair1: Optional[int] = None
     pair2: Optional[List[int]] = None
 
 
@@ -58,7 +58,7 @@ async def get_user_registrations(discord_id: str):
             raise HTTPException(status_code=500, detail=own_result['error'])
 
         own_regs = own_result.get('data', [])
-        own_ids = {r['id'] for r in own_regs}
+        own_ids = {r['registration_id'] for r in own_regs}
         for r in own_regs:
             r['is_applicant'] = True
 
@@ -81,7 +81,7 @@ async def get_user_registrations(discord_id: str):
             )
             if pair_result.get('data'):
                 for r in pair_result['data']:
-                    if r['id'] not in own_ids:
+                    if r['registration_id'] not in own_ids:
                         r['is_applicant'] = False
                         pair_regs.append(r)
 
@@ -97,7 +97,7 @@ async def delete_registration(registration_id: int):
     result = await db.execute_query(
         'tournament_registration',
         operation='select',
-        filters={'id': registration_id}
+        filters={'registration_id': registration_id}
     )
 
     if result.get('error'):
@@ -110,7 +110,7 @@ async def delete_registration(registration_id: int):
     delete_result = await db.execute_query(
         'tournament_registration',
         operation='delete',
-        filters={'id': registration_id}
+        filters={'registration_id': registration_id}
     )
 
     if delete_result.get('error'):
@@ -130,7 +130,7 @@ async def update_pair(registration_id: int, request: PairUpdateRequest):
     reg_result = await db.execute_query(
         'tournament_registration',
         operation='select',
-        filters={'id': registration_id}
+        filters={'registration_id': registration_id}
     )
     if reg_result.get('error'):
         raise HTTPException(status_code=500, detail=reg_result['error'])
@@ -157,7 +157,7 @@ async def update_pair(registration_id: int, request: PairUpdateRequest):
     update_result = await db.execute_query(
         'tournament_registration',
         operation='update',
-        filters={'id': registration_id},
+        filters={'registration_id': registration_id},
         data={'pair1': request.pair1}
     )
     if update_result.get('error'):

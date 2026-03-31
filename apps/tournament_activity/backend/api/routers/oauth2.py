@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import httpx
 import os
+from api.database import db
 
 router = APIRouter()
 
@@ -72,6 +73,19 @@ async def oauth2_callback(callback: OAuth2Callback):
                 error_detail = token_response.text
                 print(f'トークン交換失敗: {token_response.status_code}')
                 print(f'Discord APIエラーレスポンス: {error_detail}')
+                # エラーログ記録
+                try:
+                    await db.execute_query(
+                        'app_logs',
+                        operation='insert',
+                        data={
+                            'level': 'ERROR',
+                            'event': 'LOGIN_FAILED',
+                            'detail': f'トークン交換失敗: {token_response.status_code}'
+                        }
+                    )
+                except:
+                    pass
                 raise HTTPException(status_code=400, detail=f'トークン交換失敗: {error_detail}')
 
             token_data = token_response.json()
@@ -87,6 +101,19 @@ async def oauth2_callback(callback: OAuth2Callback):
             )
 
             if user_response.status_code != 200:
+                # エラーログ記録
+                try:
+                    await db.execute_query(
+                        'app_logs',
+                        operation='insert',
+                        data={
+                            'level': 'ERROR',
+                            'event': 'LOGIN_FAILED',
+                            'detail': f'ユーザー情報取得失敗: {user_response.status_code}'
+                        }
+                    )
+                except:
+                    pass
                 raise HTTPException(status_code=400, detail='ユーザー情報取得失敗')
 
             user_data = user_response.json()
@@ -95,12 +122,32 @@ async def oauth2_callback(callback: OAuth2Callback):
             member_level = 3  # デフォルト: 未所属
             role_names = []
 
+            # OAuth2で取得したスコープを確認
+            print(f'トークンスコープ: {token_data.get("scope", "不明")}')
+            print(f'トークンguild: {token_data.get("guild", "なし")}')
+
             try:
+                # まずギルド一覧を取得してサーバー参加状況を確認
+                guilds_response = await client.get(
+                    'https://discord.com/api/users/@me/guilds',
+                    headers=auth_headers,
+                    timeout=10.0
+                )
+                if guilds_response.status_code == 200:
+                    guilds = guilds_response.json()
+                    guild_ids = [g['id'] for g in guilds]
+                    in_guild = GUILD_ID in guild_ids
+                    print(f'ユーザーのギルド数: {len(guilds)}, 対象ギルド参加: {in_guild}')
+                else:
+                    print(f'ギルド一覧取得失敗: {guilds_response.status_code} {guilds_response.text[:200]}')
+
                 member_response = await client.get(
                     f'https://discord.com/api/users/@me/guilds/{GUILD_ID}/member',
                     headers=auth_headers,
                     timeout=10.0
                 )
+
+                print(f'ギルドメンバーAPI: status={member_response.status_code}, body={member_response.text[:300]}')
 
                 if member_response.status_code == 200:
                     member_data = member_response.json()
@@ -120,6 +167,37 @@ async def oauth2_callback(callback: OAuth2Callback):
 
             print(f'OAuth2認証成功: {user_data["id"]} ({user_data["username"]}) memberLevel={member_level}')
 
+            # アクセスログ記録
+            try:
+                # player_mstからadmin_roleを取得
+                admin_role_name = '未登録'
+                player_result = await db.execute_query(
+                    'player_mst',
+                    operation='select',
+                    filters={'discord_id': user_data['id']}
+                )
+                if player_result.get('data'):
+                    ar = player_result['data'][0].get('admin_role', 2)
+                    admin_role_name = {0: '管理者', 1: '大会申込管理者', 2: '一般'}.get(ar, '一般')
+
+                ml_name = {0: '正会員', 1: '準会員', 2: 'ゲスト'}.get(member_level, '未所属')
+
+                await db.execute_query(
+                    'app_logs',
+                    operation='insert',
+                    data={
+                        'level': 'INFO',
+                        'discord_id': user_data['id'],
+                        'username': user_data['username'],
+                        'event': 'LOGIN',
+                        'detail': 'OAuth2認証成功',
+                        'admin_role': admin_role_name,
+                        'member_level_name': ml_name,
+                    }
+                )
+            except:
+                pass
+
             return {
                 'user_id': user_data['id'],
                 'username': user_data['username'],
@@ -130,4 +208,17 @@ async def oauth2_callback(callback: OAuth2Callback):
         raise
     except Exception as e:
         print(f'OAuth2エラー: {e}')
+        # エラーログ記録
+        try:
+            await db.execute_query(
+                'app_logs',
+                operation='insert',
+                data={
+                    'level': 'ERROR',
+                    'event': 'LOGIN_ERROR',
+                    'detail': f'OAuth2エラー: {str(e)}'
+                }
+            )
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))

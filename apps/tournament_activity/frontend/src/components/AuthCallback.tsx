@@ -47,6 +47,14 @@ export default function AuthCallback({ onAuthComplete }: AuthCallbackProps) {
           const playerData = await playerRes.json()
           if (playerData && playerData.player_id) {
             needsRegistration = false
+            // DBのmember_levelをDiscordロールで更新
+            if (playerData.member_level !== memberLevel) {
+              await fetch(`${apiUrl}/api/players/${playerData.player_id}/permissions`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ member_level: memberLevel }),
+              }).catch(() => {})
+            }
           }
         }
 

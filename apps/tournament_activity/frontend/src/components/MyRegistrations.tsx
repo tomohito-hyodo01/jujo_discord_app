@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { filterPairCandidates } from '../utils/playerFilter'
 
 interface MyRegistrationsProps {
   discordId: string
@@ -63,7 +64,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
         body: JSON.stringify({ pair1: newPairId })
       })
       if (res.ok) {
-        setRegistrations(prev => prev.map(r => r.id === registrationId ? { ...r, pair1: newPairId } : r))
+        setRegistrations(prev => prev.map(r => r.registration_id === registrationId ? { ...r, pair1: newPairId } : r))
         setEditingPairId(null)
       } else {
         const err = await res.json()
@@ -83,7 +84,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
     try {
       const res = await fetch(`${apiUrl}/api/registrations/${registrationId}`, { method: 'DELETE' })
       if (res.ok) {
-        setRegistrations(prev => prev.filter(r => r.id !== registrationId))
+        setRegistrations(prev => prev.filter(r => r.registration_id !== registrationId))
       } else {
         const err = await res.json()
         alert(`キャンセルに失敗しました: ${err.detail || ''}`)
@@ -159,15 +160,18 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
               <tbody>
                 {registrations.map(reg => {
                   const tournament = getTournament(reg.tournament_id)
-                  const pair = getPlayer(reg.pair1)
+                  const isApplicant = reg.is_applicant !== false
+                  // 自分が申込者→pair1がペア、ペア側→申込者(discord_id)がペア
+                  const pairPlayer = isApplicant
+                    ? getPlayer(reg.pair1)
+                    : players.find(p => p.discord_id === reg.discord_id)
                   const tournamentName = tournament?.tournament_name || reg.tournament_id
                   const isPast = tournament && new Date(tournament.tournament_date) < new Date()
-                  const canEdit = !isPast && isBeforeDeadline(tournament) && reg.is_applicant !== false
-                  const isEditingThis = editingPairId === reg.id
-                  const isApplicant = reg.is_applicant !== false
+                  const canEdit = !isPast && isBeforeDeadline(tournament) && isApplicant
+                  const isEditingThis = editingPairId === reg.registration_id
 
                   return (
-                    <tr key={reg.id}>
+                    <tr key={reg.registration_id}>
                       <td style={{ ...cellStyle, fontWeight: '500', whiteSpace: 'normal', minWidth: '140px' }}>
                         {tournamentName}
                         {!isApplicant && (
@@ -186,8 +190,8 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <select
                               defaultValue={reg.pair1}
-                              onChange={(e) => handlePairChange(reg.id, parseInt(e.target.value))}
-                              disabled={updatingPairId === reg.id}
+                              onChange={(e) => handlePairChange(reg.registration_id, parseInt(e.target.value))}
+                              disabled={updatingPairId === reg.registration_id}
                               style={{
                                 padding: '4px 8px', borderRadius: '5px',
                                 backgroundColor: '#0f172a', color: '#e2e8f0',
@@ -195,9 +199,16 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                                 maxWidth: '120px',
                               }}
                             >
-                              {players.map(p => (
-                                <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                              ))}
+                              {(() => {
+                                const me = players.find(pl => pl.discord_id === discordId)
+                                const tournament = getTournament(reg.tournament_id)
+                                return filterPairCandidates(
+                                  players, discordId, me?.sex ?? null,
+                                  reg.type, tournament?.tournament_date
+                                ).map(p => (
+                                  <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
+                                ))
+                              })()}
                             </select>
                             <button
                               onClick={() => setEditingPairId(null)}
@@ -211,7 +222,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                             </button>
                           </div>
                         ) : (
-                          pair?.player_name || '-'
+                          pairPlayer?.player_name || '-'
                         )}
                       </td>
                       <td style={{ ...cellStyle, textAlign: 'center' }}>
@@ -221,7 +232,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                             {canEdit && !isEditingThis && (
                               <button
-                                onClick={() => setEditingPairId(reg.id)}
+                                onClick={() => setEditingPairId(reg.registration_id)}
                                 style={{
                                   padding: '4px 10px', borderRadius: '5px',
                                   backgroundColor: 'transparent', color: '#60a5fa',
@@ -232,17 +243,17 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                               </button>
                             )}
                             <button
-                              onClick={() => handleCancel(reg.id, tournamentName)}
-                              disabled={cancellingId === reg.id}
+                              onClick={() => handleCancel(reg.registration_id, tournamentName)}
+                              disabled={cancellingId === reg.registration_id}
                               style={{
                                 padding: '4px 12px', borderRadius: '5px',
                                 backgroundColor: 'transparent', color: '#f87171',
                                 border: '1px solid #7f1d1d', fontSize: '12px',
-                                cursor: cancellingId === reg.id ? 'not-allowed' : 'pointer',
-                                opacity: cancellingId === reg.id ? 0.5 : 1,
+                                cursor: cancellingId === reg.registration_id ? 'not-allowed' : 'pointer',
+                                opacity: cancellingId === reg.registration_id ? 0.5 : 1,
                               }}
                             >
-                              {cancellingId === reg.id ? '...' : 'キャンセル'}
+                              {cancellingId === reg.registration_id ? '...' : 'キャンセル'}
                             </button>
                           </div>
                         ) : (
@@ -260,15 +271,17 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
           <div className="reg-cards" style={{ display: 'none', flexDirection: 'column', gap: '10px' }}>
             {registrations.map(reg => {
               const tournament = getTournament(reg.tournament_id)
-              const pair = getPlayer(reg.pair1)
+              const isApplicant = reg.is_applicant !== false
+              const pairPlayer = isApplicant
+                ? getPlayer(reg.pair1)
+                : players.find(p => p.discord_id === reg.discord_id)
               const tournamentName = tournament?.tournament_name || reg.tournament_id
               const isPast = tournament && new Date(tournament.tournament_date) < new Date()
-              const isApplicant = reg.is_applicant !== false
               const canEdit = !isPast && isBeforeDeadline(tournament) && isApplicant
-              const isEditingThis = editingPairId === reg.id
+              const isEditingThis = editingPairId === reg.registration_id
 
               return (
-                <div key={reg.id} style={{
+                <div key={reg.registration_id} style={{
                   padding: '14px 16px', backgroundColor: '#0c1220',
                   borderRadius: '10px', border: '1px solid #1e293b',
                 }}>
@@ -289,7 +302,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                       <div style={{ display: 'flex', gap: '6px', marginLeft: '8px', flexShrink: 0 }}>
                         {canEdit && !isEditingThis && (
                           <button
-                            onClick={() => setEditingPairId(reg.id)}
+                            onClick={() => setEditingPairId(reg.registration_id)}
                             style={{
                               padding: '4px 10px', borderRadius: '5px',
                               backgroundColor: 'transparent', color: '#60a5fa',
@@ -300,8 +313,8 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                           </button>
                         )}
                         <button
-                          onClick={() => handleCancel(reg.id, tournamentName)}
-                          disabled={cancellingId === reg.id}
+                          onClick={() => handleCancel(reg.registration_id, tournamentName)}
+                          disabled={cancellingId === reg.registration_id}
                           style={{
                             padding: '4px 10px', borderRadius: '5px',
                             backgroundColor: 'transparent', color: '#f87171',
@@ -317,17 +330,24 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                     <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <select
                         defaultValue={reg.pair1}
-                        onChange={(e) => handlePairChange(reg.id, parseInt(e.target.value))}
-                        disabled={updatingPairId === reg.id}
+                        onChange={(e) => handlePairChange(reg.registration_id, parseInt(e.target.value))}
+                        disabled={updatingPairId === reg.registration_id}
                         style={{
                           padding: '6px 10px', borderRadius: '6px', flex: 1,
                           backgroundColor: '#0f172a', color: '#e2e8f0',
                           border: '1px solid #334155', fontSize: '13px',
                         }}
                       >
-                        {players.map(p => (
-                          <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                        ))}
+                        {(() => {
+                          const me = players.find(pl => pl.discord_id === discordId)
+                          const tournament = getTournament(reg.tournament_id)
+                          return filterPairCandidates(
+                            players, discordId, me?.sex ?? null,
+                            reg.type, tournament?.tournament_date
+                          ).map(p => (
+                            <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
+                          ))
+                        })()}
                       </select>
                       <button
                         onClick={() => setEditingPairId(null)}
@@ -344,7 +364,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                   <div style={{ display: 'flex', gap: '14px', fontSize: '13px', color: '#94a3b8' }}>
                     <span><span style={{ color: '#64748b' }}>種別 </span>{reg.type}</span>
                     <span><span style={{ color: '#64748b' }}>開催 </span>{tournament ? formatDate(tournament.tournament_date) : '-'}</span>
-                    <span><span style={{ color: '#64748b' }}>ペア </span>{pair?.player_name || '-'}</span>
+                    <span><span style={{ color: '#64748b' }}>ペア </span>{pairPlayer?.player_name || '-'}</span>
                   </div>
                 </div>
               )

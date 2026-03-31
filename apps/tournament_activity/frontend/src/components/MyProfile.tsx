@@ -44,6 +44,7 @@ export default function MyProfile({ discordId }: MyProfileProps) {
     // フィールド名のマッピング
     const fieldMap: Record<string, string> = {
       player_name: 'player_name',
+      player_name_kana: 'player_name_kana',
       jsta_number: 'jsta_number',
       post_number: 'post_number',
       address: 'address',
@@ -188,6 +189,38 @@ export default function MyProfile({ discordId }: MyProfileProps) {
 
       <p style={{ fontSize: '12px', color: '#475569', marginTop: '12px' }}>
         各項目をタップして編集できます
+      </p>
+
+      <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', marginTop: '32px', marginBottom: '12px' }}>
+        登録区
+      </h3>
+      <div style={{ backgroundColor: '#0c1220', borderRadius: '10px', border: '1px solid #1e293b' }}>
+        {[
+          { key: 'tokyo_flg', label: '東京都' },
+          { key: 'edogawa_flg', label: '江戸川区' },
+          { key: 'koto_flg', label: '江東区' },
+          { key: 'chuo_flg', label: '中央区' },
+          { key: 'sumida_flg', label: '墨田区' },
+          { key: 'arakawa_flg', label: '荒川区' },
+          { key: 'adachi_flg', label: '足立区' },
+          { key: 'itabashi_flg', label: '板橋区' },
+        ].map((w, i, arr) => (
+          <div key={w.key} style={{
+            display: 'flex', alignItems: 'center', padding: '12px 20px',
+            borderBottom: i < arr.length - 1 ? '1px solid #1e293b' : 'none',
+            minHeight: '40px',
+          }}>
+            <span style={{ width: '110px', flexShrink: 0, color: '#64748b', fontSize: '13px' }}>
+              {w.label}
+            </span>
+            <span style={{ fontSize: '14px', color: player[w.key] ? '#10b981' : '#475569' }}>
+              {player[w.key] ? '登録済み' : '未登録'}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: '12px', color: '#475569', marginTop: '8px' }}>
+        登録区の変更は管理者にお問い合わせください
       </p>
     </div>
   )
