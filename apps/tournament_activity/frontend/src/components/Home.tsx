@@ -62,9 +62,11 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
           fetch(`${apiUrl}/api/wards`),
         ])
         if (wardRes.ok) setWards(await wardRes.json())
+        let tournaments: any[] = []
+        let registrations: any[] = []
         if (tRes.ok && regRes.ok) {
-          const tournaments = await tRes.json()
-          const registrations = await regRes.json()
+          tournaments = await tRes.json()
+          registrations = await regRes.json()
           setMyRegistrations(registrations)
           const regIds = new Set(registrations.map((r: any) => r.tournament_id))
           const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -105,7 +107,21 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
           }
         }
 
-        setNotices([])
+        // 当日の大会のコート番号をお知らせとして表示
+        const todayStr = new Date().toISOString().split('T')[0]
+        const courtNotices: any[] = []
+        for (const reg of registrations) {
+          if (!reg.court_number) continue
+          const tour = tournaments.find((t: any) => t.tournament_id === reg.tournament_id)
+          if (!tour) continue
+          const tDate = (tour.tournament_date || '').split('T')[0]
+          if (tDate === todayStr) {
+            courtNotices.push({
+              text: `本日の${tour.tournament_name}のコート番号: ${reg.court_number}`
+            })
+          }
+        }
+        setNotices(courtNotices)
       } catch {}
     }
     load()
@@ -332,6 +348,9 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
                   <div style={{ marginTop: '16px', padding: '12px 14px', borderRadius: '8px', backgroundColor: '#1e3a8a20', border: '1px solid #1e3a8a' }}>
                     <div style={{ fontSize: '13px', fontWeight: '600', color: '#93c5fd', marginBottom: '6px' }}>あなたの申込情報</div>
                     <div style={{ fontSize: '13px', color: '#cbd5e1' }}>種別: {reg.type}</div>
+                    {reg.court_number && (
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: '#fbbf24', marginTop: '6px' }}>コート番号: {reg.court_number}</div>
+                    )}
                   </div>
                 )}
                 {t.guideline_pdf_path && (

@@ -12,6 +12,8 @@ export default function TournamentManagement() {
   const [registrations, setRegistrations] = useState<any[]>([])
   const [regLoading, setRegLoading] = useState(false)
   const [excelGenerating, setExcelGenerating] = useState(false)
+  const [courtNumbers, setCourtNumbers] = useState<Record<number, string>>({})
+  const [courtSaving, setCourtSaving] = useState<number | null>(null)
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -46,11 +48,37 @@ export default function TournamentManagement() {
     setModalMode('detail')
     setMessage('')
     setRegistrations([])
+    setCourtNumbers({})
     setRegLoading(true)
     try {
       const res = await fetch(`${apiUrl}/api/registrations/tournament/${t.tournament_id}`)
-      if (res.ok) setRegistrations(await res.json())
+      if (res.ok) {
+        const regs = await res.json()
+        setRegistrations(regs)
+        const courts: Record<number, string> = {}
+        for (const r of regs) {
+          courts[r.registration_id] = r.court_number || ''
+        }
+        setCourtNumbers(courts)
+      }
     } catch {} finally { setRegLoading(false) }
+  }
+
+  const saveCourtNumber = async (registrationId: number) => {
+    setCourtSaving(registrationId)
+    try {
+      const res = await fetch(`${apiUrl}/api/registrations/${registrationId}/court-number`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ court_number: courtNumbers[registrationId] || null }),
+      })
+      if (res.ok) {
+        setMessage('コート番号を保存しました')
+      } else {
+        setMessage('コート番号の保存に失敗しました')
+      }
+    } catch { setMessage('通信エラー') }
+    finally { setCourtSaving(null) }
   }
 
   const typeOptions = ['一般', '35', '45', '55', '60', '65', '70', 'ミックス（一般）', 'ミックス（35）', 'シングルス']
@@ -309,16 +337,41 @@ export default function TournamentManagement() {
                           <div key={i} style={{
                             padding: '8px 12px', backgroundColor: '#0c1220', borderRadius: '6px',
                             border: '1px solid #1e293b', fontSize: '13px',
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                           }}>
-                            <div>
-                              <span style={{ color: '#e2e8f0', fontWeight: '500' }}>{r.applicant_name || r.discord_id}</span>
-                              <span style={{ color: '#64748b' }}> / </span>
-                              <span style={{ color: '#94a3b8' }}>{r.pair_name || '-'}</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <div>
+                                <span style={{ color: '#e2e8f0', fontWeight: '500' }}>{r.applicant_name || r.discord_id}</span>
+                                <span style={{ color: '#64748b' }}> / </span>
+                                <span style={{ color: '#94a3b8' }}>{r.pair_name || '-'}</span>
+                              </div>
+                              <span style={{ padding: '1px 8px', borderRadius: '6px', fontSize: '11px', backgroundColor: '#1e293b', color: '#94a3b8' }}>
+                                {r.type}
+                              </span>
                             </div>
-                            <span style={{ padding: '1px 8px', borderRadius: '6px', fontSize: '11px', backgroundColor: '#1e293b', color: '#94a3b8' }}>
-                              {r.type}
-                            </span>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <label style={{ fontSize: '12px', color: '#64748b', flexShrink: 0 }}>コート番号:</label>
+                              <input
+                                type="text"
+                                value={courtNumbers[r.registration_id] || ''}
+                                onChange={e => setCourtNumbers(prev => ({ ...prev, [r.registration_id]: e.target.value }))}
+                                placeholder="例: 3"
+                                style={{
+                                  flex: 1, padding: '4px 8px', backgroundColor: '#0f172a', border: '1px solid #1e293b',
+                                  borderRadius: '4px', color: '#e2e8f0', fontSize: '12px', maxWidth: '100px',
+                                }}
+                              />
+                              <button
+                                onClick={() => saveCourtNumber(r.registration_id)}
+                                disabled={courtSaving === r.registration_id}
+                                style={{
+                                  padding: '3px 10px', borderRadius: '4px', backgroundColor: '#1e3a8a',
+                                  color: '#93c5fd', border: '1px solid #2563eb', fontSize: '11px',
+                                  cursor: courtSaving === r.registration_id ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                {courtSaving === r.registration_id ? '...' : '保存'}
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>

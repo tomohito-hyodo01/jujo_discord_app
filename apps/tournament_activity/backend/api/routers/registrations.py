@@ -119,6 +119,10 @@ async def delete_registration(registration_id: int):
     return {"success": True, "message": "申込をキャンセルしました"}
 
 
+class CourtNumberUpdateRequest(BaseModel):
+    court_number: Optional[str] = None
+
+
 class PairUpdateRequest(BaseModel):
     pair1: int
 
@@ -164,6 +168,33 @@ async def update_pair(registration_id: int, request: PairUpdateRequest):
         raise HTTPException(status_code=500, detail=update_result['error'])
 
     return {"success": True, "message": "ペアを変更しました"}
+
+
+@router.put("/registrations/{registration_id}/court-number")
+async def update_court_number(registration_id: int, request: CourtNumberUpdateRequest):
+    """コート番号を更新"""
+    # 申込の存在確認
+    reg_result = await db.execute_query(
+        'tournament_registration',
+        operation='select',
+        filters={'registration_id': registration_id}
+    )
+    if reg_result.get('error'):
+        raise HTTPException(status_code=500, detail=reg_result['error'])
+    if not reg_result.get('data'):
+        raise HTTPException(status_code=404, detail="申込が見つかりません")
+
+    # コート番号更新
+    update_result = await db.execute_query(
+        'tournament_registration',
+        operation='update',
+        filters={'registration_id': registration_id},
+        data={'court_number': request.court_number}
+    )
+    if update_result.get('error'):
+        raise HTTPException(status_code=500, detail=update_result['error'])
+
+    return {"success": True, "message": "コート番号を更新しました"}
 
 
 @router.get("/registrations/tournament/{tournament_id}")
