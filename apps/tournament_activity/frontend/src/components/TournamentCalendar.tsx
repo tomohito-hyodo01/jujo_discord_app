@@ -4,6 +4,7 @@ interface TournamentCalendarProps {
   tournaments: any[]
   registrations: any[]
   practices?: any[]
+  refTrainings?: any[]
   wards: any[]
   discordId?: string
   myPlayerId: number | null
@@ -11,49 +12,20 @@ interface TournamentCalendarProps {
   onPracticeJoin: (practiceId: number) => Promise<void>
   onPracticeLeave: (practiceId: number) => Promise<void>
   onNavigate: (page: string, tournamentId?: string) => void
+  onOpenTournamentModal?: (tournament: any) => void
+  onOpenPracticeModal?: (practice: any) => void
+  customEvents?: any[]
+  onOpenEventModal?: (event: any) => void
 }
 
-export default function TournamentCalendar({ tournaments, registrations, practices = [], wards, myPlayerId, joinedPracticeIds, onPracticeJoin, onPracticeLeave, onNavigate }: TournamentCalendarProps) {
+export default function TournamentCalendar({ tournaments, registrations: _registrations, practices = [], refTrainings = [], wards: _wards, myPlayerId: _myPlayerId, joinedPracticeIds, onPracticeJoin: _onPracticeJoin, onPracticeLeave: _onPracticeLeave, onNavigate: _onNavigate, onOpenTournamentModal, onOpenPracticeModal, customEvents = [], onOpenEventModal }: TournamentCalendarProps) {
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
-  const [selectedTournament, setSelectedTournament] = useState<any | null>(null)
-  const [selectedPractice, setSelectedPractice] = useState<any | null>(null)
-  const [practiceParticipants, setPracticeParticipants] = useState<any[]>([])
-  const [joining, setJoining] = useState(false)
-  const [modalLoading, setModalLoading] = useState(false)
 
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-
-  const handleJoin = async (practiceId: number) => {
-    setJoining(true)
-    try {
-      await onPracticeJoin(practiceId)
-      if (selectedPractice?.id === practiceId) {
-        const pRes = await fetch(`${apiUrl}/api/practice/${practiceId}/participants`)
-        if (pRes.ok) setPracticeParticipants(await pRes.json())
-      }
-    } finally { setJoining(false) }
-  }
-
-  const handleLeave = async (practiceId: number) => {
-    if (!confirm('参加をキャンセルしますか？')) return
-    await onPracticeLeave(practiceId)
-    if (selectedPractice?.id === practiceId) {
-      setPracticeParticipants(prev => prev.filter(pt => pt.player_id !== myPlayerId))
-    }
-  }
-
-  const openPracticeDetail = async (practice: any) => {
-    setSelectedPractice(practice)
-    setModalLoading(true)
-    try {
-      const res = await fetch(`${apiUrl}/api/practice/${practice.id}/participants`)
-      if (res.ok) setPracticeParticipants(await res.json())
-    } catch {} finally { setModalLoading(false) }
-  }
+  // モーダルはEventList側で表示するため、カレンダー内では不要
 
   // 画面幅に応じた表示文字数を計算
   const [cellChars, setCellChars] = useState(() => {
@@ -103,13 +75,38 @@ export default function TournamentCalendar({ tournaments, registrations, practic
   // 練習を日付でグループ化
   const practicesByDate = useMemo(() => {
     const map: Record<string, any[]> = {}
-    practices.forEach(p => {
-      const dateStr = p.practice_date
+    practices
+      .filter(p => p.visibility !== 'invited' || (p.invited_player_ids || []).includes(_myPlayerId))
+      .forEach(p => {
+        const dateStr = p.practice_date
+        if (!map[dateStr]) map[dateStr] = []
+        map[dateStr].push(p)
+      })
+    return map
+  }, [practices, _myPlayerId])
+
+  const refTrainingsByDate = useMemo(() => {
+    const map: Record<string, any[]> = {}
+    refTrainings.forEach(r => {
+      const dateStr = r.training_date
       if (!map[dateStr]) map[dateStr] = []
-      map[dateStr].push(p)
+      map[dateStr].push(r)
     })
     return map
-  }, [practices])
+  }, [refTrainings])
+
+  const customEventsByDate = useMemo(() => {
+    const map: Record<string, any[]> = {}
+    customEvents
+      .filter(e => e.status !== 'cancelled')
+      .filter(e => e.visibility !== 'invited' || (e.invited_player_ids || []).includes(_myPlayerId))
+      .forEach(e => {
+        const dateStr = e.event_date
+        if (!map[dateStr]) map[dateStr] = []
+        map[dateStr].push(e)
+      })
+    return map
+  }, [customEvents, _myPlayerId])
 
   // カレンダーグリッド生成
   const calendarDays = useMemo(() => {
@@ -137,15 +134,10 @@ export default function TournamentCalendar({ tournaments, registrations, practic
   const tournamentColor = { bg: '#1e3a8a', text: '#93c5fd', border: '#2563eb' }
   const practiceColor = { bg: '#4a1d96', text: '#c4b5fd', border: '#6d28d9' }
 
-  const getWardName = (wardId: number) => {
-    const w = wards.find((wd: any) => wd.ward_id === wardId)
-    return w?.ward_name || ''
-  }
-
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr)
     const weekdays = ['日', '月', '火', '水', '木', '金', '土']
-    return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}（${weekdays[d.getDay()]}）`
+    return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}(${weekdays[d.getDay()]})`
   }
 
   const formatTime = (time: string | null) => {
@@ -156,20 +148,29 @@ export default function TournamentCalendar({ tournaments, registrations, practic
   // 選択された日付の大会・練習一覧
   const tournamentsOnDate = selectedDate ? (tournamentsByDate[selectedDate] || []) : []
   const practicesOnDate = selectedDate ? (practicesByDate[selectedDate] || []) : []
+  const refTrainingsOnDate = selectedDate ? (refTrainingsByDate[selectedDate] || []) : []
 
   // 当月の全イベント（日付順）
   const monthEvents = useMemo(() => {
     const ym = `${year}-${String(month + 1).padStart(2, '0')}`
-    const events: { date: string; type: 'tournament' | 'practice'; data: any }[] = []
+    const events: { date: string; type: 'tournament' | 'practice' | 'custom_event'; data: any }[] = []
     tournaments.forEach(t => {
       if (t.tournament_date?.startsWith(ym)) events.push({ date: t.tournament_date, type: 'tournament', data: t })
     })
-    practices.forEach(p => {
-      if (p.practice_date?.startsWith(ym)) events.push({ date: p.practice_date, type: 'practice', data: p })
-    })
+    practices
+      .filter(p => p.visibility !== 'invited' || (p.invited_player_ids || []).includes(_myPlayerId))
+      .forEach(p => {
+        if (p.practice_date?.startsWith(ym)) events.push({ date: p.practice_date, type: 'practice', data: p })
+      })
+    customEvents
+      .filter(e => e.status !== 'cancelled')
+      .filter(e => e.visibility !== 'invited' || (e.invited_player_ids || []).includes(_myPlayerId))
+      .forEach(e => {
+        if (e.event_date?.startsWith(ym)) events.push({ date: e.event_date, type: 'custom_event', data: e })
+      })
     events.sort((a, b) => a.date.localeCompare(b.date))
     return events
-  }, [tournaments, practices, year, month])
+  }, [tournaments, practices, customEvents, _myPlayerId, year, month])
 
   const formatShortDate = (dateStr: string) => {
     const d = new Date(dateStr)
@@ -177,9 +178,7 @@ export default function TournamentCalendar({ tournaments, registrations, practic
     return `${d.getMonth() + 1}/${d.getDate()}(${wds[d.getDay()]})`
   }
 
-  // モーダルの大会に対するユーザーの申込情報
-  const getRegistration = (tournamentId: string) =>
-    registrations.find(r => r.tournament_id === tournamentId)
+
 
   const weekdays = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -216,6 +215,15 @@ export default function TournamentCalendar({ tournaments, registrations, practic
           backgroundColor: practiceColor.bg, color: practiceColor.text,
           lineHeight: '16px',
         }}>練習</div>
+        <div style={{
+          fontSize: '11px', padding: '1px 8px', borderRadius: '2px',
+          backgroundColor: '#0e4429', color: '#6ee7b7',
+          lineHeight: '16px',
+        }}>イベント</div>
+      </div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#94a3b8' }}>
+        <div style={{ width: '14px', height: '14px', borderRadius: '3px', backgroundColor: '#713f12', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', color: '#fbbf24', lineHeight: '14px' }}>審</div>
+        審判講習
       </div>
 
       {/* カレンダーグリッド */}
@@ -247,7 +255,9 @@ export default function TournamentCalendar({ tournaments, registrations, practic
             const dateStr = getDateStr(day)
             const dayTournaments = tournamentsByDate[dateStr] || []
             const dayPractices = practicesByDate[dateStr] || []
-            const hasEvents = dayTournaments.length > 0 || dayPractices.length > 0
+            const dayRefTrainings = refTrainingsByDate[dateStr] || []
+            const dayCustomEvents = customEventsByDate[dateStr] || []
+            const hasEvents = dayTournaments.length > 0 || dayPractices.length > 0 || dayRefTrainings.length > 0 || dayCustomEvents.length > 0
             const isToday = dateStr === todayStr
             const isSelected = dateStr === selectedDate
             const dayOfWeek = (new Date(year, month, day)).getDay()
@@ -257,9 +267,19 @@ export default function TournamentCalendar({ tournaments, registrations, practic
                 key={dateStr}
                 className="cal-cell"
                 onClick={() => {
-                  if (hasEvents) {
+                  if (!hasEvents) return
+                  const totalCount = dayTournaments.length + dayPractices.length + dayRefTrainings.length
+                  if (totalCount === 1) {
                     setSelectedDate(dateStr)
-                    setSelectedTournament(null)
+                    if (dayTournaments.length === 1 && onOpenTournamentModal) {
+                      onOpenTournamentModal(dayTournaments[0])
+                    } else if (dayPractices.length === 1 && onOpenPracticeModal) {
+                      onOpenPracticeModal(dayPractices[0])
+                    } else {
+                      // refTraining等は一覧表示
+                    }
+                  } else {
+                    setSelectedDate(dateStr)
                   }
                 }}
                 style={{
@@ -313,6 +333,24 @@ export default function TournamentCalendar({ tournaments, registrations, practic
                       +{dayPractices.length - 1}
                     </div>
                   )}
+                  {dayRefTrainings.slice(0, 1).map((r: any) => (
+                    <div key={`r-${r.id}`} className="cal-ev" style={{
+                      fontSize: '10px', padding: '0px 3px', borderRadius: '2px',
+                      backgroundColor: '#713f12', color: '#fbbf24',
+                      whiteSpace: 'nowrap', lineHeight: '15px', overflow: 'hidden',
+                    }}>
+                      {r.grade}
+                    </div>
+                  ))}
+                  {dayCustomEvents.slice(0, 1).map((e: any) => (
+                    <div key={`e-${e.id}`} className="cal-ev" style={{
+                      fontSize: '10px', padding: '0px 3px', borderRadius: '2px',
+                      backgroundColor: '#0e4429', color: '#6ee7b7',
+                      whiteSpace: 'nowrap', lineHeight: '15px', overflow: 'hidden',
+                    }}>
+                      {truncate(e.title)}
+                    </div>
+                  ))}
                 </div>
               </div>
             )
@@ -322,12 +360,13 @@ export default function TournamentCalendar({ tournaments, registrations, practic
       </div>
 
       {/* 予定一覧: 日付選択時はその日のみ、未選択時は月全体 */}
-      {!selectedTournament && (() => {
+      {(() => {
         const showingDate = !!selectedDate
         const events = showingDate
           ? [
               ...tournamentsOnDate.map((t: any) => ({ date: selectedDate!, type: 'tournament' as const, data: t })),
               ...practicesOnDate.map((p: any) => ({ date: selectedDate!, type: 'practice' as const, data: p })),
+              ...refTrainingsOnDate.map((r: any) => ({ date: selectedDate!, type: 'referee' as const, data: r })),
             ]
           : monthEvents
 
@@ -355,7 +394,7 @@ export default function TournamentCalendar({ tournaments, registrations, practic
               {events.map((ev, i) => ev.type === 'tournament' ? (
                 <div
                   key={`t-${ev.data.tournament_id}-${i}`}
-                  onClick={() => setSelectedTournament(ev.data)}
+                  onClick={() => onOpenTournamentModal ? onOpenTournamentModal(ev.data) : null}
                   style={{
                     padding: '12px 16px', borderBottom: '1px solid #1e293b',
                     cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -388,10 +427,27 @@ export default function TournamentCalendar({ tournaments, registrations, practic
                     flexShrink: 0, marginLeft: '12px',
                   }}>大会</span>
                 </div>
-              ) : (
-                <div
-                  key={`p-${ev.data.id}-${i}`}
-                  onClick={() => openPracticeDetail(ev.data)}
+              ) : ev.type === 'referee' ? (
+                <div key={`r-${ev.data.id}-${i}`} style={{
+                  padding: '12px 16px', borderBottom: '1px solid #1e293b',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      {!showingDate && <span style={{ fontSize: '12px', color: '#64748b', flexShrink: 0 }}>{formatShortDate(ev.date)}</span>}
+                      <span style={{ fontSize: '14px', fontWeight: '500', color: '#e2e8f0' }}>{ev.data.grade} {ev.data.session_name}</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>{ev.data.venue}</div>
+                  </div>
+                  <span style={{
+                    padding: '3px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '500',
+                    backgroundColor: '#713f12', color: '#fbbf24', border: '1px solid #a16207',
+                    flexShrink: 0, marginLeft: '12px',
+                  }}>審判講習</span>
+                </div>
+              ) : ev.type === 'custom_event' ? (
+                <div key={`ce-${ev.data.id}-${i}`}
+                  onClick={() => onOpenEventModal ? onOpenEventModal(ev.data) : null}
                   style={{
                     padding: '12px 16px', borderBottom: '1px solid #1e293b',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -402,266 +458,75 @@ export default function TournamentCalendar({ tournaments, registrations, practic
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      {!showingDate && <span style={{ fontSize: '12px', color: '#64748b', flexShrink: 0 }}>{formatShortDate(ev.date)}</span>}
+                      <span style={{ fontSize: '14px', fontWeight: '500', color: '#e2e8f0' }}>{ev.data.title}</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                      {ev.data.start_time && `${ev.data.start_time}${ev.data.end_time ? `-${ev.data.end_time}` : ''}`}
+                      {ev.data.location && ` / ${ev.data.location}`}
+                      {` / ${ev.data.participant_count || 0}名参加`}
+                    </div>
+                  </div>
+                  <span style={{
+                    padding: '3px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '500',
+                    backgroundColor: '#0e4429', color: '#6ee7b7', border: '1px solid #16a34a',
+                    flexShrink: 0, marginLeft: '12px',
+                  }}>イベント</span>
+                </div>
+              ) : (() => {
+                  const p = ev.data
+                  const deadlinePassed = p.deadline_date && new Date(p.deadline_date) < new Date()
+                  return (
+                <div
+                  key={`p-${p.id}-${i}`}
+                  onClick={() => onOpenPracticeModal ? onOpenPracticeModal(p) : null}
+                  style={{
+                    padding: '12px 16px', borderBottom: '1px solid #1e293b',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    cursor: 'pointer', transition: 'background-color 0.15s',
+                    opacity: deadlinePassed ? 0.6 : 1,
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#162032')}
+                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                       {!showingDate && (
                         <span style={{ fontSize: '12px', color: '#64748b', flexShrink: 0 }}>{formatShortDate(ev.date)}</span>
                       )}
                       <span style={{ fontSize: '14px', fontWeight: '500', color: '#e2e8f0' }}>
-                        {ev.data.location}
+                        {p.location}
                       </span>
                     </div>
                     <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                      {formatTime(ev.data.start_time)} - {formatTime(ev.data.end_time)} / {ev.data.participant_count || 0}名参加
+                      {formatTime(p.start_time)} - {formatTime(p.end_time)} / {p.participant_count || 0}名参加
                     </div>
                   </div>
                   <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0, marginLeft: '12px' }}>
-                    {myPlayerId && (joinedPracticeIds.has(ev.data.id) ? (
-                      <span style={{
-                        padding: '3px 10px', borderRadius: '6px', fontSize: '12px',
-                        color: '#64748b', backgroundColor: '#1e293b',
-                      }}>参加済</span>
-                    ) : (
-                      <button onClick={() => handleJoin(ev.data.id)} disabled={joining} style={{
-                        padding: '3px 10px', borderRadius: '6px', fontSize: '12px',
-                        backgroundColor: practiceColor.bg, color: practiceColor.text,
-                        border: `1px solid ${practiceColor.border}`, cursor: 'pointer',
-                      }}>参加</button>
-                    ))}
+                    {(() => {
+                      if (joinedPracticeIds.has(p.id)) {
+                        return <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b' }}>参加済</span>
+                      }
+                      if (deadlinePassed) {
+                        return <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b' }}>申込終了</span>
+                      }
+                      return (
+                        <span style={{
+                          padding: '3px 10px', borderRadius: '6px', fontSize: '12px',
+                          backgroundColor: practiceColor.bg, color: practiceColor.text,
+                          border: `1px solid ${practiceColor.border}`,
+                        }}>練習</span>
+                      )
+                    })()}
                   </div>
                 </div>
-              ))}
+                  )
+                })())}
             </div>
           </div>
         )
       })()}
 
-      {/* 大会詳細モーダル */}
-      {selectedTournament && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 200,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '16px',
-        }} onClick={() => setSelectedTournament(null)}>
-          <div
-            style={{
-              backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b',
-              maxWidth: '500px', width: '100%', maxHeight: '80vh', overflowY: 'auto',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            {(() => {
-              const t = selectedTournament
-              const reg = getRegistration(t.tournament_id)
-
-              return (
-                <>
-                  {/* モーダルヘッダー */}
-                  <div style={{
-                    padding: '16px 20px', borderBottom: '1px solid #1e293b',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                  }}>
-                    <div style={{ flex: 1 }}>
-                      <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', margin: '0 0 6px 0' }}>
-                        {t.tournament_name}
-                      </h3>
-                      <span style={{
-                        padding: '2px 10px', borderRadius: '6px', fontSize: '12px',
-                        backgroundColor: tournamentColor.bg, color: tournamentColor.text, border: `1px solid ${tournamentColor.border}`,
-                      }}>
-                        大会
-                      </span>
-                    </div>
-                    <button onClick={() => setSelectedTournament(null)} style={closeBtnStyle}>
-                      ✕
-                    </button>
-                  </div>
-
-                  {/* 大会情報 */}
-                  <div style={{ padding: '16px 20px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '8px 12px', fontSize: '13px' }}>
-                      <span style={detailLabelStyle}>開催日</span>
-                      <span style={detailValueStyle}>{formatDate(t.tournament_date)}</span>
-
-                      <span style={detailLabelStyle}>締切日</span>
-                      <span style={detailValueStyle}>{formatDate(t.deadline_date)}</span>
-
-                      <span style={detailLabelStyle}>主催</span>
-                      <span style={detailValueStyle}>{getWardName(t.registrated_ward)}</span>
-
-                      <span style={detailLabelStyle}>種別</span>
-                      <span style={detailValueStyle}>
-                        <span style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                          {(Array.isArray(t.type) ? t.type : []).map((tp: string) => (
-                            <span key={tp} style={{
-                              padding: '1px 7px', borderRadius: '6px', fontSize: '11px',
-                              backgroundColor: '#1e293b', color: '#94a3b8',
-                            }}>{tp}</span>
-                          ))}
-                        </span>
-                      </span>
-
-                      <span style={detailLabelStyle}>形式</span>
-                      <span style={detailValueStyle}>{t.classification === 0 ? '個人戦' : '団体戦'}</span>
-
-                      {t.venue && (
-                        <>
-                          <span style={detailLabelStyle}>会場</span>
-                          <span style={detailValueStyle}>{t.venue}</span>
-                        </>
-                      )}
-
-                      {(t.reception_time || t.opening_time || t.match_start_time) && (
-                        <>
-                          <span style={detailLabelStyle}>時刻</span>
-                          <span style={detailValueStyle}>
-                            {[
-                              t.reception_time && `受付 ${formatTime(t.reception_time)}`,
-                              t.opening_time && `開会式 ${formatTime(t.opening_time)}`,
-                              t.match_start_time && `試合開始 ${formatTime(t.match_start_time)}`,
-                            ].filter(Boolean).join(' / ')}
-                          </span>
-                        </>
-                      )}
-
-                      {t.entry_fee && (
-                        <>
-                          <span style={detailLabelStyle}>参加費</span>
-                          <span style={detailValueStyle}>{t.entry_fee}</span>
-                        </>
-                      )}
-                    </div>
-
-                    {/* 申込情報 */}
-                    {reg && (
-                      <div style={{
-                        marginTop: '16px', padding: '12px 14px', borderRadius: '8px',
-                        backgroundColor: '#1e3a8a20', border: '1px solid #1e3a8a',
-                      }}>
-                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#93c5fd', marginBottom: '6px' }}>
-                          あなたの申込情報
-                        </div>
-                        <div style={{ fontSize: '13px', color: '#cbd5e1' }}>
-                          種別: {reg.type}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 要項PDFリンク */}
-                    {t.guideline_pdf_path && (
-                      <div style={{ marginTop: '12px' }}>
-                        <a
-                          href={`${apiUrl}/api/tournaments/guideline/${t.tournament_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            display: 'inline-block', padding: '8px 16px', borderRadius: '6px',
-                            backgroundColor: '#1e293b', color: '#93c5fd', border: '1px solid #334155',
-                            fontSize: '13px', textDecoration: 'none', cursor: 'pointer',
-                          }}
-                        >
-                          大会要項PDFを表示
-                        </a>
-                      </div>
-                    )}
-
-                    {/* 申込ボタン */}
-                    {(() => { const dl = new Date(t.deadline_date); dl.setHours(23,59,59); return new Date() <= dl && !reg; })() && (
-                      <button
-                        onClick={() => {
-                          setSelectedTournament(null)
-                          setSelectedDate(null)
-                          onNavigate('apply', t.tournament_id)
-                        }}
-                        style={{
-                          marginTop: '16px', width: '100%', padding: '10px',
-                          borderRadius: '8px', backgroundColor: '#1e3a8a', color: '#93c5fd',
-                          border: '1px solid #2563eb', fontSize: '14px', fontWeight: '600',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        この大会に申し込む
-                      </button>
-                    )}
-                  </div>
-                </>
-              )
-            })()}
-          </div>
-        </div>
-      )}
-      {/* 練習詳細モーダル */}
-      {selectedPractice && (
-        <div onClick={() => setSelectedPractice(null)} style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 200,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
-        }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b',
-            maxWidth: '480px', width: '100%', maxHeight: '80vh', overflowY: 'auto',
-          }}>
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '16px 20px', borderBottom: '1px solid #1e293b',
-            }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>練習詳細</h3>
-              <button onClick={() => setSelectedPractice(null)} style={closeBtnStyle}>✕</button>
-            </div>
-            <div style={{ padding: '16px 20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: '8px 12px', fontSize: '14px', marginBottom: '20px' }}>
-                <span style={detailLabelStyle}>日付</span>
-                <span style={detailValueStyle}>{formatDate(selectedPractice.practice_date)}</span>
-                <span style={detailLabelStyle}>時間</span>
-                <span style={detailValueStyle}>{formatTime(selectedPractice.start_time)} - {formatTime(selectedPractice.end_time)}</span>
-                <span style={detailLabelStyle}>場所</span>
-                <span style={detailValueStyle}>{selectedPractice.location}</span>
-              </div>
-
-              {myPlayerId && (
-                <div style={{ marginBottom: '20px' }}>
-                  {joinedPracticeIds.has(selectedPractice.id) ? (
-                    <button onClick={() => handleLeave(selectedPractice.id)} style={{
-                      padding: '10px', borderRadius: '6px', backgroundColor: 'transparent',
-                      color: '#f87171', border: '1px solid #7f1d1d', fontSize: '14px',
-                      fontWeight: '500', cursor: 'pointer', width: '100%',
-                    }}>参加をキャンセル</button>
-                  ) : (
-                    <button onClick={() => handleJoin(selectedPractice.id)} disabled={joining} style={{
-                      padding: '10px', borderRadius: '6px', backgroundColor: '#3b82f6',
-                      color: '#fff', border: 'none', fontSize: '14px',
-                      fontWeight: '600', cursor: 'pointer', width: '100%',
-                    }}>{joining ? '処理中...' : '参加する'}</button>
-                  )}
-                </div>
-              )}
-
-              <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#e2e8f0', marginBottom: '10px' }}>
-                参加者（{practiceParticipants.length}名）
-              </h4>
-              {modalLoading ? (
-                <p style={{ color: '#94a3b8', fontSize: '13px' }}>読み込み中...</p>
-              ) : practiceParticipants.length === 0 ? (
-                <p style={{ color: '#64748b', fontSize: '13px' }}>まだ参加者がいません</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {practiceParticipants.map((pt: any) => (
-                    <div key={pt.player_id} style={{
-                      padding: '8px 12px', backgroundColor: '#0c1220', borderRadius: '6px',
-                      border: '1px solid #1e293b', fontSize: '14px', color: '#e2e8f0',
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    }}>
-                      <span>{pt.player_name}</span>
-                      {pt.player_id === myPlayerId && (
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>あなた</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       <style>{`
         @media (max-width: 640px) {
@@ -692,10 +557,3 @@ const emptyCellStyle: React.CSSProperties = {
   borderBottom: '1px solid #1e293b',
 }
 
-const detailLabelStyle: React.CSSProperties = {
-  color: '#64748b', fontWeight: '500',
-}
-
-const detailValueStyle: React.CSSProperties = {
-  color: '#e2e8f0',
-}

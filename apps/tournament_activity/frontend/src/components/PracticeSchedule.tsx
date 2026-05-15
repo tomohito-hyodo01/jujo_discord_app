@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 
+import CommentSection from './CommentSection'
+
 interface PracticeScheduleProps {
   discordId: string
 }
@@ -122,7 +124,7 @@ export default function PracticeSchedule({ discordId }: PracticeScheduleProps) {
   const formatDate = (d: string) => {
     const dt = new Date(d)
     const weekdays = ['日', '月', '火', '水', '木', '金', '土']
-    return `${dt.getMonth() + 1}/${dt.getDate()}（${weekdays[dt.getDay()]}）`
+    return `${dt.getMonth() + 1}/${dt.getDate()}(${weekdays[dt.getDay()]})`
   }
 
   const formatTime = (t: string) => t?.slice(0, 5) || ''
@@ -163,7 +165,7 @@ export default function PracticeSchedule({ discordId }: PracticeScheduleProps) {
                     {new Date(p.practice_date).getDate()}
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b' }}>
-                    {formatDate(p.practice_date).split('（')[1]?.replace('）', '') || ''}
+                    {formatDate(p.practice_date).split('(')[1]?.replace(')', '') || ''}
                   </div>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -252,23 +254,32 @@ export default function PracticeSchedule({ discordId }: PracticeScheduleProps) {
                 ))}
               </div>
 
-              {myPlayerId && (
-                <div style={{ marginBottom: '20px' }}>
-                  {joinedIds.has(selectedPractice.id) ? (
-                    <button onClick={() => handleLeave(selectedPractice.id)} style={{
-                      padding: '10px 24px', borderRadius: '6px', backgroundColor: 'transparent',
-                      color: '#f87171', border: '1px solid #7f1d1d', fontSize: '14px',
-                      fontWeight: '500', cursor: 'pointer', width: '100%',
-                    }}>参加をキャンセル</button>
-                  ) : (
-                    <button onClick={() => handleJoin(selectedPractice.id)} disabled={joining} style={{
-                      padding: '10px 24px', borderRadius: '6px', backgroundColor: '#3b82f6',
-                      color: '#fff', border: 'none', fontSize: '14px',
-                      fontWeight: '600', cursor: 'pointer', width: '100%',
-                    }}>{joining ? '処理中...' : '参加する'}</button>
-                  )}
-                </div>
-              )}
+              {myPlayerId && (() => {
+                const dlPassed = selectedPractice.deadline_date && new Date(selectedPractice.deadline_date) < new Date()
+                const joined = joinedIds.has(selectedPractice.id)
+                if (dlPassed) {
+                  return <div style={{ marginBottom: '20px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>
+                    {joined ? '参加済(締切済)' : '申込終了'}
+                  </div>
+                }
+                return (
+                  <div style={{ marginBottom: '20px' }}>
+                    {joined ? (
+                      <button onClick={() => handleLeave(selectedPractice.id)} style={{
+                        padding: '10px 24px', borderRadius: '6px', backgroundColor: 'transparent',
+                        color: '#f87171', border: '1px solid #7f1d1d', fontSize: '14px',
+                        fontWeight: '500', cursor: 'pointer', width: '100%',
+                      }}>参加をキャンセル</button>
+                    ) : (
+                      <button onClick={() => handleJoin(selectedPractice.id)} disabled={joining} style={{
+                        padding: '10px 24px', borderRadius: '6px', backgroundColor: '#3b82f6',
+                        color: '#fff', border: 'none', fontSize: '14px',
+                        fontWeight: '600', cursor: 'pointer', width: '100%',
+                      }}>{joining ? '処理中...' : '参加する'}</button>
+                    )}
+                  </div>
+                )
+              })()}
 
               <div>
                 <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#e2e8f0', marginBottom: '10px' }}>
@@ -295,6 +306,8 @@ export default function PracticeSchedule({ discordId }: PracticeScheduleProps) {
                   </div>
                 )}
               </div>
+
+              <CommentSection targetType="practice" targetId={selectedPractice.id} discordId={discordId} />
             </div>
           </div>
         </div>

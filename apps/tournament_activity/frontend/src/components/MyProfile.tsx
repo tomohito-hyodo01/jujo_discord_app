@@ -97,12 +97,12 @@ export default function MyProfile({ discordId }: MyProfileProps) {
     backgroundColor: '#0c1220', color: '#e2e8f0', fontSize: '14px', width: '100%',
   }
 
-  const fields: { key: string; label: string; value: string; display?: string; type?: string }[] = [
+  const fields: { key: string; label: string; value: string; display?: string; type?: string; readonly?: boolean }[] = [
     { key: 'player_name', label: '名前', value: player.player_name || '' },
     { key: 'player_name_kana', label: 'フリガナ', value: player.player_name_kana || '' },
     { key: 'sex', label: '性別', value: String(player.sex ?? 0), display: player.sex === 0 ? '男子' : '女子', type: 'select' },
     { key: 'birth_date', label: '生年月日', value: player.birth_date ? player.birth_date.split('T')[0] : '', display: formatDate(player.birth_date), type: 'date' },
-    { key: 'jsta_number', label: '連盟番号', value: player.jsta_number || '' },
+    { key: 'jsta_number', label: '連盟番号', value: player.jsta_number || '', display: player.jsta_number ? (player.jsta_number.startsWith('JSTA') ? player.jsta_number : `JSTA${player.jsta_number}`) : '', readonly: true },
     { key: 'post_number', label: '郵便番号', value: player.post_number || '' },
     { key: 'address', label: '住所', value: player.address || '' },
     { key: 'phone_number', label: '電話番号', value: player.phone_number || '' },
@@ -170,16 +170,17 @@ export default function MyProfile({ discordId }: MyProfileProps) {
                 </div>
               ) : (
                 <div
-                  onClick={() => startEdit(f.key, f.value)}
+                  onClick={() => !f.readonly && startEdit(f.key, f.value)}
                   style={{
-                    flex: 1, color: '#e2e8f0', fontSize: '14px', cursor: 'pointer',
+                    flex: 1, color: '#e2e8f0', fontSize: '14px',
+                    cursor: f.readonly ? 'default' : 'pointer',
                     padding: '4px 8px', borderRadius: '4px', minHeight: '24px',
                     transition: 'background 0.15s',
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#1e293b')}
+                  onMouseEnter={e => !f.readonly && (e.currentTarget.style.backgroundColor = '#1e293b')}
                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                  {f.display || f.value || <span style={{ color: '#475569' }}>未設定</span>}
+                  {f.display || f.value || <span style={{ color: '#475569' }}>{f.readonly ? '-' : '未設定'}</span>}
                 </div>
               )}
             </div>
@@ -189,6 +190,35 @@ export default function MyProfile({ discordId }: MyProfileProps) {
 
       <p style={{ fontSize: '12px', color: '#475569', marginTop: '12px' }}>
         各項目をタップして編集できます
+      </p>
+
+      <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', marginTop: '32px', marginBottom: '12px' }}>
+        資格情報
+      </h3>
+      <div style={{ backgroundColor: '#0c1220', borderRadius: '10px', border: '1px solid #1e293b' }}>
+        {[
+          { label: '技術等級', value: player.skill_grade || '' },
+          { label: '技術等級認定日', value: player.skill_grade_date ? formatDate(player.skill_grade_date) : '' },
+          { label: '公認審判員資格', value: player.referee_qualification || '' },
+          { label: '公認審判員認定日', value: player.referee_date ? formatDate(player.referee_date) : '' },
+          { label: '公認審判員期限', value: player.referee_expiry || '' },
+        ].map((item, i, arr) => (
+          <div key={item.label} style={{
+            display: 'flex', alignItems: 'center', padding: '12px 20px',
+            borderBottom: i < arr.length - 1 ? '1px solid #1e293b' : 'none',
+            minHeight: '40px',
+          }}>
+            <span style={{ width: '140px', flexShrink: 0, color: '#64748b', fontSize: '13px' }}>
+              {item.label}
+            </span>
+            <span style={{ fontSize: '14px', color: item.value ? '#e2e8f0' : '#475569' }}>
+              {item.value || '未設定'}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: '12px', color: '#475569', marginTop: '8px' }}>
+        資格情報の変更は管理者にお問い合わせください
       </p>
 
       <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', marginTop: '32px', marginBottom: '12px' }}>

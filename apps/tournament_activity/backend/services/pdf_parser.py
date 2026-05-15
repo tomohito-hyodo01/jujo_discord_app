@@ -195,9 +195,11 @@ class PDFParserService:
 - 江戸川区 = 23
 - 荒川区 = 18
 - 北区 = 17
-- 江東区 = 13
-- 中央区 = 1
-- 墨田区 = 22
+- 江東区 = 8
+- 中央区 = 2
+- 墨田区 = 7
+- 文京区 = 5
+- 浦安市 = 100
 - 広域（東京都、関東、東日本、全日本など） = 99
 - 上記以外の区・該当なし = -1 (エラーとして扱われます)
 
@@ -217,7 +219,7 @@ JSON:"""
         import hashlib
 
         # 主催区の検証
-        allowed_ward_ids = {1, 13, 17, 18, 22, 23, 99}
+        allowed_ward_ids = {2, 5, 7, 8, 17, 18, 23, 99, 100}
         ward_id = tournament_data.get("registrated_ward", 0)
 
         if ward_id == -1 or (ward_id != 0 and ward_id not in allowed_ward_ids):

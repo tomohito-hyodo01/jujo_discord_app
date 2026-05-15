@@ -9,6 +9,7 @@ export default function MemberList() {
   const [editAdminRole, setEditAdminRole] = useState<number>(2)
   const [editMemberLevel, setEditMemberLevel] = useState<number>(2)
   const [editManagedWard, setEditManagedWard] = useState<number | null>(null)
+  const [editPracticeAdmin, setEditPracticeAdmin] = useState<number>(0)
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
   const [wards, setWards] = useState<any[]>([])
@@ -18,10 +19,19 @@ export default function MemberList() {
   })
   const [savingWard, setSavingWard] = useState(false)
   const [wardSaveMessage, setWardSaveMessage] = useState('')
+  const [sortKey, setSortKey] = useState<string>('created_at')
+  const [sortAsc, setSortAsc] = useState(true)
   const [editingField, setEditingField] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [savingField, setSavingField] = useState(false)
   const [fieldMessage, setFieldMessage] = useState('')
+  const [editQuals, setEditQuals] = useState({
+    skill_grade: '', skill_grade_date: '', referee_qualification: '', referee_date: '', referee_expiry: '',
+  })
+  const [savingQuals, setSavingQuals] = useState(false)
+  const [qualsMessage, setQualsMessage] = useState('')
+  const [csvImporting, setCsvImporting] = useState(false)
+  const [csvResult, setCsvResult] = useState<any>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -41,12 +51,41 @@ export default function MemberList() {
   }, [])
 
   const filtered = useMemo(() => {
-    return players.filter(p => {
+    const list = players.filter(p => {
       if (search && !p.player_name?.includes(search)) return false
       if (filterSex !== '' && p.sex !== parseInt(filterSex)) return false
       return true
     })
-  }, [players, search, filterSex])
+
+    list.sort((a, b) => {
+      let av: any, bv: any
+      if (sortKey === 'age') {
+        av = a.birth_date ? new Date(a.birth_date).getTime() : 0
+        bv = b.birth_date ? new Date(b.birth_date).getTime() : 0
+        // 年齢昇順 = 生年月日降順
+        return sortAsc ? av - bv : bv - av
+      }
+      av = a[sortKey] ?? ''
+      bv = b[sortKey] ?? ''
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return sortAsc ? av - bv : bv - av
+      }
+      return sortAsc ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av))
+    })
+
+    return list
+  }, [players, search, filterSex, sortKey, sortAsc])
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortAsc(!sortAsc)
+    } else {
+      setSortKey(key)
+      setSortAsc(true)
+    }
+  }
+
+  const sortIcon = (key: string) => sortKey === key ? (sortAsc ? ' ▲' : ' ▼') : ''
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-'
@@ -84,12 +123,13 @@ export default function MemberList() {
   }
 
   const cellStyle = {
-    padding: '10px 12px',
+    padding: '8px 6px',
     borderBottom: '1px solid #1e293b',
     fontSize: '13px',
     color: '#e2e8f0',
     whiteSpace: 'nowrap' as const,
     cursor: 'pointer',
+    textAlign: 'center' as const,
   }
 
   const headerCellStyle = {
@@ -239,7 +279,65 @@ export default function MemberList() {
         <span style={{ fontSize: '12px', color: '#64748b', alignSelf: 'center' }}>
           {filtered.length}名
         </span>
+        <label style={{
+          padding: '8px 12px', backgroundColor: '#1e3a8a', border: '1px solid #2563eb',
+          borderRadius: '6px', color: '#93c5fd', fontSize: '13px', cursor: csvImporting ? 'not-allowed' : 'pointer',
+          marginLeft: 'auto', whiteSpace: 'nowrap',
+        }}>
+          {csvImporting ? 'インポート中...' : 'CSV取込'}
+          <input
+            type="file"
+            accept=".csv"
+            style={{ display: 'none' }}
+            disabled={csvImporting}
+            onChange={async (e) => {
+              const f = e.target.files?.[0]
+              if (!f) return
+              setCsvImporting(true); setCsvResult(null)
+              try {
+                const formData = new FormData()
+                formData.append('file', f)
+                const res = await fetch(`${apiUrl}/api/players/import-csv`, {
+                  method: 'POST', body: formData,
+                })
+                const result = await res.json()
+                setCsvResult(result)
+                if (result.success) {
+                  const pRes = await fetch(`${apiUrl}/api/players`)
+                  if (pRes.ok) setPlayers(await pRes.json())
+                }
+              } catch { setCsvResult({ error: '通信エラー' }) }
+              finally { setCsvImporting(false); e.target.value = '' }
+            }}
+          />
+        </label>
       </div>
+
+      {csvResult && (
+        <div style={{
+          padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', fontSize: '13px',
+          backgroundColor: csvResult.success ? '#064e3b' : '#7f1d1d', color: '#e2e8f0',
+          border: `1px solid ${csvResult.success ? '#10b981' : '#ef4444'}`,
+        }}>
+          {csvResult.success ? (
+            <>
+              更新: {csvResult.updated}件 / スキップ: {csvResult.skipped}件
+              {csvResult.not_found?.length > 0 && (
+                <div style={{ marginTop: '4px', color: '#fbbf24', fontSize: '12px' }}>
+                  未登録: {csvResult.not_found.join('、')}
+                </div>
+              )}
+            </>
+          ) : (
+            <>{csvResult.error || csvResult.detail || 'エラーが発生しました'}</>
+          )}
+          <button onClick={() => setCsvResult(null)} style={{
+            marginLeft: '12px', padding: '2px 8px', borderRadius: '4px',
+            backgroundColor: 'transparent', color: '#94a3b8', border: '1px solid #334155',
+            fontSize: '11px', cursor: 'pointer',
+          }}>閉じる</button>
+        </div>
+      )}
 
       {/* PC: テーブル */}
       <div className="member-table" style={{
@@ -249,29 +347,54 @@ export default function MemberList() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={headerCellStyle}>名前</th>
-              <th style={headerCellStyle}>性別</th>
-              <th style={headerCellStyle}>年齢</th>
-              <th style={headerCellStyle}>生年月日</th>
-              <th style={headerCellStyle}>連盟番号</th>
-              <th style={headerCellStyle}>電話番号</th>
+              {[
+                { key: 'admin_role', label: '権限' },
+                { key: 'player_name', label: '名前' },
+                { key: 'sex', label: '性別' },
+                { key: 'age', label: '年齢' },
+                { key: 'affiliated_club', label: '所属クラブ' },
+                { key: 'skill_level', label: '技術等級' },
+                { key: 'referee_expiry', label: '審判資格期限' },
+                { key: 'tokyo_flg', label: '東京' },
+                { key: 'edogawa_flg', label: '江戸川' },
+                { key: 'koto_flg', label: '江東' },
+                { key: 'chuo_flg', label: '中央' },
+                { key: 'sumida_flg', label: '墨田' },
+                { key: 'arakawa_flg', label: '荒川' },
+                { key: 'adachi_flg', label: '足立' },
+                { key: 'itabashi_flg', label: '板橋' },
+              ].map(col => (
+                <th key={col.key} style={{ ...headerCellStyle, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => handleSort(col.key)}>
+                  {col.label}{sortIcon(col.key)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {filtered.map(p => (
               <tr
                 key={p.player_id}
-                onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage('') }}
+                onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setEditPracticeAdmin(p.practice_admin ?? 0); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage(''); setEditQuals({ skill_grade: p.skill_grade || '', skill_grade_date: p.skill_grade_date ? p.skill_grade_date.split('T')[0] : '', referee_qualification: p.referee_qualification || '', referee_date: p.referee_date ? p.referee_date.split('T')[0] : '', referee_expiry: p.referee_expiry || '' }); setQualsMessage('') }}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#111b2e')}
                 onMouseLeave={e => (e.currentTarget.style.backgroundColor = '')}
               >
-                <td style={{ ...cellStyle, fontWeight: '500' }}>{p.player_name}</td>
+                <td style={cellStyle}>{p.member_level === 0 ? '正会員' : p.member_level === 1 ? '準会員' : 'ゲスト'}</td>
+                <td style={{ ...cellStyle, fontWeight: '500', textAlign: 'left' }}>{p.player_name}</td>
                 <td style={cellStyle}>{p.sex === 0 ? '男' : '女'}</td>
                 <td style={cellStyle}>{calcAge(p.birth_date)}</td>
-                <td style={cellStyle}>{formatDate(p.birth_date)}</td>
-                <td style={cellStyle}>{p.jsta_number || '-'}</td>
-                <td style={cellStyle}>{p.phone_number || '-'}</td>
+                <td style={cellStyle}>{p.affiliated_club || '-'}</td>
+                <td style={cellStyle}>{p.skill_grade || '-'}</td>
+                <td style={cellStyle}>{p.referee_expiry || '-'}</td>
+                <td style={cellStyle}>{p.tokyo_flg ? '✅' : ''}</td>
+                <td style={cellStyle}>{p.edogawa_flg ? '✅' : ''}</td>
+                <td style={cellStyle}>{p.koto_flg ? '✅' : ''}</td>
+                <td style={cellStyle}>{p.chuo_flg ? '✅' : ''}</td>
+                <td style={cellStyle}>{p.sumida_flg ? '✅' : ''}</td>
+                <td style={cellStyle}>{p.arakawa_flg ? '✅' : ''}</td>
+                <td style={cellStyle}>{p.adachi_flg ? '✅' : ''}</td>
+                <td style={cellStyle}>{p.itabashi_flg ? '✅' : ''}</td>
               </tr>
             ))}
           </tbody>
@@ -283,7 +406,7 @@ export default function MemberList() {
         {filtered.map(p => (
           <div
             key={p.player_id}
-            onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage('') }}
+            onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setEditPracticeAdmin(p.practice_admin ?? 0); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage(''); setEditQuals({ skill_grade: p.skill_grade || '', skill_grade_date: p.skill_grade_date ? p.skill_grade_date.split('T')[0] : '', referee_qualification: p.referee_qualification || '', referee_date: p.referee_date ? p.referee_date.split('T')[0] : '', referee_expiry: p.referee_expiry || '' }); setQualsMessage('') }}
             style={{
               padding: '14px 16px', backgroundColor: '#0c1220',
               borderRadius: '10px', border: '1px solid #1e293b', cursor: 'pointer',
@@ -305,6 +428,12 @@ export default function MemberList() {
               <span><span style={{ color: '#64748b' }}>年齢 </span>{calcAge(p.birth_date)}</span>
               <span><span style={{ color: '#64748b' }}>TEL </span>{p.phone_number || '-'}</span>
             </div>
+            {(p.skill_grade || p.referee_qualification) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+                {p.skill_grade && <span><span style={{ color: '#64748b' }}>技術 </span>{p.skill_grade}</span>}
+                {p.referee_qualification && <span><span style={{ color: '#64748b' }}>審判 </span>{p.referee_qualification}{p.referee_expiry ? ` (~${p.referee_expiry})` : ''}</span>}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -399,8 +528,16 @@ export default function MemberList() {
                     ))}
                   </select>
                 </div>
+                <div style={{ flex: 1, minWidth: '140px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>練習管理者</label>
+                  <select value={editPracticeAdmin} onChange={e => setEditPracticeAdmin(parseInt(e.target.value))}
+                    style={{ width: '100%', padding: '6px 8px', backgroundColor: '#0c1220', border: '1px solid #1e293b', borderRadius: '6px', color: '#e2e8f0', fontSize: '13px' }}>
+                    <option value={0}>一般</option>
+                    <option value={1}>練習管理者</option>
+                  </select>
+                </div>
               </div>
-              {(editAdminRole !== (selectedPlayer.admin_role ?? 2) || editMemberLevel !== (selectedPlayer.member_level ?? 2) || editManagedWard !== (selectedPlayer.managed_ward_id ?? null)) && (
+              {(editAdminRole !== (selectedPlayer.admin_role ?? 2) || editMemberLevel !== (selectedPlayer.member_level ?? 2) || editManagedWard !== (selectedPlayer.managed_ward_id ?? null) || editPracticeAdmin !== (selectedPlayer.practice_admin ?? 0)) && (
                 <div style={{ padding: '8px 0' }}>
                   <button
                     onClick={async () => {
@@ -408,13 +545,13 @@ export default function MemberList() {
                       try {
                         const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/players/${selectedPlayer.player_id}/permissions`, {
                           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ admin_role: editAdminRole, member_level: editMemberLevel, managed_ward_id: editManagedWard }),
+                          body: JSON.stringify({ admin_role: editAdminRole, member_level: editMemberLevel, managed_ward_id: editManagedWard, practice_admin: editPracticeAdmin }),
                         })
                         if (res.ok) {
                           setSaveMessage('権限を更新しました')
                           setPlayers(prev => prev.map(p => p.player_id === selectedPlayer.player_id
-                            ? { ...p, admin_role: editAdminRole, member_level: editMemberLevel, managed_ward_id: editManagedWard } : p))
-                          setSelectedPlayer({ ...selectedPlayer, admin_role: editAdminRole, member_level: editMemberLevel, managed_ward_id: editManagedWard })
+                            ? { ...p, admin_role: editAdminRole, member_level: editMemberLevel, managed_ward_id: editManagedWard, practice_admin: editPracticeAdmin } : p))
+                          setSelectedPlayer({ ...selectedPlayer, admin_role: editAdminRole, member_level: editMemberLevel, managed_ward_id: editManagedWard, practice_admin: editPracticeAdmin })
                         } else {
                           setSaveMessage('更新に失敗しました')
                         }
@@ -511,6 +648,80 @@ export default function MemberList() {
               {wardSaveMessage && (
                 <div style={{ fontSize: '13px', color: wardSaveMessage.includes('更新') ? '#10b981' : '#f87171', padding: '4px 0' }}>
                   {wardSaveMessage}
+                </div>
+              )}
+
+              <div style={{
+                marginTop: '8px', padding: '12px 0',
+                borderBottom: '1px solid #1e293b', fontSize: '13px', color: '#64748b',
+              }}>
+                資格情報
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 0' }}>
+                {([
+                  { key: 'skill_grade', label: '技術等級', type: 'text', placeholder: '例: 1級, SP, EX' },
+                  { key: 'skill_grade_date', label: '技術等級認定日', type: 'date', placeholder: '' },
+                  { key: 'referee_qualification', label: '審判員資格', type: 'text', placeholder: '例: 2級, マスターアンパイア' },
+                  { key: 'referee_date', label: '審判員認定日', type: 'date', placeholder: '' },
+                  { key: 'referee_expiry', label: '審判員期限', type: 'month', placeholder: '' },
+                ] as const).map(({ key, label, type, placeholder }) => (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label style={{ width: '120px', flexShrink: 0, fontSize: '12px', color: '#64748b' }}>{label}</label>
+                    <input
+                      type={type}
+                      value={editQuals[key]}
+                      onChange={e => setEditQuals(prev => ({ ...prev, [key]: e.target.value }))}
+                      placeholder={placeholder}
+                      style={{ flex: 1, padding: '6px 8px', backgroundColor: '#0c1220', border: '1px solid #1e293b', borderRadius: '6px', color: '#e2e8f0', fontSize: '13px' }}
+                    />
+                  </div>
+                ))}
+              </div>
+              {(editQuals.skill_grade !== (selectedPlayer.skill_grade || '') ||
+                editQuals.skill_grade_date !== (selectedPlayer.skill_grade_date ? selectedPlayer.skill_grade_date.split('T')[0] : '') ||
+                editQuals.referee_qualification !== (selectedPlayer.referee_qualification || '') ||
+                editQuals.referee_date !== (selectedPlayer.referee_date ? selectedPlayer.referee_date.split('T')[0] : '') ||
+                editQuals.referee_expiry !== (selectedPlayer.referee_expiry || '')) && (
+                <div style={{ padding: '4px 0' }}>
+                  <button
+                    onClick={async () => {
+                      setSavingQuals(true); setQualsMessage('')
+                      try {
+                        const body: any = {}
+                        if (editQuals.skill_grade !== (selectedPlayer.skill_grade || '')) body.skill_grade = editQuals.skill_grade || null
+                        if (editQuals.skill_grade_date !== (selectedPlayer.skill_grade_date ? selectedPlayer.skill_grade_date.split('T')[0] : '')) body.skill_grade_date = editQuals.skill_grade_date || null
+                        if (editQuals.referee_qualification !== (selectedPlayer.referee_qualification || '')) body.referee_qualification = editQuals.referee_qualification || null
+                        if (editQuals.referee_date !== (selectedPlayer.referee_date ? selectedPlayer.referee_date.split('T')[0] : '')) body.referee_date = editQuals.referee_date || null
+                        if (editQuals.referee_expiry !== (selectedPlayer.referee_expiry || '')) body.referee_expiry = editQuals.referee_expiry || null
+                        const res = await fetch(`${apiUrl}/api/players/${selectedPlayer.player_id}/qualifications`, {
+                          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(body),
+                        })
+                        if (res.ok) {
+                          setQualsMessage('資格情報を更新しました')
+                          const updated = { ...selectedPlayer, ...editQuals }
+                          setPlayers(prev => prev.map(p => p.player_id === selectedPlayer.player_id ? { ...p, ...editQuals } : p))
+                          setSelectedPlayer(updated)
+                        } else {
+                          setQualsMessage('更新に失敗しました')
+                        }
+                      } catch { setQualsMessage('通信エラー') }
+                      finally { setSavingQuals(false) }
+                    }}
+                    disabled={savingQuals}
+                    style={{
+                      padding: '6px 16px', borderRadius: '6px', backgroundColor: '#1e3a8a',
+                      color: '#93c5fd', border: '1px solid #2563eb', fontSize: '13px',
+                      cursor: savingQuals ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {savingQuals ? '保存中...' : '資格情報を保存'}
+                  </button>
+                </div>
+              )}
+              {qualsMessage && (
+                <div style={{ fontSize: '13px', color: qualsMessage.includes('更新') ? '#10b981' : '#f87171', padding: '4px 0' }}>
+                  {qualsMessage}
                 </div>
               )}
 

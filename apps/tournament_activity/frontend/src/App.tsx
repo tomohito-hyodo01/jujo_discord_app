@@ -62,6 +62,7 @@ function App() {
           const perms = {
             adminRole: playerData.admin_role ?? 2,
             memberLevel: memberLevel ?? playerData.member_level ?? 2,
+            practiceAdmin: playerData.practice_admin ?? 0,
           }
           // 正会員・準会員で必須項目が未入力ならプロフィール補完が必要
           const ml = perms.memberLevel

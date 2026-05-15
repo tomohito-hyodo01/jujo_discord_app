@@ -12,6 +12,9 @@ import PracticeManagement from './PracticeManagement'
 import MyProfile from './MyProfile'
 import ProfileCompletionForm from './ProfileCompletionForm'
 import AppLogViewer from './AppLogViewer'
+import RefereeTraining from './RefereeTraining'
+import AccountMerge from './AccountMerge'
+import ProfileIncompleteNotifier from './ProfileIncompleteNotifier'
 import { hasPermission, getMemberLevelName, type Permission, type UserPermissionInfo } from '../utils/permissions'
 
 interface PortalProps {
@@ -36,6 +39,7 @@ const MENU_ITEMS: MenuItem[] = [
   { id: 'event-list', label: 'イベント一覧', permission: 'view_event_list' },
   { id: 'player', label: '選手登録', permission: 'view_player' },
   { id: 'apply', label: '大会申込', permission: 'view_apply' },
+  { id: 'referee-training', label: '審判講習', permission: 'view_referee_training' },
   { id: 'my-registrations', label: '申込履歴', permission: 'view_my_registrations' },
   { id: 'admin-tournament', label: '大会登録', permission: 'view_tournament_register' },
   { id: 'admin-tournament-mgmt', label: '大会管理', permission: 'view_tournament_register' },
@@ -43,6 +47,8 @@ const MENU_ITEMS: MenuItem[] = [
   { id: 'admin-practice', label: '練習日程管理', permission: 'view_practice_manage' },
   { id: 'admin-members', label: 'メンバー一覧', permission: 'view_member_list' },
   { id: 'admin-logs', label: 'ログ', permission: 'view_app_logs' },
+  { id: 'profile-notify', label: 'プロフィール不備通知', permission: 'view_app_logs' },
+  { id: 'account-merge', label: 'アカウント統合', permission: 'view_app_logs' },
 ]
 
 export default function Portal({ discordId, username, permissionInfo, needsPlayerRegistration, needsProfileCompletion, onPlayerRegistered, onProfileCompleted, onLogout }: PortalProps) {
@@ -136,7 +142,7 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
       case 'event-list':
         return <EventList discordId={discordId} onNavigate={navigate} guestMode={permissionInfo.memberLevel === 2} />
       case 'player':
-        return <PlayerRegistrationForm auth={auth} permissionInfo={permissionInfo} />
+        return <PlayerRegistrationForm auth={auth} permissionInfo={permissionInfo} onNavigate={navigate} />
       case 'my-profile':
         return <MyProfile discordId={discordId} />
       case 'apply':
@@ -148,6 +154,8 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
             onNavigate={navigate}
           />
         )
+      case 'referee-training':
+        return <RefereeTraining discordId={discordId} />
       case 'my-registrations':
         return <MyRegistrations discordId={discordId} onNavigate={navigate} />
       case 'admin-tournament':
@@ -180,6 +188,16 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
           return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>
         }
         return <AppLogViewer />
+      case 'account-merge':
+        if (!hasPermission(permissionInfo, 'view_app_logs')) {
+          return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>
+        }
+        return <AccountMerge discordId={discordId} />
+      case 'profile-notify':
+        if (!hasPermission(permissionInfo, 'view_app_logs')) {
+          return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>
+        }
+        return <ProfileIncompleteNotifier discordId={discordId} />
       default:
         return <Home discordId={discordId} permissionInfo={permissionInfo} onNavigate={navigate} />
     }
@@ -333,7 +351,7 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
         <div className="portal-content" style={{
           flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '28px 32px', backgroundColor: '#0a1628',
         }}>
-          <div style={{ maxWidth: '800px', width: '100%' }}>
+          <div style={{ maxWidth: currentPage === 'admin-members' ? '100%' : '800px', width: '100%' }}>
             {renderContent()}
           </div>
         </div>

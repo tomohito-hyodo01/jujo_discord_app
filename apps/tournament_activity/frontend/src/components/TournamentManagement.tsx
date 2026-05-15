@@ -12,6 +12,7 @@ export default function TournamentManagement() {
   const [registrations, setRegistrations] = useState<any[]>([])
   const [regLoading, setRegLoading] = useState(false)
   const [excelGenerating, setExcelGenerating] = useState(false)
+  const [notifyingId, setNotifyingId] = useState<string | null>(null)
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -63,6 +64,8 @@ export default function TournamentManagement() {
       tournament_date: t.tournament_date?.split('T')[0] || '',
       classification: t.classification,
       type: Array.isArray(t.type) ? [...t.type] : [],
+      max_entries: t.max_entries ?? '',
+      sex_restriction: t.sex_restriction != null ? String(t.sex_restriction) : '',
     })
     setModalMode('edit')
     setMessage('')
@@ -76,7 +79,7 @@ export default function TournamentManagement() {
       const res = await fetch(`${apiUrl}/api/tournaments/${selectedTournament.tournament_id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...editData, type: typeArr }),
+        body: JSON.stringify({ ...editData, type: typeArr, max_entries: editData.max_entries !== '' ? parseInt(editData.max_entries) : null, sex_restriction: editData.sex_restriction !== '' ? parseInt(editData.sex_restriction) : null }),
       })
       if (res.ok) {
         setMessage('更新しました')
@@ -148,6 +151,7 @@ export default function TournamentManagement() {
             <th style={headerCellStyle}>開催日</th>
             <th style={headerCellStyle}>締切</th>
             <th style={headerCellStyle}>形式</th>
+            <th style={{ ...headerCellStyle, textAlign: 'center' }}></th>
           </tr></thead>
           <tbody>
             {tournaments.map(t => (
@@ -159,6 +163,39 @@ export default function TournamentManagement() {
                 <td style={cellStyle}>{formatDate(t.tournament_date)}</td>
                 <td style={cellStyle}>{formatDate(t.deadline_date)}</td>
                 <td style={cellStyle}>{t.classification === 0 ? '個人戦' : '団体戦'}</td>
+                <td style={{ ...cellStyle, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                  {(() => {
+                    const isPast = t.deadline_date && new Date(t.deadline_date) < new Date(new Date().toISOString().split('T')[0])
+                    if (isPast) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b', whiteSpace: 'nowrap' }}>申込終了</span>
+                    if (t.notified) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b' }}>通知済</span>
+                    return (
+                      <button onClick={async () => {
+                        if (!confirm(`「${t.tournament_name}」の登録通知を送信しますか？`)) return
+                        setNotifyingId(t.tournament_id)
+                        try {
+                          const res = await fetch(`${apiUrl}/api/notify/tournament-registered`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              tournament_id: t.tournament_id, tournament_name: t.tournament_name,
+                              tournament_date: t.tournament_date, deadline_date: t.deadline_date,
+                              classification: t.classification, type: t.type || [],
+                              venue: t.venue, registrated_ward: t.registrated_ward,
+                            }),
+                          })
+                          if (res.ok) {
+                            setMessage('通知を送信しました')
+                            setTournaments(prev => prev.map(tt => tt.tournament_id === t.tournament_id ? { ...tt, notified: 1 } : tt))
+                          } else { alert('通知送信に失敗しました') }
+                        } catch { alert('通信エラー') }
+                        finally { setNotifyingId(null) }
+                      }} disabled={notifyingId === t.tournament_id} style={{
+                        padding: '4px 10px', borderRadius: '5px', backgroundColor: '#0e4429',
+                        color: '#6ee7b7', border: '1px solid #16a34a', fontSize: '12px',
+                        cursor: notifyingId === t.tournament_id ? 'not-allowed' : 'pointer',
+                      }}>{notifyingId === t.tournament_id ? '...' : '通知'}</button>
+                    )
+                  })()}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -171,7 +208,41 @@ export default function TournamentManagement() {
           <div key={t.tournament_id} onClick={() => openDetail(t)} style={{
             padding: '14px 16px', backgroundColor: '#0c1220', borderRadius: '10px', border: '1px solid #1e293b', cursor: 'pointer',
           }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#f1f5f9', margin: '0 0 6px 0' }}>{t.tournament_name}</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>{t.tournament_name}</h3>
+              {(() => {
+                const isPast = t.deadline_date && new Date(t.deadline_date) < new Date(new Date().toISOString().split('T')[0])
+                if (isPast) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b', whiteSpace: 'nowrap', flexShrink: 0, marginLeft: '8px' }}>申込終了</span>
+                if (t.notified) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b', flexShrink: 0, marginLeft: '8px' }}>通知済</span>
+                return (
+                  <button onClick={async (e) => {
+                    e.stopPropagation()
+                    if (!confirm(`「${t.tournament_name}」の登録通知を送信しますか？`)) return
+                    setNotifyingId(t.tournament_id)
+                    try {
+                      const res = await fetch(`${apiUrl}/api/notify/tournament-registered`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          tournament_id: t.tournament_id, tournament_name: t.tournament_name,
+                          tournament_date: t.tournament_date, deadline_date: t.deadline_date,
+                          classification: t.classification, type: t.type || [],
+                          venue: t.venue, registrated_ward: t.registrated_ward,
+                        }),
+                      })
+                      if (res.ok) {
+                        setMessage('通知を送信しました')
+                        setTournaments(prev => prev.map(tt => tt.tournament_id === t.tournament_id ? { ...tt, notified: 1 } : tt))
+                      } else { alert('通知送信に失敗しました') }
+                    } catch { alert('通信エラー') }
+                    finally { setNotifyingId(null) }
+                  }} disabled={notifyingId === t.tournament_id} style={{
+                    padding: '4px 10px', borderRadius: '5px', backgroundColor: '#0e4429',
+                    color: '#6ee7b7', border: '1px solid #16a34a', fontSize: '12px',
+                    cursor: 'pointer', flexShrink: 0, marginLeft: '8px',
+                  }}>{notifyingId === t.tournament_id ? '...' : '通知'}</button>
+                )
+              })()}
+            </div>
             <div style={{ display: 'flex', gap: '12px', fontSize: '13px', color: '#94a3b8', flexWrap: 'wrap' }}>
               <span>{getWardName(t.registrated_ward)}</span>
               <span>{formatDate(t.tournament_date)}</span>
@@ -248,6 +319,19 @@ export default function TournamentManagement() {
                       })}
                     </div>
                   </div>
+                  <div style={{ marginTop: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>申込数上限</label>
+                    <input type="number" value={editData.max_entries} onChange={e => setEditData({ ...editData, max_entries: e.target.value })}
+                      placeholder="未設定の場合は無制限" min="1" style={inputStyle} />
+                  </div>
+                  <div style={{ marginTop: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>対象性別</label>
+                    <select value={editData.sex_restriction} onChange={e => setEditData({ ...editData, sex_restriction: e.target.value })} style={inputStyle}>
+                      <option value="">男女共通</option>
+                      <option value="0">男子のみ</option>
+                      <option value="1">女子のみ</option>
+                    </select>
+                  </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                     <button onClick={handleSave} disabled={saving} style={{
                       padding: '8px 20px', borderRadius: '6px', backgroundColor: '#1e3a8a', color: '#93c5fd',
@@ -313,8 +397,15 @@ export default function TournamentManagement() {
                           }}>
                             <div>
                               <span style={{ color: '#e2e8f0', fontWeight: '500' }}>{r.applicant_name || r.discord_id}</span>
-                              <span style={{ color: '#64748b' }}> / </span>
-                              <span style={{ color: '#94a3b8' }}>{r.pair_name || '-'}</span>
+                              {selectedTournament?.classification === 1 ? (
+                                r.member_names && r.member_names.length > 0 ? (
+                                  <span style={{ color: '#94a3b8' }}> / {r.member_names.join('、')}</span>
+                                ) : r.team_status === 1 ? (
+                                  <span style={{ color: '#fbbf24' }}> (参加希望)</span>
+                                ) : null
+                              ) : r.pair_name ? (
+                                <><span style={{ color: '#64748b' }}> / </span><span style={{ color: '#94a3b8' }}>{r.pair_name}</span></>
+                              ) : null}
                             </div>
                             <span style={{ padding: '1px 8px', borderRadius: '6px', fontSize: '11px', backgroundColor: '#1e293b', color: '#94a3b8' }}>
                               {r.type}

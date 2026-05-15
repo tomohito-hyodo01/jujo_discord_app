@@ -91,12 +91,14 @@ async def generate_tournament_id(tournament_name: str, tournament_date: str, reg
     # 区名マッピング
     ward_map = {
         1: 'chuo',
+        5: 'bunkyo',
         13: 'koto',
         17: 'kita',
         18: 'arakawa',
         22: 'sumida',
         23: 'edogawa',
-        99: 'wide'
+        99: 'wide',
+        100: 'urayasu'
     }
 
     ward_name = ward_map.get(registrated_ward, 'other')
@@ -162,19 +164,51 @@ class TournamentRegisterRequest(BaseModel):
     opening_time: Optional[str] = None  # 開会式時刻
     match_start_time: Optional[str] = None  # 試合開始時刻
     entry_fee: Optional[str] = None  # 参加費
+    max_entries: Optional[int] = None  # 申込数上限(NULL=無制限)
+    sex_restriction: Optional[int] = None  # 性別制限(NULL=共通,0=男子,1=女子)
     guideline_pdf_path: Optional[str] = None  # 要項PDFパス
 
 
 @router.get("/tournaments")
 async def get_tournaments():
-    """全大会を取得"""
+    """全大会を取得（申込数付き）"""
     try:
         result = await db.execute_query('tournament_mst', operation='select', json_fields=['type'])
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
-        return result.get('data', [])
+
+        tournaments = result.get('data', [])
+
+        # 各大会の申込数を取得
+        reg_result = await db.execute_query('tournament_registration', operation='select')
+        reg_data = reg_result.get('data', [])
+
+        # tournament_idごとの申込数をカウント
+        count_map: dict = {}
+        for r in reg_data:
+            tid = r.get('tournament_id')
+            if tid:
+                count_map[tid] = count_map.get(tid, 0) + 1
+
+        for t in tournaments:
+            t['entry_count'] = count_map.get(t['tournament_id'], 0)
+            # 要項ファイルの実在チェック
+            t['has_guideline'] = _guideline_exists(t['tournament_id'])
+
+        return tournaments
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _guideline_exists(tournament_id: str) -> bool:
+    """要項ファイルが実際に存在するかチェック"""
+    if not tournament_id:
+        return False
+    safe_id = re.sub(r'[^\w\-]', '_', tournament_id)
+    for ext in ('.pdf', '.jpg', '.jpeg', '.png', '.xlsx', '.xls'):
+        if os.path.exists(os.path.join(UPLOAD_DIR, f"{safe_id}{ext}")):
+            return True
+    return False
 
 
 @router.get("/tournaments/{tournament_id}")
@@ -328,6 +362,8 @@ class TournamentUpdate(BaseModel):
     opening_time: Optional[str] = None
     match_start_time: Optional[str] = None
     entry_fee: Optional[str] = None
+    max_entries: Optional[int] = None
+    sex_restriction: Optional[int] = None
     guideline_pdf_path: Optional[str] = None
 
 
@@ -506,7 +542,14 @@ async def get_guideline(tournament_id: str):
         import mimetypes
         mime = mimetypes.guess_type(filepath)[0] or 'application/octet-stream'
         dl_filename = os.path.basename(filepath)
-        return FileResponse(filepath, media_type=mime, filename=dl_filename)
+        # ブラウザでインライン表示できる形式はinline、それ以外はダウンロード
+        inline_types = {'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
+        disposition = 'inline' if mime in inline_types else 'attachment'
+        return FileResponse(
+            filepath,
+            media_type=mime,
+            headers={'Content-Disposition': f'{disposition}; filename="{dl_filename}"'},
+        )
     except HTTPException:
         raise
     except Exception as e:

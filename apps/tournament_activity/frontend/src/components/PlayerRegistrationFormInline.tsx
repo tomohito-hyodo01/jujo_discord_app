@@ -9,6 +9,8 @@ export default function PlayerRegistrationFormInline({ discordId, onDataChange }
   const [formData, setFormData] = useState({
     lastName: '',
     firstName: '',
+    lastNameKana: '',
+    firstNameKana: '',
     jstaNumber: '',
     birthDate: '',
     sex: '0',
@@ -22,10 +24,18 @@ export default function PlayerRegistrationFormInline({ discordId, onDataChange }
     setFormData(newData)
     
     // 親コンポーネントにデータを渡す
+    const kana = (newData.lastNameKana || newData.firstNameKana)
+      ? `${newData.lastNameKana} ${newData.firstNameKana}`.trim()
+      : null
     const playerData = {
-      discord_id: discordId || null,  // 空文字列の場合はnullに
+      discord_id: discordId || null,
       player_name: `${newData.lastName} ${newData.firstName}`,
-      jsta_number: newData.jstaNumber || null,
+      player_name_kana: kana,
+      last_name: newData.lastName,
+      first_name: newData.firstName,
+      last_name_kana: newData.lastNameKana || null,
+      first_name_kana: newData.firstNameKana || null,
+      jsta_number: newData.jstaNumber ? `JSTA${newData.jstaNumber.replace(/^JSTA/i, '')}` : null,
       birth_date: newData.birthDate,
       sex: parseInt(newData.sex),
       post_number: newData.postalCode,
@@ -117,6 +127,22 @@ export default function PlayerRegistrationFormInline({ discordId, onDataChange }
         </div>
       </div>
 
+      {/* フリガナ */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div>
+          <label style={labelStyle}>セイ</label>
+          <input type="text" value={formData.lastNameKana}
+            onChange={(e) => updateFormData({ ...formData, lastNameKana: e.target.value })}
+            placeholder="ヤマダ" style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>メイ</label>
+          <input type="text" value={formData.firstNameKana}
+            onChange={(e) => updateFormData({ ...formData, firstNameKana: e.target.value })}
+            placeholder="タロウ" style={inputStyle} />
+        </div>
+      </div>
+
       {/* 性別 */}
       <div>
         <label style={labelStyle}>性別 *</label>
@@ -146,13 +172,17 @@ export default function PlayerRegistrationFormInline({ discordId, onDataChange }
       {/* 日本連盟登録番号 */}
       <div>
         <label style={labelStyle}>日本連盟登録番号</label>
-        <input
-          type="text"
-          value={formData.jstaNumber}
-          onChange={(e) => updateFormData({ ...formData, jstaNumber: e.target.value })}
-          placeholder="任意"
-          style={inputStyle}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
+          <span style={{
+            padding: '12px 14px', borderRadius: '8px 0 0 8px', backgroundColor: '#1e293b',
+            color: '#94a3b8', fontSize: '16px', border: '1px solid #1e293b', borderRight: 'none',
+            whiteSpace: 'nowrap',
+          }}>JSTA</span>
+          <input type="text" value={formData.jstaNumber}
+            onChange={(e) => updateFormData({ ...formData, jstaNumber: e.target.value })}
+            placeholder="任意"
+            style={{ ...inputStyle, borderRadius: '0 8px 8px 0' }} />
+        </div>
       </div>
 
       {/* 郵便番号 */}
@@ -172,13 +202,17 @@ export default function PlayerRegistrationFormInline({ discordId, onDataChange }
       {/* 住所 */}
       <div>
         <label style={labelStyle}>住所 *</label>
+        {!formData.postalCode && !formData.address && (
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>郵便番号を入力すると住所が自動入力されます</div>
+        )}
         <textarea
           value={formData.address}
           onChange={(e) => updateFormData({ ...formData, address: e.target.value })}
           required
-          placeholder="東京都渋谷区渋谷1-2-3"
+          disabled={!formData.postalCode && !formData.address}
+          placeholder={formData.postalCode ? "番地・建物名を追記してください" : "郵便番号を先に入力してください"}
           rows={2}
-          style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+          style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', opacity: (!formData.postalCode && !formData.address) ? 0.5 : 1 }}
         />
       </div>
 

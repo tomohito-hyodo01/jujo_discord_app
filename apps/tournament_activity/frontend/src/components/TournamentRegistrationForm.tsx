@@ -14,6 +14,8 @@ interface TournamentData {
   opening_time: string
   match_start_time: string
   entry_fee: string
+  max_entries: string
+  sex_restriction: string
 }
 
 function TournamentRegistrationForm() {
@@ -30,7 +32,9 @@ function TournamentRegistrationForm() {
     reception_time: '',
     opening_time: '',
     match_start_time: '',
-    entry_fee: ''
+    entry_fee: '',
+    max_entries: '',
+    sex_restriction: ''
   }
   const [formData, setFormData] = useState<TournamentData>(initialFormData)
   const [guidelinePdf, setGuidelinePdf] = useState<File | null>(null)
@@ -48,9 +52,11 @@ function TournamentRegistrationForm() {
     { id: 23, name: '江戸川区' },
     { id: 18, name: '荒川区' },
     { id: 17, name: '北区' },
-    { id: 13, name: '江東区' },
-    { id: 1, name: '中央区' },
-    { id: 22, name: '墨田区' },
+    { id: 8, name: '江東区' },
+    { id: 2, name: '中央区' },
+    { id: 7, name: '墨田区' },
+    { id: 5, name: '文京区' },
+    { id: 100, name: '浦安市' },
     { id: 99, name: '東京都・その他広域' }
   ]
 
@@ -150,7 +156,11 @@ function TournamentRegistrationForm() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          ...formData,
+          max_entries: formData.max_entries ? parseInt(formData.max_entries) : null,
+          sex_restriction: formData.sex_restriction !== '' ? parseInt(formData.sex_restriction) : null,
+        })
       })
 
       if (!response.ok) {
@@ -587,6 +597,35 @@ function TournamentRegistrationForm() {
             style={inputStyle}
             placeholder="例: 1組 3,000円"
           />
+        </div>
+
+        {/* Max Entries */}
+        <div style={{ marginBottom: '24px' }}>
+          <label style={labelStyle}>申込数上限</label>
+          <input
+            type="number"
+            name="max_entries"
+            value={formData.max_entries}
+            onChange={handleInputChange}
+            style={inputStyle}
+            placeholder="未設定の場合は無制限"
+            min="1"
+          />
+        </div>
+
+        {/* Sex Restriction */}
+        <div style={{ marginBottom: '24px' }}>
+          <label style={labelStyle}>対象性別</label>
+          <select
+            name="sex_restriction"
+            value={formData.sex_restriction}
+            onChange={handleInputChange}
+            style={inputStyle}
+          >
+            <option value="">男女共通</option>
+            <option value="0">男子のみ</option>
+            <option value="1">女子のみ</option>
+          </select>
         </div>
 
         {/* Submit Button */}

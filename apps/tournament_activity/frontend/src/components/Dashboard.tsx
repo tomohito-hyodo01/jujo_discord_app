@@ -89,7 +89,7 @@ export default function Dashboard({ discordId, onNavigate, guestMode = false }: 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr)
     const weekdays = ['日', '月', '火', '水', '木', '金', '土']
-    return `${d.getMonth() + 1}/${d.getDate()}（${weekdays[d.getDay()]}）`
+    return `${d.getMonth() + 1}/${d.getDate()}(${weekdays[d.getDay()]})`
   }
 
   const formatTime = (t: string) => t?.slice(0, 5) || ''
