@@ -28,6 +28,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const [myAdminRole, setMyAdminRole] = useState<number>(2)
   const [myPracticeAdmin, setMyPracticeAdmin] = useState<number>(0)
   const [mySex, setMySex] = useState<number | null>(null)
+  const [myMemberLevel, setMyMemberLevel] = useState<number | null>(null)
   const [adminAddPlayerId, setAdminAddPlayerId] = useState<string>('')
   const [courtReservations, setCourtReservations] = useState<any[]>([])
   const [newReservation, setNewReservation] = useState({ start_time: '', end_time: '', reserver_name: '' })
@@ -132,6 +133,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
               if (me.admin_role != null) setMyAdminRole(me.admin_role)
               if (me.practice_admin != null) setMyPracticeAdmin(me.practice_admin)
               if (me.sex != null) setMySex(me.sex)
+              if (me.member_level != null) setMyMemberLevel(me.member_level)
               if (practiceData.length > 0) {
                 const joined = new Set<number>()
                 await Promise.all(practiceData.map(async (p: any) => {
@@ -485,11 +487,14 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const handleAdminRemoveParticipant = async (practiceId: number, playerId: number, playerName: string) => {
     if (!confirm(`${playerName}さんを参加者から削除しますか？`)) return
     try {
-      const res = await fetch(`${apiUrlRef}/api/practice/${practiceId}/leave/${playerId}`, { method: 'DELETE' })
+      const res = await fetch(`${apiUrlRef}/api/practice/${practiceId}/leave/${playerId}?discord_id=${encodeURIComponent(discordId)}`, { method: 'DELETE' })
       if (res.ok) {
         setPracticeParticipants(prev => prev.filter((p: any) => p.player_id !== playerId))
         const practRes = await fetch(`${apiUrlRef}/api/practice`)
         if (practRes.ok) setPractices(await practRes.json())
+      } else {
+        const e = await res.json().catch(() => ({}))
+        alert(e.detail || '削除に失敗しました')
       }
     } catch { alert('通信エラー') }
   }
@@ -556,14 +561,34 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     return new Set(registrations.map(r => r.tournament_id))
   }, [registrations])
 
+  // 公開設定に応じて閲覧可否を判定
+  const canViewByVisibility = (item: any): boolean => {
+    const v = item.visibility
+    if (!v || v === 'public') return true
+    if (v === 'members_all') return myMemberLevel === 0 || myMemberLevel === 1
+    if (v === 'members_regular') return myMemberLevel === 0
+    if (v === 'invited') return (item.invited_player_ids || []).includes(myPlayerId)
+    return true
+  }
+
+  // カレンダー用: 日付制限なしで公開設定のみ適用
+  const visiblePractices = useMemo(
+    () => practices.filter(canViewByVisibility),
+    [practices, myPlayerId, myMemberLevel]
+  )
+  const visibleCustomEvents = useMemo(
+    () => customEvents.filter(canViewByVisibility),
+    [customEvents, myPlayerId, myMemberLevel]
+  )
+
   // 大会と練習を統合して日付順にソート
   const upcomingPractices = useMemo(() => {
     const today = new Date().toISOString().split('T')[0]
     return practices
       .filter(p => p.practice_date >= today)
-      .filter(p => p.visibility !== 'invited' || (p.invited_player_ids || []).includes(myPlayerId))
+      .filter(canViewByVisibility)
       .sort((a, b) => a.practice_date.localeCompare(b.practice_date))
-  }, [practices, myPlayerId])
+  }, [practices, myPlayerId, myMemberLevel])
 
   type EventItem = { kind: 'tournament'; date: string; data: any } | { kind: 'practice'; date: string; data: any } | { kind: 'referee'; date: string; data: any } | { kind: 'custom_event'; date: string; data: any }
 
@@ -576,9 +601,9 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     const today = new Date().toISOString().split('T')[0]
     return customEvents
       .filter(e => e.event_date >= today && e.status !== 'cancelled')
-      .filter(e => e.visibility !== 'invited' || (e.invited_player_ids || []).includes(myPlayerId))
+      .filter(canViewByVisibility)
       .sort((a, b) => a.event_date.localeCompare(b.event_date))
-  }, [customEvents, myPlayerId])
+  }, [customEvents, myPlayerId, myMemberLevel])
 
   const allEvents = useMemo(() => {
     const items: EventItem[] = []
@@ -665,7 +690,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
         <TournamentCalendar
           tournaments={guestMode ? [] : allTournaments}
           registrations={guestMode ? [] : registrations}
-          practices={practices}
+          practices={visiblePractices}
           refTrainings={refTrainings}
           wards={guestMode ? [] : wards}
           discordId={discordId}
@@ -676,7 +701,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           onNavigate={onNavigate}
           onOpenTournamentModal={openTournamentModal}
           onOpenPracticeModal={openPracticeModal}
-          customEvents={customEvents}
+          customEvents={visibleCustomEvents}
           onOpenEventModal={openEventDetail}
         />
       ) : (

@@ -9,8 +9,70 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, date as _date
+import os
+import httpx
 from api.database import db
+
+
+# 練習時刻変更時のDM通知先Discord ID
+PRACTICE_TIME_CHANGE_NOTIFY_USER_ID = "1488129055017533620"
+_WEEKDAY_JP = ['月', '火', '水', '木', '金', '土', '日']
+
+
+def _normalize_time(v) -> Optional[str]:
+    """timedelta/秒数/文字列 を 'HH:MM' に正規化"""
+    if v is None:
+        return None
+    if isinstance(v, timedelta):
+        total = int(v.total_seconds())
+        return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
+    if isinstance(v, (int, float)):
+        total = int(v)
+        return f"{total // 3600:02d}:{(total % 3600) // 60:02d}"
+    if isinstance(v, str):
+        return v[:5]
+    return None
+
+
+async def _notify_practice_time_change(practice_date, start_time: str, end_time: str):
+    """練習時刻が変更された際にDiscord DMで通知"""
+    bot_token = os.getenv('DISCORD_BOT_TOKEN', '')
+    if not bot_token or not PRACTICE_TIME_CHANGE_NOTIFY_USER_ID:
+        return
+    try:
+        if isinstance(practice_date, str):
+            d = datetime.fromisoformat(practice_date.replace(' ', 'T')).date()
+        elif isinstance(practice_date, datetime):
+            d = practice_date.date()
+        elif isinstance(practice_date, _date):
+            d = practice_date
+        else:
+            return
+        date_str = f"{d.month}/{d.day}({_WEEKDAY_JP[d.weekday()]})"
+        content = f"{date_str}の練習は{start_time} ~ {end_time} となります。"
+
+        headers = {'Authorization': f'Bot {bot_token}', 'Content-Type': 'application/json'}
+        async with httpx.AsyncClient() as client:
+            dm_ch = await client.post(
+                'https://discord.com/api/v10/users/@me/channels',
+                headers=headers,
+                json={'recipient_id': PRACTICE_TIME_CHANGE_NOTIFY_USER_ID},
+                timeout=5.0,
+            )
+            if dm_ch.status_code == 200:
+                channel_id = dm_ch.json()['id']
+                await client.post(
+                    f'https://discord.com/api/v10/channels/{channel_id}/messages',
+                    headers=headers,
+                    json={'content': content},
+                    timeout=5.0,
+                )
+                print(f'✅ 練習時刻変更通知送信成功: {content}')
+            else:
+                print(f'⚠️ 練習時刻変更通知DMチャンネル作成失敗: {dm_ch.status_code}')
+    except Exception as e:
+        print(f'⚠️ 練習時刻変更通知失敗: {e}')
 
 
 def _fix_time_fields(schedule: dict) -> dict:
@@ -189,8 +251,8 @@ async def join_practice(practice_id: int, body: PracticeJoin):
 
 
 @router.delete("/practice/{practice_id}/leave/{player_id}")
-async def leave_practice(practice_id: int, player_id: int):
-    """練習の参加をキャンセル（締切後は不可）"""
+async def leave_practice(practice_id: int, player_id: int, discord_id: Optional[str] = None):
+    """練習の参加をキャンセル（締切後は管理者のみ可）"""
     try:
         # 締切チェック
         p_res = await db.execute_query(
@@ -202,7 +264,18 @@ async def leave_practice(practice_id: int, player_id: int):
         if deadline:
             deadline_dt = deadline if isinstance(deadline, datetime) else datetime.fromisoformat(str(deadline).replace(' ', 'T'))
             if deadline_dt < datetime.now():
-                raise HTTPException(status_code=400, detail="締切後はキャンセルできません")
+                # 管理者 or 練習管理者は締切後でも削除可
+                is_admin = False
+                if discord_id:
+                    a_res = await db.execute_query(
+                        'player_mst', operation='select', filters={'discord_id': discord_id}
+                    )
+                    if a_res.get('data'):
+                        row = a_res['data'][0]
+                        if row.get('admin_role') == 0 or row.get('practice_admin') == 1:
+                            is_admin = True
+                if not is_admin:
+                    raise HTTPException(status_code=400, detail="締切後はキャンセルできません")
 
         result = await db.execute_query(
             'practice_participants',
@@ -255,6 +328,15 @@ async def update_practice(practice_id: int, practice: PracticeUpdate):
         if not update_data:
             return {"success": True, "message": "変更なし"}
 
+        # 時刻変更検出のため既存値を取得
+        existing = None
+        if 'start_time' in update_data or 'end_time' in update_data:
+            prev = await db.execute_query(
+                'practice_schedule', operation='select', filters={'id': practice_id}
+            )
+            if prev.get('data'):
+                existing = prev['data'][0]
+
         result = await db.execute_query(
             'practice_schedule',
             operation='update',
@@ -263,6 +345,23 @@ async def update_practice(practice_id: int, practice: PracticeUpdate):
         )
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
+
+        # 開始/終了時刻が変更されていた場合のみ通知
+        if existing is not None:
+            old_start = _normalize_time(existing.get('start_time'))
+            old_end = _normalize_time(existing.get('end_time'))
+            new_start = update_data.get('start_time', old_start)
+            new_end = update_data.get('end_time', old_end)
+            time_changed = (
+                ('start_time' in update_data and old_start != new_start) or
+                ('end_time' in update_data and old_end != new_end)
+            )
+            if time_changed:
+                practice_date_for_msg = update_data.get('practice_date') or existing.get('practice_date')
+                try:
+                    await _notify_practice_time_change(practice_date_for_msg, new_start, new_end)
+                except Exception as e:
+                    print(f'⚠️ 通知処理エラー（更新自体は成功）: {e}')
 
         return {"success": True, "message": "練習予定を更新しました"}
     except HTTPException:

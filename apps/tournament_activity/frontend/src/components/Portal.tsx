@@ -46,9 +46,9 @@ const MENU_ITEMS: MenuItem[] = [
   { id: 'admin-excel', label: '申込書出力', permission: 'view_excel_download' },
   { id: 'admin-practice', label: '練習日程管理', permission: 'view_practice_manage' },
   { id: 'admin-members', label: 'メンバー一覧', permission: 'view_member_list' },
-  { id: 'admin-logs', label: 'ログ', permission: 'view_app_logs' },
   { id: 'profile-notify', label: 'プロフィール不備通知', permission: 'view_app_logs' },
   { id: 'account-merge', label: 'アカウント統合', permission: 'view_app_logs' },
+  { id: 'admin-logs', label: 'ログ', permission: 'view_app_logs' },
 ]
 
 export default function Portal({ discordId, username, permissionInfo, needsPlayerRegistration, needsProfileCompletion, onPlayerRegistered, onProfileCompleted, onLogout }: PortalProps) {
@@ -177,7 +177,7 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
         if (!hasPermission(permissionInfo, 'view_practice_manage')) {
           return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>
         }
-        return <PracticeManagement />
+        return <PracticeManagement discordId={discordId} />
       case 'admin-members':
         if (!hasPermission(permissionInfo, 'view_member_list')) {
           return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>

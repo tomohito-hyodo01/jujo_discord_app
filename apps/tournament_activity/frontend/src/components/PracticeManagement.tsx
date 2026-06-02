@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 
-export default function PracticeManagement() {
+interface PracticeManagementProps {
+  discordId: string
+}
+
+export default function PracticeManagement({ discordId }: PracticeManagementProps) {
   const [practices, setPractices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -17,6 +21,7 @@ export default function PracticeManagement() {
   const [allPlayers, setAllPlayers] = useState<any[]>([])
   const [editVisibility, setEditVisibility] = useState<string>('public')
   const [editInvitedIds, setEditInvitedIds] = useState<number[]>([])
+  const [editParticipants, setEditParticipants] = useState<any[]>([])
   const [courtReservations, setCourtReservations] = useState<any[]>([])
   const [newReservation, setNewReservation] = useState({ start_time: '', end_time: '', reserver_name: '' })
   const [editingReservationId, setEditingReservationId] = useState<number | null>(null)
@@ -81,6 +86,11 @@ export default function PracticeManagement() {
       if (res.ok) setCourtReservations(await res.json())
       else setCourtReservations([])
     } catch { setCourtReservations([]) }
+    try {
+      const ptRes = await fetch(`${apiUrl}/api/practice/${p.id}/participants`)
+      if (ptRes.ok) setEditParticipants(await ptRes.json())
+      else setEditParticipants([])
+    } catch { setEditParticipants([]) }
   }
 
   const handleAddReservation = async () => {
@@ -591,12 +601,53 @@ export default function PracticeManagement() {
                 </div>
               </div>
 
+              {/* 参加者一覧 */}
+              <div>
+                <label style={labelStyle}>参加者（{editParticipants.length}名）</label>
+                {editParticipants.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: '#64748b', margin: '4px 0 0' }}>まだ参加者がいません</p>
+                ) : (
+                  <div style={{
+                    maxHeight: '160px', overflowY: 'auto', padding: '8px',
+                    backgroundColor: '#0c1220', borderRadius: '6px', border: '1px solid #1e293b',
+                    display: 'flex', flexDirection: 'column', gap: '4px',
+                  }}>
+                    {editParticipants.map((pt: any) => (
+                      <div key={pt.player_id} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '4px 6px', fontSize: '13px', color: '#e2e8f0',
+                      }}>
+                        <span>{pt.player_name}</span>
+                        <button type="button" onClick={async () => {
+                          if (!confirm(`${pt.player_name}さんを参加者から削除しますか？`)) return
+                          try {
+                            const res = await fetch(`${apiUrl}/api/practice/${editingPractice.id}/leave/${pt.player_id}?discord_id=${encodeURIComponent(discordId)}`, { method: 'DELETE' })
+                            if (res.ok) {
+                              setEditParticipants(prev => prev.filter((x: any) => x.player_id !== pt.player_id))
+                              loadPractices()
+                            } else {
+                              const e = await res.json().catch(() => ({}))
+                              alert(e.detail || '削除に失敗しました')
+                            }
+                          } catch { alert('通信エラー') }
+                        }} style={{
+                          padding: '2px 8px', borderRadius: '4px', backgroundColor: 'transparent',
+                          color: '#f87171', border: '1px solid #7f1d1d', fontSize: '11px', cursor: 'pointer',
+                        }}>削除</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* 公開設定 */}
               <div>
                 <label style={labelStyle}>公開設定</label>
                 <select value={editVisibility} onChange={e => setEditVisibility(e.target.value)} style={inputStyle}>
                   <option value="public">全体公開</option>
-                  <option value="invited">メンバー限定</option>
+                  <option value="members_all">全会員（正会員・準会員）</option>
+                  <option value="members_regular">正会員のみ</option>
+                  <option value="invited">メンバー限定（個別指定）</option>
                 </select>
               </div>
               {editVisibility === 'invited' && (
