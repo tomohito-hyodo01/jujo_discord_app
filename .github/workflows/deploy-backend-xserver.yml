@@ -35,6 +35,9 @@ jobs:
             --exclude '*.pyc' \
             --exclude 'fly.toml' \
             --exclude 'Dockerfile' \
+            --exclude 'google_sa_key.json' \
+            --exclude 'uploads' \
+            --exclude 'uvicorn.log' \
             apps/tournament_activity/backend/ \
             fromround@sv13283.xserver.jp:~/api.jujo-softtennis.com/backend/
 
