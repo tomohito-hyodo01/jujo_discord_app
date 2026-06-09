@@ -25,8 +25,16 @@ export default function TournamentManagement() {
         ])
         if (tRes.ok) {
           const data = await tRes.json()
-          data.sort((a: any, b: any) => (a.tournament_date || '').localeCompare(b.tournament_date || ''))
-          setTournaments(data)
+          // 当日以降の大会のみ、開催日昇順
+          const today = new Date(); today.setHours(0, 0, 0, 0)
+          const filtered = data
+            .filter((t: any) => {
+              if (!t.tournament_date) return false
+              const d = new Date(t.tournament_date); d.setHours(0, 0, 0, 0)
+              return d.getTime() >= today.getTime()
+            })
+            .sort((a: any, b: any) => (a.tournament_date || '').localeCompare(b.tournament_date || ''))
+          setTournaments(filtered)
         }
         if (wRes.ok) setWards(await wRes.json())
       } catch {} finally { setLoading(false) }

@@ -51,8 +51,26 @@ const MENU_ITEMS: MenuItem[] = [
   { id: 'admin-logs', label: 'ログ', permission: 'view_app_logs' },
 ]
 
+const VALID_PAGES = new Set([
+  'dashboard', 'event-list', 'player', 'my-profile', 'apply', 'referee-training', 'my-registrations',
+  'admin-tournament', 'admin-tournament-mgmt', 'admin-excel', 'admin-practice', 'admin-members',
+  'admin-logs', 'account-merge', 'profile-notify',
+])
+
 export default function Portal({ discordId, username, permissionInfo, needsPlayerRegistration, needsProfileCompletion, onPlayerRegistered, onProfileCompleted, onLogout }: PortalProps) {
-  const [currentPage, setCurrentPage] = useState(needsPlayerRegistration ? 'player' : 'dashboard')
+  const getInitialPage = () => {
+    if (needsPlayerRegistration) return 'player'
+    const hash = window.location.hash.replace(/^#/, '')
+    if (hash && VALID_PAGES.has(hash)) {
+      // プロフィール補完中は dashboard/player のみ許可
+      if (needsProfileCompletion && hash !== 'player' && hash !== 'dashboard') {
+        return 'dashboard'
+      }
+      return hash
+    }
+    return 'dashboard'
+  }
+  const [currentPage, setCurrentPage] = useState(getInitialPage)
   const [isCompleted, setIsCompleted] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedTournamentId, setSelectedTournamentId] = useState<string | undefined>(undefined)
@@ -92,9 +110,8 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
 
   // ブラウザの戻る/進むに対応
   useEffect(() => {
-    // 初回ロード時に現在のページを履歴に登録
-    const initialPage = needsPlayerRegistration ? 'player' : 'dashboard'
-    window.history.replaceState({ page: initialPage }, '', `#${initialPage}`)
+    // 初回ロード時、現在のページとURLハッシュを同期（既存ハッシュは尊重）
+    window.history.replaceState({ page: currentPage }, '', `#${currentPage}`)
 
     const handlePopState = (e: PopStateEvent) => {
       if (e.state?.page) {
