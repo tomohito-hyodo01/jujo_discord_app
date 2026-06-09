@@ -206,7 +206,7 @@ class PDFParserService:
 
 重要な注意事項:
 1. 日付は必ずYYYY-MM-DD形式に変換してください（和暦の場合は西暦に変換）
-2. tournament_idは大会名と日付からMD5ハッシュ8文字で生成し、"tournament_"プレフィックスを付けてください。日付ごとに異なるIDを生成してください
+2. tournament_idは必ず null にしてください（システム側で一意なIDを自動生成します。AIは生成しないこと）
 3. 主催が「東京都」「関東」「東日本」「全日本」などの広域の場合は registrated_ward = 99 を設定してください
 4. 主催区が上記リストにない場合（例：世田谷区、練馬区など）は registrated_ward = -1 を設定してください
 5. **重要**: 種別(type)には「一般」「35」「45」「ミックス（一般）」「ミックス（35）」「シングルス」のみを抽出してください。ミックスダブルスは年齢区分に応じて「ミックス（一般）」または「ミックス（35）」としてください。シングルスの部がある場合は「シングルス」としてください。「シニア」「55」「60」「65」「70」「シニアミックス」などは無視してください
@@ -226,11 +226,14 @@ JSON:"""
         if ward_id == -1 or (ward_id != 0 and ward_id not in allowed_ward_ids):
             raise ValueError("INVALID_WARD")
 
-        # tournament_idの生成
-        if not tournament_data.get("tournament_id") or tournament_data["tournament_id"] == "":
-            id_source = f"{tournament_data.get('tournament_name', 'unknown')}_{tournament_data.get('tournament_date', '')}"
-            hash_value = hashlib.md5(id_source.encode()).hexdigest()[:8]
-            tournament_data["tournament_id"] = f"tournament_{hash_value}"
+        # tournament_idは必ずサーバー側で生成する（AIが返した値は信頼しない）。
+        # AIはMD5を計算できず、それらしい16進文字列を捏造するため、別大会同士でIDが
+        # 衝突し、register_tournamentのUPDATEで既存大会が上書き・消失する事故が起きていた。
+        # 主催区＋大会名＋日付からMD5を計算することで、区・大会ごとに必ず一意なIDとなる。
+        ward_for_id = tournament_data.get("registrated_ward", 0)
+        id_source = f"{ward_for_id}_{tournament_data.get('tournament_name', 'unknown')}_{tournament_data.get('tournament_date', '')}"
+        hash_value = hashlib.md5(id_source.encode()).hexdigest()[:8]
+        tournament_data["tournament_id"] = f"tournament_{hash_value}"
 
         # 種別のフィルタリング：一般、35、45、ミックスのみを許可
         if "type" in tournament_data and isinstance(tournament_data["type"], list):

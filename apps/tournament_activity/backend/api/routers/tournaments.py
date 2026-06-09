@@ -265,13 +265,24 @@ async def register_tournament(request: TournamentRegisterRequest):
             'tournament_mst',
             operation='select',
             filters={'tournament_id': tournament_id},
-            columns='tournament_id'
+            columns='tournament_id, registrated_ward, tournament_name'
         )
 
         tournament_data = request.model_dump()
         tournament_data['tournament_id'] = tournament_id
 
         if existing.get('data'):
+            ex = existing['data'][0]
+            # 衝突ガード: 同一IDだが主催区が異なる = 別大会とのID衝突。
+            # 上書きすると既存大会が消失するため拒否する（文京区→墨田区の上書き事故対策）。
+            ex_ward = ex.get('registrated_ward')
+            if ex_ward is not None and ex_ward != request.registrated_ward:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(f"大会IDが既存の別大会と衝突しました（既存: "
+                            f"{ex.get('tournament_name')} / 主催区ID={ex_ward}）。"
+                            f"登録を中止しました。管理者に連絡してください。")
+                )
             # 更新
             result = await db.execute_query(
                 'tournament_mst',
@@ -297,6 +308,8 @@ async def register_tournament(request: TournamentRegisterRequest):
             "message": message,
             "tournament": result.get('data', [{}])[0]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
