@@ -37,6 +37,15 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
               }
             }
           }
+          // 当日以降の大会のみ、開催日昇順で表示
+          const today = new Date(); today.setHours(0, 0, 0, 0)
+          data = data
+            .filter((t: any) => {
+              if (!t.tournament_date) return false
+              const d = new Date(t.tournament_date); d.setHours(0, 0, 0, 0)
+              return d.getTime() >= today.getTime()
+            })
+            .sort((a: any, b: any) => (a.tournament_date || '').localeCompare(b.tournament_date || ''))
           setTournaments(data)
         }
         if (wRes.ok) setWards(await wRes.json())
@@ -103,6 +112,23 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
     window.open(`${apiUrl}/api/excel/download/${encodeURIComponent(filename)}`, '_blank')
   }
 
+  const handleDelete = async (tournamentId: string, filename: string) => {
+    if (!confirm(`「${filename}」を削除しますか？`)) return
+    try {
+      const res = await fetch(`${apiUrl}/api/excel/files/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+      if (res.ok) {
+        setGeneratedFiles(prev => ({
+          ...prev,
+          [tournamentId]: (prev[tournamentId] || []).filter(f => f !== filename),
+        }))
+        setMessage('ファイルを削除しました')
+      } else {
+        const e = await res.json().catch(() => ({}))
+        setMessage(`削除失敗: ${e.detail || ''}`)
+      }
+    } catch { setMessage('通信エラー') }
+  }
+
   // 初回ロード時にファイル一覧と申込件数を取得
   useEffect(() => {
     if (tournaments.length > 0) {
@@ -162,22 +188,32 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
                   <td style={{ ...cellStyle, whiteSpace: 'nowrap' as const }}>{getWardName(t.registrated_ward)}</td>
                   <td style={{ ...cellStyle, whiteSpace: 'nowrap' as const }}>{formatDate(t.tournament_date)}</td>
                   <td style={{ ...cellStyle, textAlign: 'center', whiteSpace: 'nowrap' as const }}>
-                    <button
-                      onClick={() => handleGenerate(t.tournament_id)}
-                      disabled={generating === t.tournament_id || noRegs}
-                      title={noRegs ? '申込がありません' : ''}
-                      style={{
-                        padding: '4px 14px', borderRadius: '5px',
-                        backgroundColor: noRegs ? '#1e293b' : '#064e3b',
-                        color: noRegs ? '#475569' : '#6ee7b7',
-                        border: `1px solid ${noRegs ? '#334155' : '#10b981'}`,
-                        fontSize: '12px',
-                        cursor: (generating === t.tournament_id || noRegs) ? 'not-allowed' : 'pointer',
-                        opacity: generating === t.tournament_id ? 0.5 : 1,
-                      }}
-                    >
-                      {generating === t.tournament_id ? '生成中...' : noRegs ? '申込なし' : `生成（${count}件）`}
-                    </button>
+                    {(() => {
+                      const hasFiles = files.length > 0
+                      const btnLabel = generating === t.tournament_id
+                        ? (hasFiles ? '再生成中...' : '生成中...')
+                        : noRegs
+                          ? '申込なし'
+                          : hasFiles
+                            ? `再生成（${count}件）`
+                            : `生成（${count}件）`
+                      return (
+                        <button
+                          onClick={() => handleGenerate(t.tournament_id)}
+                          disabled={generating === t.tournament_id || noRegs}
+                          title={noRegs ? '申込がありません' : (hasFiles ? '既存ファイルを置き換えて再生成します' : '')}
+                          style={{
+                            padding: '4px 14px', borderRadius: '5px',
+                            backgroundColor: noRegs ? '#1e293b' : hasFiles ? '#78350f' : '#064e3b',
+                            color: noRegs ? '#475569' : hasFiles ? '#fbbf24' : '#6ee7b7',
+                            border: `1px solid ${noRegs ? '#334155' : hasFiles ? '#a16207' : '#10b981'}`,
+                            fontSize: '12px',
+                            cursor: (generating === t.tournament_id || noRegs) ? 'not-allowed' : 'pointer',
+                            opacity: generating === t.tournament_id ? 0.5 : 1,
+                          }}
+                        >{btnLabel}</button>
+                      )
+                    })()}
                   </td>
                   <td style={cellStyle}>
                     {files.length === 0 ? (
@@ -185,10 +221,16 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {files.map(f => (
-                          <button key={f} onClick={() => handleDownload(f)} style={{
-                            padding: '2px 10px', borderRadius: '4px', backgroundColor: '#1e3a8a', color: '#93c5fd',
-                            border: '1px solid #2563eb', fontSize: '11px', cursor: 'pointer', textAlign: 'left',
-                          }}>{f}</button>
+                          <div key={f} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <button onClick={() => handleDownload(f)} style={{
+                              flex: 1, padding: '2px 10px', borderRadius: '4px', backgroundColor: '#1e3a8a', color: '#93c5fd',
+                              border: '1px solid #2563eb', fontSize: '11px', cursor: 'pointer', textAlign: 'left',
+                            }}>{f}</button>
+                            <button onClick={() => handleDelete(t.tournament_id, f)} title="削除" style={{
+                              padding: '2px 8px', borderRadius: '4px', backgroundColor: 'transparent', color: '#f87171',
+                              border: '1px solid #7f1d1d', fontSize: '11px', cursor: 'pointer',
+                            }}>✕</button>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -215,18 +257,32 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
                 {getWardName(t.registrated_ward)} / {formatDate(t.tournament_date)}
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button onClick={() => handleGenerate(t.tournament_id)} disabled={generating === t.tournament_id || noRegs} style={{
-                  padding: '6px 14px', borderRadius: '5px',
-                  backgroundColor: noRegs ? '#1e293b' : '#064e3b',
-                  color: noRegs ? '#475569' : '#6ee7b7',
-                  border: `1px solid ${noRegs ? '#334155' : '#10b981'}`,
-                  fontSize: '12px', cursor: noRegs ? 'not-allowed' : 'pointer',
-                }}>{generating === t.tournament_id ? '生成中...' : noRegs ? '申込なし' : `生成（${count}件）`}</button>
+                {(() => {
+                  const hasFiles = files.length > 0
+                  const btnLabel = generating === t.tournament_id
+                    ? (hasFiles ? '再生成中...' : '生成中...')
+                    : noRegs ? '申込なし' : hasFiles ? `再生成（${count}件）` : `生成（${count}件）`
+                  return (
+                    <button onClick={() => handleGenerate(t.tournament_id)} disabled={generating === t.tournament_id || noRegs} style={{
+                      padding: '6px 14px', borderRadius: '5px',
+                      backgroundColor: noRegs ? '#1e293b' : hasFiles ? '#78350f' : '#064e3b',
+                      color: noRegs ? '#475569' : hasFiles ? '#fbbf24' : '#6ee7b7',
+                      border: `1px solid ${noRegs ? '#334155' : hasFiles ? '#a16207' : '#10b981'}`,
+                      fontSize: '12px', cursor: noRegs ? 'not-allowed' : 'pointer',
+                    }}>{btnLabel}</button>
+                  )
+                })()}
                 {files.map(f => (
-                  <button key={f} onClick={() => handleDownload(f)} style={{
-                    padding: '6px 10px', borderRadius: '5px', backgroundColor: '#1e3a8a', color: '#93c5fd',
-                    border: '1px solid #2563eb', fontSize: '11px', cursor: 'pointer',
-                  }}>{f}</button>
+                  <div key={f} style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <button onClick={() => handleDownload(f)} style={{
+                      padding: '6px 10px', borderRadius: '5px', backgroundColor: '#1e3a8a', color: '#93c5fd',
+                      border: '1px solid #2563eb', fontSize: '11px', cursor: 'pointer',
+                    }}>{f}</button>
+                    <button onClick={() => handleDelete(t.tournament_id, f)} title="削除" style={{
+                      padding: '6px 8px', borderRadius: '5px', backgroundColor: 'transparent', color: '#f87171',
+                      border: '1px solid #7f1d1d', fontSize: '11px', cursor: 'pointer',
+                    }}>✕</button>
+                  </div>
                 ))}
               </div>
             </div>

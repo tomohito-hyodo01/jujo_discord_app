@@ -5,6 +5,7 @@ Excel編集サービス ファクトリー
 """
 from services.excel_service_base import BaseExcelService
 from services.wards.edogawa_excel_service import EdogawaExcelService
+from services.wards.arakawa_excel_service import ArakawaExcelService
 
 
 class ExcelServiceFactory:
@@ -13,7 +14,7 @@ class ExcelServiceFactory:
     # 区ID → サービスクラスのマッピング
     _services = {
         23: EdogawaExcelService,
-        # 18: ArakawaExcelService,  # 今後追加
+        18: ArakawaExcelService,
         # 17: KitaExcelService,     # 今後追加
     }
 

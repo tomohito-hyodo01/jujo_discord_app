@@ -92,7 +92,6 @@ class BaseExcelService(ABC):
         return output_path
 
     # 各区で実装が必要な抽象メソッド
-    @abstractmethod
     def generate_member_registration(
         self,
         tournament_name: str,
@@ -100,7 +99,9 @@ class BaseExcelService(ABC):
         timestamp: str
     ) -> Optional[Path]:
         """
-        会員登録表を生成（各区で実装）
+        会員登録表を生成（必要な区のみ override）
+
+        デフォルトは「不要」を表す None。会員登録表が要らない区はこのまま継承で OK。
 
         Args:
             tournament_name: 大会名
@@ -110,7 +111,7 @@ class BaseExcelService(ABC):
         Returns:
             生成されたファイルパス（不要な場合はNone）
         """
-        pass
+        return None
 
     @abstractmethod
     def generate_individual_application(

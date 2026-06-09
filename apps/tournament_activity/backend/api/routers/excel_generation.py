@@ -220,7 +220,19 @@ async def generate_excel(request: ExcelGenerationRequest):
                 error="No valid player data found for registrations"
             )
 
-        # 4. Excelファイルを生成
+        # 4. 同一大会の既存ファイルを削除（再生成時の自動クリーンアップ）
+        try:
+            if OUTPUT_DIR.exists() and tournament_name:
+                for f in OUTPUT_DIR.glob("*.xlsx"):
+                    if tournament_name in f.name:
+                        try:
+                            f.unlink()
+                        except Exception as e:
+                            print(f"⚠️ 旧ファイル削除失敗: {f.name} / {e}")
+        except Exception as e:
+            print(f"⚠️ 旧ファイルクリーンアップ失敗: {e}")
+
+        # 5. Excelファイルを生成
         excel_service = ExcelServiceFactory.create(ward_id)
         file_paths = excel_service.generate_tournament_files(tournament, enriched_registrations)
 
@@ -336,6 +348,25 @@ async def download_excel_file(filename: str):
         filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@router.delete("/excel/files/{filename}")
+async def delete_excel_file(filename: str):
+    """生成済みExcelファイルを削除"""
+    file_path = OUTPUT_DIR / filename
+
+    # パストラバーサル対策
+    if not file_path.resolve().parent == OUTPUT_DIR.resolve():
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+
+    try:
+        file_path.unlink()
+        return {"success": True, "message": f"削除しました: {filename}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"削除失敗: {str(e)}")
 
 
 @router.get("/excel/test/{tournament_id}")
