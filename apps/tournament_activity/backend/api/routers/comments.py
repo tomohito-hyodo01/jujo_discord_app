@@ -32,6 +32,7 @@ class CommentCreate(BaseModel):
     target_id: int
     player_id: int
     body: str
+    parent_id: Optional[int] = None  # 返信先コメントID（スレッド。トップレベルはNone）
 
 
 class CommentUpdate(BaseModel):
@@ -189,14 +190,17 @@ async def create_comment(comment: CommentCreate):
     if not body:
         raise HTTPException(status_code=400, detail="本文を入力してください")
     try:
+        insert_data = {
+            "target_type": comment.target_type,
+            "target_id": comment.target_id,
+            "player_id": comment.player_id,
+            "body": body,
+        }
+        if comment.parent_id is not None:
+            insert_data["parent_id"] = comment.parent_id
         result = await db.execute_query(
             "comments", operation="insert",
-            data={
-                "target_type": comment.target_type,
-                "target_id": comment.target_id,
-                "player_id": comment.player_id,
-                "body": body,
-            },
+            data=insert_data,
         )
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
