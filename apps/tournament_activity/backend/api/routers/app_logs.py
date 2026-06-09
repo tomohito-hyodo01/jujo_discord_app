@@ -43,6 +43,20 @@ async def create_log(entry: LogEntry):
     return {'success': True}
 
 
+async def _attach_player_names(logs: list) -> list:
+    """ログにplayer_mst.player_nameを付与"""
+    p_res = await db.execute_query('player_mst', operation='select')
+    name_map: dict = {}
+    for p in (p_res.get('data') or []):
+        did = p.get('discord_id')
+        if did:
+            name_map[did] = p.get('player_name')
+    for log in logs:
+        did = log.get('discord_id')
+        log['player_name'] = name_map.get(did) if did else None
+    return logs
+
+
 @router.get("/logs")
 async def get_logs():
     """最新200件のログを取得（timestamp降順）"""
@@ -56,7 +70,9 @@ async def get_logs():
 
     logs = result.get('data') or []
     logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-    return logs[:200]
+    logs = logs[:200]
+    await _attach_player_names(logs)
+    return logs
 
 
 @router.get("/logs/search")
@@ -73,4 +89,5 @@ async def search_logs(discord_id: str):
 
     logs = result.get('data') or []
     logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    await _attach_player_names(logs)
     return logs

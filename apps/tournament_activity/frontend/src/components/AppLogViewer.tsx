@@ -101,6 +101,8 @@ export default function AppLogViewer() {
               <thead><tr>
                 <th style={headerCellStyle}>日時</th>
                 <th style={headerCellStyle}>レベル</th>
+                <th style={headerCellStyle}>選手名</th>
+                <th style={headerCellStyle}>Discord表示名</th>
                 <th style={headerCellStyle}>Discord ID</th>
                 <th style={headerCellStyle}>ユーザー名</th>
                 <th style={headerCellStyle}>イベント</th>
@@ -117,6 +119,8 @@ export default function AppLogViewer() {
                       <td style={cellStyle}>
                         <span style={{ padding: '1px 6px', borderRadius: '4px', fontSize: '11px', backgroundColor: lc.bg, color: lc.color }}>{log.level}</span>
                       </td>
+                      <td style={cellStyle}>{log.player_name || '-'}</td>
+                      <td style={cellStyle}>{log.display_name || '-'}</td>
                       <td style={{ ...cellStyle, fontFamily: 'monospace', fontSize: '11px' }}>{log.discord_id || '-'}</td>
                       <td style={cellStyle}>{log.username || '-'}</td>
                       <td style={cellStyle}>{log.event}</td>
@@ -143,8 +147,9 @@ export default function AppLogViewer() {
                     <span style={{ padding: '1px 6px', borderRadius: '4px', fontSize: '11px', backgroundColor: lc.bg, color: lc.color }}>{log.level}</span>
                   </div>
                   <div style={{ fontSize: '13px', color: '#e2e8f0', fontWeight: '500', marginBottom: '2px' }}>
-                    {log.event} {log.username && <span style={{ color: '#94a3b8', fontWeight: '400' }}>- {log.username}</span>}
+                    {log.event} {(log.player_name || log.display_name || log.username) && <span style={{ color: '#94a3b8', fontWeight: '400' }}>- {log.player_name || log.display_name || log.username}</span>}
                   </div>
+                  {(log.display_name || log.username) && <div style={{ fontSize: '11px', color: '#64748b' }}>{log.display_name && `${log.display_name} `}@{log.username}</div>}
                   {log.discord_id && <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>{log.discord_id}</div>}
                   {(log.admin_role || log.member_level_name) && (
                     <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>

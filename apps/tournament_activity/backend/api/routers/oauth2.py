@@ -121,6 +121,10 @@ async def oauth2_callback(callback: OAuth2Callback):
             # ギルドメンバー情報を取得（ロール判定用）
             member_level = 3  # デフォルト: 未所属
             role_names = []
+            in_guild = False  # 十条クラブDiscordサーバーへの参加状況
+            club_role_count = 0  # クラブ用ロール（正会員/準会員/ゲスト）の保持数
+            guilds_ok = False
+            member_api_ok = False
 
             # OAuth2で取得したスコープを確認
             print(f'トークンスコープ: {token_data.get("scope", "不明")}')
@@ -134,6 +138,7 @@ async def oauth2_callback(callback: OAuth2Callback):
                     timeout=10.0
                 )
                 if guilds_response.status_code == 200:
+                    guilds_ok = True
                     guilds = guilds_response.json()
                     guild_ids = [g['id'] for g in guilds]
                     in_guild = GUILD_ID in guild_ids
@@ -150,12 +155,14 @@ async def oauth2_callback(callback: OAuth2Callback):
                 print(f'ギルドメンバーAPI: status={member_response.status_code}, body={member_response.text[:300]}')
 
                 if member_response.status_code == 200:
+                    member_api_ok = True
                     member_data = member_response.json()
                     user_roles = member_data.get('roles', [])
 
                     # ロールIDからmemberLevelを判定（最も高い権限を採用）
                     for role_id, level in ROLE_MEMBER_LEVEL_MAP.items():
                         if role_id in user_roles:
+                            club_role_count += 1
                             if level < member_level:
                                 member_level = level
 
@@ -171,32 +178,63 @@ async def oauth2_callback(callback: OAuth2Callback):
             try:
                 # player_mstからadmin_roleを取得
                 admin_role_name = '未登録'
+                is_registered = False
                 player_result = await db.execute_query(
                     'player_mst',
                     operation='select',
                     filters={'discord_id': user_data['id']}
                 )
                 if player_result.get('data'):
+                    is_registered = True
                     ar = player_result['data'][0].get('admin_role', 2)
                     admin_role_name = {0: '管理者', 1: '大会申込管理者', 2: '一般'}.get(ar, '一般')
 
                 ml_name = {0: '正会員', 1: '準会員', 2: 'ゲスト'}.get(member_level, '未所属')
+                discord_display_name = user_data.get('global_name') or None
+
+                # 詳細メッセージ組み立て
+                status_parts = []
+                status_parts.append(f"サーバー参加: {'あり' if in_guild else 'なし'}")
+                status_parts.append(f"クラブロール: {club_role_count}件")
+                status_parts.append(f"選手登録: {'あり' if is_registered else 'なし'}")
+                status_str = ' / '.join(status_parts)
+
+                # ポータル利用可否判定: 十条クラブのロールが付いていない（=未所属）はBLOCKED
+                if member_level >= 3:
+                    event_name = 'LOGIN_BLOCKED'
+                    log_level = 'WARN'
+                    reasons = []
+                    if not guilds_ok:
+                        reasons.append('Discordギルド情報取得不可')
+                    elif not in_guild:
+                        reasons.append('十条クラブDiscord未参加')
+                    elif club_role_count == 0:
+                        reasons.append('クラブ用ロール未付与')
+                    if not is_registered:
+                        reasons.append('選手未登録')
+                    reason_str = ' / '.join(reasons) if reasons else '理由不明'
+                    detail_msg = f'ポータル利用不可 | {status_str} | 要因: {reason_str}'
+                else:
+                    event_name = 'LOGIN'
+                    log_level = 'INFO'
+                    detail_msg = f'OAuth2認証成功 | {status_str}'
 
                 await db.execute_query(
                     'app_logs',
                     operation='insert',
                     data={
-                        'level': 'INFO',
+                        'level': log_level,
                         'discord_id': user_data['id'],
                         'username': user_data['username'],
-                        'event': 'LOGIN',
-                        'detail': 'OAuth2認証成功',
+                        'display_name': discord_display_name,
+                        'event': event_name,
+                        'detail': detail_msg,
                         'admin_role': admin_role_name,
                         'member_level_name': ml_name,
                     }
                 )
-            except:
-                pass
+            except Exception as log_e:
+                print(f'⚠️ ログ記録エラー: {log_e}')
 
             return {
                 'user_id': user_data['id'],
