@@ -482,7 +482,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     try {
       const res = await fetch(`${apiUrlRef}/api/practice/${practiceId}/join`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: playerId }),
+        body: JSON.stringify({ player_id: playerId, actor_discord_id: discordId }),
       })
       if (res.ok) {
         const pRes = await fetch(`${apiUrlRef}/api/practice/${practiceId}/participants`)
@@ -1749,7 +1749,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                           try {
                             const res = await fetch(`${apiUrlRef}/api/events/${selectedEvent.id}/join`, {
                               method: 'POST', headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ player_id: parseInt(adminAddPlayerId) }),
+                              body: JSON.stringify({ player_id: parseInt(adminAddPlayerId), actor_discord_id: discordId }),
                             })
                             if (res.ok) {
                               const ptRes = await fetch(`${apiUrlRef}/api/events/${selectedEvent.id}/participants`)

@@ -60,6 +60,7 @@ class EventUpdate(BaseModel):
 
 class EventJoin(BaseModel):
     player_id: int
+    actor_discord_id: Optional[str] = None  # 操作者（管理者なら定員超過でも追加可）
 
 
 class EventInvitationUpdate(BaseModel):
@@ -195,12 +196,18 @@ async def join_event(event_id: int, body: EventJoin):
         if existing.get('data'):
             return {"success": True, "message": "既に参加登録済みです"}
 
-        # 定員チェック（UIをすり抜けた直接呼び出しも防ぐ）
+        # 定員チェック（UIをすり抜けた直接呼び出しも防ぐ。管理者は超過でも追加可）
         ev_res = await db.execute_query('events', operation='select', filters={'id': event_id})
         if not ev_res.get('data'):
             raise HTTPException(status_code=404, detail="イベントが見つかりません")
         max_p = ev_res['data'][0].get('max_participants')
-        if max_p is not None:
+        is_admin = False
+        if body.actor_discord_id:
+            a_res = await db.execute_query('player_mst', operation='select', filters={'discord_id': body.actor_discord_id})
+            if a_res.get('data'):
+                row = a_res['data'][0]
+                is_admin = row.get('admin_role') == 0 or row.get('practice_admin') == 1
+        if max_p is not None and not is_admin:
             cur = await db.execute_query(
                 'event_participants', operation='select', filters={'event_id': event_id}
             )

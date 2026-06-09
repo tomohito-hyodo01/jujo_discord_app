@@ -141,6 +141,18 @@ class CourtReservation(BaseModel):
 
 class PracticeJoin(BaseModel):
     player_id: int
+    actor_discord_id: Optional[str] = None  # 操作者（管理者なら締切後も追加可）
+
+
+async def _is_admin_actor(discord_id: Optional[str]) -> bool:
+    """操作者が管理者(admin_role=0)または練習管理者(practice_admin=1)か"""
+    if not discord_id:
+        return False
+    res = await db.execute_query('player_mst', operation='select', filters={'discord_id': discord_id})
+    if not res.get('data'):
+        return False
+    row = res['data'][0]
+    return row.get('admin_role') == 0 or row.get('practice_admin') == 1
 
 
 @router.get("/practice")
@@ -255,7 +267,7 @@ def _deadline_passed(deadline) -> bool:
 
 @router.post("/practice/{practice_id}/join")
 async def join_practice(practice_id: int, body: PracticeJoin):
-    """練習に参加（締切後・受付締切は不可）"""
+    """練習に参加（締切後・受付締切は不可。ただし管理者は任意に追加可）"""
     try:
         # 締切/受付状態チェック（UIをすり抜けた直接呼び出しも防ぐ）
         p_res = await db.execute_query(
@@ -264,10 +276,13 @@ async def join_practice(practice_id: int, body: PracticeJoin):
         if not p_res.get('data'):
             raise HTTPException(status_code=404, detail="練習が見つかりません")
         practice_row = p_res['data'][0]
-        if practice_row.get('closed') == 1:
-            raise HTTPException(status_code=400, detail="この練習は受付を締め切りました")
-        if _deadline_passed(practice_row.get('deadline_date')):
-            raise HTTPException(status_code=400, detail="申込期限を過ぎています")
+        # 管理者・練習管理者は締切後/受付締切でも追加できる
+        is_admin = await _is_admin_actor(body.actor_discord_id)
+        if not is_admin:
+            if practice_row.get('closed') == 1:
+                raise HTTPException(status_code=400, detail="この練習は受付を締め切りました")
+            if _deadline_passed(practice_row.get('deadline_date')):
+                raise HTTPException(status_code=400, detail="申込期限を過ぎています")
 
         existing = await db.execute_query(
             'practice_participants',
