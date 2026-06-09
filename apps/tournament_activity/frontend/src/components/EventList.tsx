@@ -336,6 +336,19 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
   const formatTime = (t: string) => t?.slice(0, 5) || ''
 
+  // 締切判定: 日付のみ(または時刻0:00)の締切は当日終日(23:59:59)まで有効とみなす
+  const isDeadlinePassed = (deadline?: string | null): boolean => {
+    if (!deadline) return false
+    let s = String(deadline).replace(' ', 'T')
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) s += 'T23:59:59'
+    const d = new Date(s)
+    if (isNaN(d.getTime())) return false
+    if (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0) {
+      d.setHours(23, 59, 59)
+    }
+    return d < new Date()
+  }
+
   const apiUrlRef = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   const openTournamentModal = async (t: any) => {
@@ -626,7 +639,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   // 締切間近の大会（3日以内、受付中かつ未申込のみ）
   const urgentDeadlines = tournaments.filter(t => {
     if (registeredTournamentIds.has(t.tournament_id)) return false
-    const deadlineClosed = t.deadline_date && new Date(t.deadline_date) < new Date()
+    const deadlineClosed = isDeadlinePassed(t.deadline_date)
     if (deadlineClosed) return false
     const days = getDaysUntil(t.deadline_date)
     return days >= 0 && days <= 3
@@ -732,7 +745,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {allEvents.map((ev, i) => ev.kind === 'custom_event' ? (() => {
                 const ce = ev.data
-                const deadlinePassed = ce.deadline_date && new Date(ce.deadline_date) < new Date()
+                const deadlinePassed = isDeadlinePassed(ce.deadline_date)
                 const isJoined = joinedEventIds.has(ce.id)
                 return (
                   <div key={`ce-${ce.id}-${i}`} onClick={() => openEventDetail(ce)} style={{
@@ -809,7 +822,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
               })() : ev.kind === 'tournament' ? (() => {
                 const t = ev.data
                 const isRegistered = registeredTournamentIds.has(t.tournament_id)
-                const deadlineClosed = t.deadline_date && new Date(t.deadline_date) < new Date()
+                const deadlineClosed = isDeadlinePassed(t.deadline_date)
 
                 const isFull = t.max_entries != null && (t.entry_count || 0) >= t.max_entries
                 const sexRestricted = t.sex_restriction != null && mySex != null && t.sex_restriction !== mySex
@@ -870,7 +883,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 )
               })() : (() => {
                 const p = ev.data
-                const pDeadlinePassed = p.deadline_date && new Date(p.deadline_date) < new Date()
+                const pDeadlinePassed = isDeadlinePassed(p.deadline_date)
                 return (
                 <div
                   key={`p-${p.id}-${i}`}
@@ -901,7 +914,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0, marginLeft: '12px' }}>
                     {(() => {
                       const p = ev.data
-                      const deadlinePassed = p.deadline_date && new Date(p.deadline_date) < new Date()
+                      const deadlinePassed = isDeadlinePassed(p.deadline_date)
                       const isClosed = p.closed === 1
                       if (joinedPracticeIds.has(p.id)) {
                         return <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b' }}>練習（参加済）</span>
@@ -1075,7 +1088,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   >{cancellingReg ? 'キャンセル中...' : '申込をキャンセル'}</button>
                 </div>
               ) : (() => {
-                const expired = selectedTournament.deadline_date && new Date(selectedTournament.deadline_date) < new Date()
+                const expired = isDeadlinePassed(selectedTournament.deadline_date)
                 const sexBlocked = selectedTournament.sex_restriction != null && mySex != null && selectedTournament.sex_restriction !== mySex
                 if (expired) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>受付終了</div>
                 if (sexBlocked) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>{selectedTournament.sex_restriction === 0 ? '男子' : '女子'}限定の大会です</div>
@@ -1291,7 +1304,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
               {/* 参加/キャンセルボタン */}
               {myPlayerId && (() => {
-                const deadlinePassed = selectedPractice.deadline_date && new Date(selectedPractice.deadline_date) < new Date()
+                const deadlinePassed = isDeadlinePassed(selectedPractice.deadline_date)
                 const isClosed = selectedPractice.closed === 1
                 if (deadlinePassed || isClosed) {
                   return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>
@@ -1690,7 +1703,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   ))}
 
                   {myPlayerId && (() => {
-                    const deadlinePassed = selectedEvent.deadline_date && new Date(selectedEvent.deadline_date) < new Date()
+                    const deadlinePassed = isDeadlinePassed(selectedEvent.deadline_date)
                     const isFull = selectedEvent.max_participants != null && (selectedEvent.participant_count || 0) >= selectedEvent.max_participants
                     if (joinedEventIds.has(selectedEvent.id)) {
                       if (deadlinePassed) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>参加済(締切済)</div>

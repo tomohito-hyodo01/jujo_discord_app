@@ -186,7 +186,7 @@ async def get_event_participants(event_id: int):
 
 @router.post("/events/{event_id}/join")
 async def join_event(event_id: int, body: EventJoin):
-    """イベントに参加"""
+    """イベントに参加（定員超過は不可）"""
     try:
         existing = await db.execute_query(
             'event_participants', operation='select',
@@ -195,6 +195,18 @@ async def join_event(event_id: int, body: EventJoin):
         if existing.get('data'):
             return {"success": True, "message": "既に参加登録済みです"}
 
+        # 定員チェック（UIをすり抜けた直接呼び出しも防ぐ）
+        ev_res = await db.execute_query('events', operation='select', filters={'id': event_id})
+        if not ev_res.get('data'):
+            raise HTTPException(status_code=404, detail="イベントが見つかりません")
+        max_p = ev_res['data'][0].get('max_participants')
+        if max_p is not None:
+            cur = await db.execute_query(
+                'event_participants', operation='select', filters={'event_id': event_id}
+            )
+            if len(cur.get('data') or []) >= max_p:
+                raise HTTPException(status_code=400, detail="定員に達しています")
+
         result = await db.execute_query(
             'event_participants', operation='insert',
             data={'event_id': event_id, 'player_id': body.player_id}
@@ -202,6 +214,8 @@ async def join_event(event_id: int, body: EventJoin):
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
         return {"success": True, "message": "参加登録しました"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

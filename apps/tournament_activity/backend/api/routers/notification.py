@@ -593,13 +593,24 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
                                             ))
                                     data = {'payload_json': json_mod.dumps({'content': content})}
                                     resp = await client.post(webhook_url, files=multipart_files, data=data, timeout=20.0)
+                                    # 添付付き送信が失敗したら、申込一覧テキストだけでも再送（通知欠落防止）
+                                    if resp.status_code not in [200, 204]:
+                                        try:
+                                            fb = await client.post(webhook_url, json={'content': content}, timeout=10.0)
+                                            if fb.status_code in [200, 204]:
+                                                results.append({'tournament': t_name, 'status': 'sent_text_only_after_attach_fail'})
+                                            else:
+                                                results.append({'tournament': t_name, 'status': f'failed: attach={resp.status_code} text={fb.status_code}'})
+                                        except Exception as fe:
+                                            results.append({'tournament': t_name, 'status': f'error_fallback: {fe}'})
+                                    else:
+                                        results.append({'tournament': t_name, 'status': f'sent (添付{len(attached_files)}件)'})
                                 else:
                                     resp = await client.post(webhook_url, json={'content': content}, timeout=10.0)
-                                if resp.status_code in [200, 204]:
-                                    suffix = f' (添付{len(attached_files)}件)' if attached_files else ''
-                                    results.append({'tournament': t_name, 'status': f'sent{suffix}'})
-                                else:
-                                    results.append({'tournament': t_name, 'status': f'failed: {resp.status_code} body={resp.text[:200]}'})
+                                    if resp.status_code in [200, 204]:
+                                        results.append({'tournament': t_name, 'status': 'sent'})
+                                    else:
+                                        results.append({'tournament': t_name, 'status': f'failed: {resp.status_code} body={resp.text[:200]}'})
                         except Exception as e:
                             results.append({'tournament': t_name, 'status': f'error: {e}'})
                     else:

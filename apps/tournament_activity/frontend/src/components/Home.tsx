@@ -124,9 +124,21 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
         {
           const pRes = await fetch(`${apiUrl}/api/practice`)
           if (pRes.ok) {
-            const data = await pRes.json()
+            const rawData = await pRes.json()
             const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
             const todayStr = ymd(new Date())
+
+            // 公開設定による閲覧制御（限定公開練習の漏洩防止）
+            const ml = permissionInfo?.memberLevel
+            const canView = (p: any): boolean => {
+              const v = p.visibility
+              if (!v || v === 'public') return true
+              if (v === 'members_all') return ml === 0 || ml === 1
+              if (v === 'members_regular') return ml === 0
+              if (v === 'invited') return playerId != null && (p.invited_player_ids || []).includes(playerId)
+              return true
+            }
+            const data = (rawData as any[]).filter(canView)
 
             // お知らせ用: 本日のコート番号 + 中止は練習日当日まで表示
             setTodayPractices(data.filter((p: any) =>

@@ -122,7 +122,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
     const me = players.find(p => p.discord_id === discordId)
     const base = filterPairCandidates(
       players, discordId, me?.sex ?? null,
-      reg.type || '', tournament?.tournament_date
+      reg.type || '', tournament?.tournament_date, tournament?.registrated_ward
     )
     return base.filter(p => !selectedIds.includes(String(p.player_id)))
   }
@@ -360,7 +360,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                     const me = players.find(pl => pl.discord_id === discordId)
                     return filterPairCandidates(
                       players, discordId, me?.sex ?? null,
-                      reg.type, tournament?.tournament_date
+                      reg.type, tournament?.tournament_date, tournament?.registrated_ward
                     ).map(p => (
                       <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
                     ))
@@ -507,7 +507,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
                 const me = players.find(pl => pl.discord_id === discordId)
                 return filterPairCandidates(
                   players, discordId, me?.sex ?? null,
-                  reg.type, tournament?.tournament_date
+                  reg.type, tournament?.tournament_date, tournament?.registrated_ward
                 ).map(p => (
                   <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
                 ))

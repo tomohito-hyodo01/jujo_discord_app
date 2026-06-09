@@ -131,7 +131,7 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
       return players.filter(p => p.discord_id !== formData.discordId)
     }
     const me = players.find(p => p.discord_id === formData.discordId)
-    return filterPairCandidates(players, formData.discordId, me?.sex ?? null, formData.type, selectedTournament.tournament_date)
+    return filterPairCandidates(players, formData.discordId, me?.sex ?? null, formData.type, selectedTournament.tournament_date, selectedTournament.registrated_ward)
   }
 
   const getTeamCandidates = (slotIndex: number) => {
@@ -144,7 +144,7 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
       const me = players.find(p => p.discord_id === formData.discordId)
       base = filterPairCandidates(
         players, formData.discordId, me?.sex ?? null,
-        formData.type || '', selectedTournament?.tournament_date
+        formData.type || '', selectedTournament?.tournament_date, selectedTournament?.registrated_ward
       )
     }
     return base.filter(p => !selectedIds.includes(String(p.player_id)))

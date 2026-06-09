@@ -237,10 +237,38 @@ async def get_practice_participants(practice_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _deadline_passed(deadline) -> bool:
+    """締切が過ぎているか。日付のみ(時刻0:00)の締切は当日終日(23:59:59)を締切とみなす。"""
+    if not deadline:
+        return False
+    s = str(deadline).replace(' ', 'T')
+    if len(s) <= 10:
+        s = s[:10] + 'T23:59:59'
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return False
+    if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
+        dt = dt.replace(hour=23, minute=59, second=59)
+    return dt < datetime.now()
+
+
 @router.post("/practice/{practice_id}/join")
 async def join_practice(practice_id: int, body: PracticeJoin):
-    """練習に参加"""
+    """練習に参加（締切後・受付締切は不可）"""
     try:
+        # 締切/受付状態チェック（UIをすり抜けた直接呼び出しも防ぐ）
+        p_res = await db.execute_query(
+            'practice_schedule', operation='select', filters={'id': practice_id}
+        )
+        if not p_res.get('data'):
+            raise HTTPException(status_code=404, detail="練習が見つかりません")
+        practice_row = p_res['data'][0]
+        if practice_row.get('closed') == 1:
+            raise HTTPException(status_code=400, detail="この練習は受付を締め切りました")
+        if _deadline_passed(practice_row.get('deadline_date')):
+            raise HTTPException(status_code=400, detail="申込期限を過ぎています")
+
         existing = await db.execute_query(
             'practice_participants',
             operation='select',
@@ -276,8 +304,7 @@ async def leave_practice(practice_id: int, player_id: int, discord_id: Optional[
             raise HTTPException(status_code=404, detail="練習が見つかりません")
         deadline = p_res['data'][0].get('deadline_date')
         if deadline:
-            deadline_dt = deadline if isinstance(deadline, datetime) else datetime.fromisoformat(str(deadline).replace(' ', 'T'))
-            if deadline_dt < datetime.now():
+            if _deadline_passed(deadline):
                 # 管理者 or 練習管理者は締切後でも削除可
                 is_admin = False
                 if discord_id:
@@ -335,8 +362,8 @@ async def update_practice(practice_id: int, practice: PracticeUpdate):
         for k, v in raw.items():
             if v is None:
                 continue
-            if v == '' and k in ('court_number',):
-                update_data[k] = None  # 空文字 → NULLに変換
+            if v == '' and k in ('court_number', 'deadline_date'):
+                update_data[k] = None  # 空文字 → NULLに変換（締切クリア対応）
             else:
                 update_data[k] = v
         if not update_data:
