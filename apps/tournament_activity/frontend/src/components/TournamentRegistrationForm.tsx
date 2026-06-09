@@ -57,6 +57,7 @@ function TournamentRegistrationForm() {
     { id: 7, name: '墨田区' },
     { id: 5, name: '文京区' },
     { id: 100, name: '浦安市' },
+    { id: 101, name: '流山市' },
     { id: 99, name: '東京都・その他広域' }
   ]
 

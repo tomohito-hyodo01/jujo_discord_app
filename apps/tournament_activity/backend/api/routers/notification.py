@@ -27,6 +27,9 @@ WARD_WEBHOOK_MAP = {
     2: os.getenv('DISCORD_WEBHOOK_URL_CHUO', ''),       # 中央区
     7: os.getenv('DISCORD_WEBHOOK_URL_SUMIDA', ''),     # 墨田区
     18: os.getenv('DISCORD_WEBHOOK_URL_ARAKAWA', ''),   # 荒川区
+    5: os.getenv('DISCORD_WEBHOOK_URL_BUNKYO', ''),     # 文京区
+    101: os.getenv('DISCORD_WEBHOOK_URL_NAGAREYAMA', ''),  # 流山市（千葉）
+    100: os.getenv('DISCORD_WEBHOOK_URL_EDOGAWA', ''),  # 浦安市 → 江戸川区チャンネル
 }
 
 
@@ -445,11 +448,11 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
                             except:
                                 pass
 
-                    # player情報を取得
+                    # player情報を取得（Excel生成のためbirth_date/sex等も含めて全カラム取得）
                     discord_player_map = {}
                     if all_discord_ids:
                         dp = ','.join(['%s'] * len(all_discord_ids))
-                        await cursor.execute(f"SELECT player_id, player_name, discord_id FROM player_mst WHERE discord_id IN ({dp})", all_discord_ids)
+                        await cursor.execute(f"SELECT * FROM player_mst WHERE discord_id IN ({dp})", all_discord_ids)
                         for row in await cursor.fetchall():
                             discord_player_map[row['discord_id']] = row
 
@@ -457,7 +460,7 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
                     all_pids = list(pair_ids)
                     if all_pids:
                         pp = ','.join(['%s'] * len(all_pids))
-                        await cursor.execute(f"SELECT player_id, player_name FROM player_mst WHERE player_id IN ({pp})", all_pids)
+                        await cursor.execute(f"SELECT * FROM player_mst WHERE player_id IN ({pp})", all_pids)
                         for row in await cursor.fetchall():
                             player_id_map[row['player_id']] = row
 
@@ -504,23 +507,105 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
 
                     content = '\n'.join(lines)
 
+                    # Excel申込書を生成（対応区のみ）
+                    attached_files = []
+                    try:
+                        # 大会情報を再取得（typeをJSONとして読みたい等の都合）
+                        await cursor.execute(
+                            "SELECT * FROM tournament_mst WHERE tournament_id = %s",
+                            (tid,)
+                        )
+                        tournament_row = await cursor.fetchone()
+                        if tournament_row:
+                            # typeはJSON文字列で保存されている → デシリアライズ
+                            import json as json_mod
+                            t_type = tournament_row.get('type')
+                            if isinstance(t_type, str):
+                                try:
+                                    tournament_row['type'] = json_mod.loads(t_type)
+                                except Exception:
+                                    pass
+
+                            # enriched_registrations を組み立て
+                            enriched_regs = []
+                            for reg in registrations:
+                                applicant_row = discord_player_map.get(reg.get('discord_id'))
+                                if not applicant_row:
+                                    continue
+                                applicant = dict(applicant_row)
+                                partner = None
+                                if reg.get('pair1'):
+                                    p1 = player_id_map.get(reg['pair1'])
+                                    if p1:
+                                        partner = dict(p1)
+                                # regのpair2はJSON文字列の可能性 → デシリアライズ
+                                reg_dict = dict(reg)
+                                rp2 = reg_dict.get('pair2')
+                                if isinstance(rp2, str):
+                                    try:
+                                        reg_dict['pair2'] = json_mod.loads(rp2)
+                                    except Exception:
+                                        pass
+                                enriched_regs.append({**reg_dict, 'applicant': applicant, 'partner': partner})
+
+                            # ExcelServiceFactoryで対応区かチェック
+                            try:
+                                from services.excel_service_factory import ExcelServiceFactory
+                                from pathlib import Path as _Path
+                                from datetime import datetime as _dt
+
+                                # 同一大会名の旧ファイルを削除（自動上書き）
+                                output_dir = _Path(__file__).parent.parent.parent / 'output'
+                                if output_dir.exists():
+                                    for f in output_dir.glob('*.xlsx'):
+                                        if t_name and t_name in f.name:
+                                            try:
+                                                f.unlink()
+                                            except Exception:
+                                                pass
+
+                                excel_service = ExcelServiceFactory.create(ward_id)
+                                file_paths_dict = excel_service.generate_tournament_files(tournament_row, enriched_regs)
+                                attached_files = [_Path(p) for p in file_paths_dict.values() if _Path(p).exists()]
+                            except ValueError:
+                                # 未対応区はExcel添付なしで送信
+                                pass
+                            except Exception as ex:
+                                print(f'⚠️ Excel生成失敗（テキストのみ送信）: {ex}')
+                    except Exception as ex:
+                        print(f'⚠️ Excel生成準備失敗: {ex}')
+
                     # 対応するWebhook URLを選択
                     webhook_url = WARD_WEBHOOK_MAP.get(ward_id, '') or DISCORD_WEBHOOK_URL
 
                     if webhook_url:
                         try:
                             async with httpx.AsyncClient() as client:
-                                resp = await client.post(webhook_url, json={'content': content}, timeout=10.0)
-                                if resp.status_code in [200, 204]:
-                                    results.append({'tournament': t_name, 'status': 'sent'})
+                                if attached_files:
+                                    # multipart送信（添付ファイル付き）
+                                    import json as json_mod
+                                    multipart_files = []
+                                    for i, p in enumerate(attached_files):
+                                        with open(p, 'rb') as fh:
+                                            multipart_files.append((
+                                                f'files[{i}]',
+                                                (p.name, fh.read(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+                                            ))
+                                    data = {'payload_json': json_mod.dumps({'content': content})}
+                                    resp = await client.post(webhook_url, files=multipart_files, data=data, timeout=20.0)
                                 else:
-                                    results.append({'tournament': t_name, 'status': f'failed: {resp.status_code}'})
+                                    resp = await client.post(webhook_url, json={'content': content}, timeout=10.0)
+                                if resp.status_code in [200, 204]:
+                                    suffix = f' (添付{len(attached_files)}件)' if attached_files else ''
+                                    results.append({'tournament': t_name, 'status': f'sent{suffix}'})
+                                else:
+                                    results.append({'tournament': t_name, 'status': f'failed: {resp.status_code} body={resp.text[:200]}'})
                         except Exception as e:
                             results.append({'tournament': t_name, 'status': f'error: {e}'})
                     else:
                         results.append({'tournament': t_name, 'status': 'no_webhook'})
 
-                return {"success": True, "sent_count": len([r for r in results if r['status'] == 'sent']), "results": results}
+                return {"success": True, "sent_count": len([r for r in results if r['status'].startswith('sent')]), "results": results}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -99,10 +99,13 @@ async def create_registration(registration: RegistrationCreate):
                      7: os.getenv('DISCORD_WEBHOOK_URL_SUMIDA'),    # 墨田区
                     18: os.getenv('DISCORD_WEBHOOK_URL_ARAKAWA'),   # 荒川区
                      5: os.getenv('DISCORD_WEBHOOK_URL_BUNKYO'),    # 文京区
+                   101: os.getenv('DISCORD_WEBHOOK_URL_NAGAREYAMA'),  # 流山市（千葉）
+                   100: os.getenv('DISCORD_WEBHOOK_URL_EDOGAWA'),  # 浦安市 → 江戸川区チャンネル
                 }
-                target_webhook = ward_webhooks.get(registrated_ward)
+                # 対応webhookが未設定の区はデフォルト(広域)チャンネルにフォールバック
+                target_webhook = ward_webhooks.get(registrated_ward) or os.getenv('DISCORD_WEBHOOK_URL')
                 if not target_webhook:
-                    raise Exception(f'対象外の区 (ward_id={registrated_ward})')
+                    raise Exception(f'Discord Webhook未設定 (ward_id={registrated_ward})')
 
                 sex_label = '男子' if registration.sex == 0 else '女子'
 

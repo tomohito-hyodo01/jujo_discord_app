@@ -98,7 +98,8 @@ async def generate_tournament_id(tournament_name: str, tournament_date: str, reg
         22: 'sumida',
         23: 'edogawa',
         99: 'wide',
-        100: 'urayasu'
+        100: 'urayasu',
+        101: 'nagareyama'
     }
 
     ward_name = ward_map.get(registrated_ward, 'other')

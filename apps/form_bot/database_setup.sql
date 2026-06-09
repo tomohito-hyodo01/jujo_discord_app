@@ -157,7 +157,10 @@ INSERT INTO ward_mst (ward_id, ward_name) VALUES
     (20, '練馬区'),
     (21, '足立区'),
     (22, '葛飾区'),
-    (23, '江戸川区')
+    (23, '江戸川区'),
+    (99, '東京都・その他広域'),
+    (100, '浦安市'),
+    (101, '流山市')
 ON CONFLICT (ward_id) DO NOTHING;
 
 -- テスト用選手データ
