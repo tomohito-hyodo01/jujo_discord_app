@@ -113,7 +113,7 @@ export default function CommentSection({ targetType, targetId, discordId }: Comm
     const before = current.slice(0, mentionState.start)
     const afterStart = mentionState.start + mentionState.query.length + 1
     const after = current.slice(afterStart)
-    const token = `<@${member.player_id}>`
+    const token = `@${member.player_name}`  // 入力欄には名前で表示（送信時に<@id>へ変換）
     const next = `${before}${token} ${after}`
     setValueFor(which, next)
     setMentionState(null)
@@ -131,6 +131,27 @@ export default function CommentSection({ targetType, targetId, discordId }: Comm
     ? members.filter(m => m.player_name && m.player_name.includes(mentionState.query)).slice(0, 8)
     : []
 
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  // 入力欄の表示用「@名前」→ 保存用「<@id>」へ変換（送信時）
+  const encodeMentions = (text: string): string => {
+    let out = text
+    const sorted = [...members]
+      .filter(m => m.player_name)
+      .sort((a, b) => b.player_name.length - a.player_name.length)
+    for (const m of sorted) {
+      out = out.replace(new RegExp('@' + escapeRegExp(m.player_name), 'g'), `<@${m.player_id}>`)
+    }
+    return out
+  }
+
+  // 保存用「<@id>」→ 入力欄の表示用「@名前」へ変換（編集開始時）
+  const decodeMentions = (text: string): string =>
+    text.replace(/<@(\d+)>/g, (full, id) => {
+      const m = members.find(mb => mb.player_id === Number(id))
+      return m ? '@' + m.player_name : full
+    })
+
   const handlePost = async () => {
     if (!myPlayerId) { alert('選手登録が必要です'); return }
     const trimmed = body.trim()
@@ -139,7 +160,7 @@ export default function CommentSection({ targetType, targetId, discordId }: Comm
     try {
       const res = await fetch(`${apiUrl}/api/comments`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_type: targetType, target_id: targetId, player_id: myPlayerId, body: trimmed }),
+        body: JSON.stringify({ target_type: targetType, target_id: targetId, player_id: myPlayerId, body: encodeMentions(trimmed) }),
       })
       if (res.ok) { setBody(''); await reload() }
       else alert('投稿に失敗しました')
@@ -150,8 +171,8 @@ export default function CommentSection({ targetType, targetId, discordId }: Comm
   const startReply = (c: Comment) => {
     const rootId = c.parent_id ?? c.id
     setReplyingTo(rootId)
-    // 返信先の相手をメンションで前置き（相手にDM通知が届く）
-    setReplyBody(`<@${c.player_id}> `)
+    // 返信先の相手をメンションで前置き（入力欄では名前表示。送信時に<@id>へ変換）
+    setReplyBody(`@${c.player_name || ''} `)
     setMentionState(null)
     setTimeout(() => { replyRef.current?.focus() }, 0)
   }
@@ -164,7 +185,7 @@ export default function CommentSection({ targetType, targetId, discordId }: Comm
     try {
       const res = await fetch(`${apiUrl}/api/comments`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_type: targetType, target_id: targetId, player_id: myPlayerId, body: trimmed, parent_id: rootId }),
+        body: JSON.stringify({ target_type: targetType, target_id: targetId, player_id: myPlayerId, body: encodeMentions(trimmed), parent_id: rootId }),
       })
       if (res.ok) { setReplyBody(''); setReplyingTo(null); await reload() }
       else alert('返信に失敗しました')
@@ -174,7 +195,7 @@ export default function CommentSection({ targetType, targetId, discordId }: Comm
 
   const handleStartEdit = (c: Comment) => {
     setEditingId(c.id)
-    setEditBody(c.body)
+    setEditBody(decodeMentions(c.body))  // <@id> → @名前 で編集欄に表示
     setMentionState(null)
   }
 
@@ -184,7 +205,7 @@ export default function CommentSection({ targetType, targetId, discordId }: Comm
     try {
       const res = await fetch(`${apiUrl}/api/comments/${commentId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: trimmed, discord_id: discordId }),
+        body: JSON.stringify({ body: encodeMentions(trimmed), discord_id: discordId }),
       })
       if (res.ok) { setEditingId(null); setEditBody(''); await reload() }
       else { const e = await res.json().catch(() => ({})); alert(e.detail || '更新に失敗しました') }
