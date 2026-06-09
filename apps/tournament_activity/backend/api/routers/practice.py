@@ -342,14 +342,11 @@ async def update_practice(practice_id: int, practice: PracticeUpdate):
         if not update_data:
             return {"success": True, "message": "変更なし"}
 
-        # 時刻変更検出のため既存値を取得
-        existing = None
-        if 'start_time' in update_data or 'end_time' in update_data:
-            prev = await db.execute_query(
-                'practice_schedule', operation='select', filters={'id': practice_id}
-            )
-            if prev.get('data'):
-                existing = prev['data'][0]
+        # 既存値を取得（時刻変更検出＆監査ログ用）
+        prev = await db.execute_query(
+            'practice_schedule', operation='select', filters={'id': practice_id}
+        )
+        existing = prev['data'][0] if prev.get('data') else None
 
         result = await db.execute_query(
             'practice_schedule',
@@ -359,6 +356,18 @@ async def update_practice(practice_id: int, practice: PracticeUpdate):
         )
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
+
+        # 監査ログ: 練習更新の前後差分
+        try:
+            from api.routers.audit import record_change
+            await record_change(
+                action='PRACTICE_UPDATE', target_type='practice', target_id=practice_id,
+                summary=f"練習更新: {(existing or {}).get('practice_date','')} {(existing or {}).get('location','')}",
+                before={k: (existing or {}).get(k) for k in update_data.keys()},
+                after=update_data,
+            )
+        except Exception as _e:
+            print(f"⚠️ 監査ログ(練習更新)失敗: {_e}")
 
         # 練習時間が延長された場合のみ通知
         if existing is not None:

@@ -303,6 +303,22 @@ async def register_tournament(request: TournamentRegisterRequest):
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
 
+        # 監査ログ: 大会の登録/更新を前後差分で記録
+        try:
+            from api.routers.audit import record_change
+            is_update = bool(existing.get('data'))
+            await record_change(
+                action='TOURNAMENT_UPDATE' if is_update else 'TOURNAMENT_CREATE',
+                target_type='tournament', target_id=tournament_id,
+                summary=f"{message}: {request.tournament_name}(区ID={request.registrated_ward})",
+                before=existing['data'][0] if is_update else None,
+                after={'tournament_id': tournament_id, 'tournament_name': request.tournament_name,
+                       'registrated_ward': request.registrated_ward, 'classification': request.classification,
+                       'tournament_date': request.tournament_date, 'deadline_date': request.deadline_date},
+            )
+        except Exception as _e:
+            print(f"⚠️ 監査ログ(大会登録)失敗: {_e}")
+
         return {
             "success": True,
             "message": message,
@@ -453,12 +469,11 @@ async def update_tournament(tournament_id: str, request: TournamentUpdate):
 async def delete_tournament(tournament_id: str):
     """大会を削除"""
     try:
-        # 大会の存在確認
+        # 大会の存在確認（監査ログ用に全カラム取得）
         existing = await db.execute_query(
             'tournament_mst',
             operation='select',
             filters={'tournament_id': tournament_id},
-            columns='tournament_id'
         )
 
         if existing.get('error'):
@@ -476,6 +491,18 @@ async def delete_tournament(tournament_id: str):
 
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
+
+        # 監査ログ: 削除前のスナップショットを記録
+        try:
+            from api.routers.audit import record_change
+            before = existing['data'][0]
+            await record_change(
+                action='TOURNAMENT_DELETE', target_type='tournament', target_id=tournament_id,
+                summary=f"大会削除: {before.get('tournament_name')}(区ID={before.get('registrated_ward')})",
+                before=before,
+            )
+        except Exception as _e:
+            print(f"⚠️ 監査ログ(大会削除)失敗: {_e}")
 
         return {"success": True, "message": "大会を削除しました"}
     except HTTPException:
