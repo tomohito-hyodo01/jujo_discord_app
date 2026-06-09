@@ -88,7 +88,7 @@ export default function RefereeTraining({ discordId }: RefereeTrainingProps) {
 
   if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>読み込み中...</div>
 
-  const upcoming = trainings.filter(t => new Date(t.training_date) >= new Date(new Date().toISOString().split('T')[0]))
+  const upcoming = trainings.filter(t => new Date(t.training_date) >= new Date(new Date().toLocaleDateString('sv-SE')))
 
   return (
     <div>

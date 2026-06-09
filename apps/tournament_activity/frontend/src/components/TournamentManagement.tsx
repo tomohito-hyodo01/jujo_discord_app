@@ -173,7 +173,7 @@ export default function TournamentManagement() {
                 <td style={cellStyle}>{t.classification === 0 ? '個人戦' : '団体戦'}</td>
                 <td style={{ ...cellStyle, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                   {(() => {
-                    const isPast = t.deadline_date && new Date(t.deadline_date) < new Date(new Date().toISOString().split('T')[0])
+                    const isPast = t.deadline_date && new Date(t.deadline_date) < new Date(new Date().toLocaleDateString('sv-SE'))
                     if (isPast) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b', whiteSpace: 'nowrap' }}>申込終了</span>
                     if (t.notified) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b' }}>通知済</span>
                     return (
@@ -219,7 +219,7 @@ export default function TournamentManagement() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>{t.tournament_name}</h3>
               {(() => {
-                const isPast = t.deadline_date && new Date(t.deadline_date) < new Date(new Date().toISOString().split('T')[0])
+                const isPast = t.deadline_date && new Date(t.deadline_date) < new Date(new Date().toLocaleDateString('sv-SE'))
                 if (isPast) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b', whiteSpace: 'nowrap', flexShrink: 0, marginLeft: '8px' }}>申込終了</span>
                 if (t.notified) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b', flexShrink: 0, marginLeft: '8px' }}>通知済</span>
                 return (

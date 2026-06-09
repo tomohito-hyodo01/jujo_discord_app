@@ -68,10 +68,16 @@ def _parse_detail(detail_text: str, year: int = None):
         month = int(date_match.group(1))
         day = int(date_match.group(2))
 
-        # 年を抽出
+        # 年を抽出（西暦明記があれば優先）
         year_match = re.search(r'(\d{4})年', line)
         if year_match:
             year = int(year_match.group(1))
+        else:
+            # 西暦が無く、月が基準日より前（例: 12月時点で1月）の場合は翌年とみなす
+            # （年末年始に翌年1月分が過去日付扱いで欠落するのを防ぐ）
+            today = date.today()
+            if month < today.month and (today.month - month) >= 6:
+                year = today.year + 1
 
         # 時間帯を抽出: 09時00分～11時00分（末尾の「分」が欠けている場合にも対応）
         time_match = re.search(r'(\d{1,2})時(\d{2})分?[～〜~](\d{1,2})時(\d{2})分?', line)

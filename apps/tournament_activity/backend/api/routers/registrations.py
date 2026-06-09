@@ -68,7 +68,8 @@ async def create_registration(registration: RegistrationCreate):
                         )
                         if existing.get('data'):
                             for reg in existing['data']:
-                                if reg.get('team_status') == 1:
+                                # 同一種別の参加希望のみ削除（他種別の希望は残す）
+                                if reg.get('team_status') == 1 and reg.get('type') == registration.type:
                                     await db.execute_query(
                                         'tournament_registration',
                                         operation='delete',
@@ -175,13 +176,16 @@ async def create_registration(registration: RegistrationCreate):
                                 )
                                 if dm_ch.status_code == 200:
                                     channel_id = dm_ch.json()['id']
-                                    await client.post(
+                                    msg_res = await client.post(
                                         f'https://discord.com/api/v10/channels/{channel_id}/messages',
                                         headers=headers,
                                         json={'content': content},
                                         timeout=5.0,
                                     )
-                                    print(f'✅ DM送信成功: {target_id}')
+                                    if msg_res.status_code in (200, 201):
+                                        print(f'✅ DM送信成功: {target_id}')
+                                    else:
+                                        print(f'⚠️ DM本文送信失敗: {target_id} / {msg_res.status_code} {msg_res.text[:120]}')
                                 else:
                                     print(f'⚠️ DMチャンネル作成失敗: {target_id} / {dm_ch.status_code}')
                         except Exception as dm_e:
@@ -353,17 +357,18 @@ async def update_team(registration_id: int, request: TeamUpdateRequest):
             if date.today() > deadline_date:
                 raise HTTPException(status_code=400, detail="締切日を過ぎているため変更できません")
 
-    # チームメンバー更新
+    # チームメンバー更新（確定状態に正規化＝参加希望フラグを解除）
     update_result = await db.execute_query(
         'tournament_registration',
         operation='update',
         filters={'registration_id': registration_id},
-        data={'pair1': request.pair1, 'pair2': request.pair2}
+        data={'pair1': request.pair1, 'pair2': request.pair2, 'team_status': 0}
     )
     if update_result.get('error'):
         raise HTTPException(status_code=500, detail=update_result['error'])
 
-    # 新メンバーの参加希望レコードを削除
+    # 新メンバーの参加希望レコードを削除（同一種別のみ）
+    reg_type = registration.get('type')
     all_member_ids = [request.pair1] + request.pair2
     for member_id in all_member_ids:
         player_result = await db.execute_query(
@@ -384,7 +389,7 @@ async def update_team(registration_id: int, request: TeamUpdateRequest):
                 )
                 if existing.get('data'):
                     for reg in existing['data']:
-                        if reg.get('team_status') == 1:
+                        if reg.get('team_status') == 1 and reg.get('type') == reg_type:
                             await db.execute_query(
                                 'tournament_registration',
                                 operation='delete',

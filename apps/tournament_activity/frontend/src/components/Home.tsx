@@ -436,7 +436,7 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
 
             return <>
               {cancelledToday.map(p => {
-                const isToday = p.practice_date === new Date().toISOString().split('T')[0]
+                const isToday = p.practice_date === new Date().toLocaleDateString('sv-SE')
                 return (
                   <div key={`cancel-${p.id}`} style={{ fontSize: '13px', color: '#fca5a5', padding: '6px 0', borderBottom: '1px solid #475569' }}>
                     <span style={{

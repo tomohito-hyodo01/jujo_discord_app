@@ -90,7 +90,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           if (tourRes.ok) {
             const data = await tourRes.json()
             setAllTournaments(data)
-            const today = new Date().toISOString().split('T')[0]
+            const today = new Date().toLocaleDateString('sv-SE')
             const upcoming = data
               .filter((t: any) => t.tournament_date >= today)
               .sort((a: any, b: any) => a.tournament_date.localeCompare(b.tournament_date))
@@ -596,7 +596,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
   // 大会と練習を統合して日付順にソート
   const upcomingPractices = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('sv-SE')
     return practices
       .filter(p => p.practice_date >= today)
       .filter(canViewByVisibility)
@@ -606,12 +606,12 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   type EventItem = { kind: 'tournament'; date: string; data: any } | { kind: 'practice'; date: string; data: any } | { kind: 'referee'; date: string; data: any } | { kind: 'custom_event'; date: string; data: any }
 
   const upcomingRefTrainings = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('sv-SE')
     return refTrainings.filter(t => t.training_date >= today)
   }, [refTrainings])
 
   const upcomingCustomEvents = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('sv-SE')
     return customEvents
       .filter(e => e.event_date >= today && e.status !== 'cancelled')
       .filter(canViewByVisibility)

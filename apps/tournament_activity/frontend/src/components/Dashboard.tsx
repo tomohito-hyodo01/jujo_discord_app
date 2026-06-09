@@ -44,7 +44,7 @@ export default function Dashboard({ discordId, onNavigate, guestMode = false }: 
           if (tourRes.ok) {
             const data = await tourRes.json()
             setAllTournaments(data)
-            const today = new Date().toISOString().split('T')[0]
+            const today = new Date().toLocaleDateString('sv-SE')
             const upcoming = data
               .filter((t: any) => t.tournament_date >= today)
               .sort((a: any, b: any) => a.tournament_date.localeCompare(b.tournament_date))
@@ -122,7 +122,7 @@ export default function Dashboard({ discordId, onNavigate, guestMode = false }: 
 
   // 大会と練習を統合して日付順にソート
   const upcomingPractices = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('sv-SE')
     return practices
       .filter(p => p.practice_date >= today)
       .sort((a, b) => a.practice_date.localeCompare(b.practice_date))

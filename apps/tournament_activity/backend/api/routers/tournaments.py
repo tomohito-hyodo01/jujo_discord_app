@@ -88,14 +88,15 @@ async def generate_tournament_id(tournament_name: str, tournament_date: str, reg
     Returns:
         生成された大会ID
     """
-    # 区名マッピング
+    # 区名マッピング（ward_mst のIDに準拠）
     ward_map = {
-        1: 'chuo',
+        1: 'chiyoda',
+        2: 'chuo',
         5: 'bunkyo',
-        13: 'koto',
+        7: 'sumida',
+        8: 'koto',
         17: 'kita',
         18: 'arakawa',
-        22: 'sumida',
         23: 'edogawa',
         99: 'wide',
         100: 'urayasu',

@@ -71,13 +71,18 @@ async def _attach_player_names(comments: list) -> list:
     return comments
 
 
-async def _send_mention_dms(body: str, target_type: str, target_id: int, sender_player_id: int):
-    """本文中の <@player_id> を抽出し、対象者にDiscord DMを送信"""
+async def _send_mention_dms(body: str, target_type: str, target_id: int, sender_player_id: int, exclude_ids=None):
+    """本文中の <@player_id> を抽出し、対象者にDiscord DMを送信。
+    exclude_ids（編集前に既に通知済みのID等）と送信者自身は除外する。"""
     bot_token = os.getenv("DISCORD_BOT_TOKEN", "")
     if not bot_token:
         return
 
-    mentioned_ids = list(set(int(m) for m in re.findall(r"<@(\d+)>", body or "")))
+    mentioned_ids = set(int(m) for m in re.findall(r"<@(\d+)>", body or ""))
+    exclude = set(exclude_ids or [])
+    if sender_player_id is not None:
+        exclude.add(sender_player_id)  # 自己メンションは通知しない
+    mentioned_ids = [pid for pid in mentioned_ids if pid not in exclude]
     if not mentioned_ids:
         return
 
@@ -229,6 +234,9 @@ async def update_comment(comment_id: int, payload: CommentUpdate):
         if not is_owner and not await _is_admin(payload.discord_id):
             raise HTTPException(status_code=403, detail="編集権限がありません")
 
+        # 編集前の本文に含まれていたメンション（通知済み）を控える
+        old_mentioned = set(int(m) for m in re.findall(r"<@(\d+)>", c.get("body") or ""))
+
         result = await db.execute_query(
             "comments", operation="update",
             filters={"id": comment_id},
@@ -237,9 +245,11 @@ async def update_comment(comment_id: int, payload: CommentUpdate):
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
 
-        # 編集時もメンションDMを送る
+        # 編集時は「新規に追加されたメンションのみ」へ通知（既存分の再送を防ぐ）
+        # 送信者は編集者本人とする
+        editor_player_id = p_res["data"][0].get("player_id") if p_res.get("data") else c["player_id"]
         try:
-            await _send_mention_dms(body, c["target_type"], c["target_id"], c["player_id"])
+            await _send_mention_dms(body, c["target_type"], c["target_id"], editor_player_id, exclude_ids=old_mentioned)
         except Exception as e:
             print(f"⚠️ メンションDM処理エラー: {e}")
 
