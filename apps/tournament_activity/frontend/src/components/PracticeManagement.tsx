@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 
 interface PracticeManagementProps {
   discordId: string
@@ -33,6 +33,16 @@ export default function PracticeManagement({ discordId }: PracticeManagementProp
   const [previewLoading, setPreviewLoading] = useState(false)
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+  // 当日以降の練習のみ表示（過去の練習は非表示）
+  const visiblePractices = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    return practices.filter(p => {
+      if (!p.practice_date) return true
+      const d = new Date(p.practice_date); d.setHours(0, 0, 0, 0)
+      return d.getTime() >= today.getTime()
+    })
+  }, [practices])
 
   const loadPractices = async () => {
     try {
@@ -402,7 +412,7 @@ export default function PracticeManagement({ discordId }: PracticeManagementProp
             <th style={{ ...headerCellStyle, textAlign: 'center' }}></th>
           </tr></thead>
           <tbody>
-            {practices.map(p => (
+            {visiblePractices.map(p => (
               <tr key={p.id} onClick={() => openEdit(p)} style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#111b2e')}
                 onMouseLeave={e => (e.currentTarget.style.backgroundColor = '')}
@@ -447,7 +457,7 @@ export default function PracticeManagement({ discordId }: PracticeManagementProp
 
       {/* 一覧: スマホ */}
       <div className="pm-cards" style={{ display: 'none', flexDirection: 'column', gap: '10px' }}>
-        {practices.map(p => (
+        {visiblePractices.map(p => (
           <div key={p.id} onClick={() => openEdit(p)} style={{
             padding: '14px 16px', backgroundColor: '#0c1220', borderRadius: '10px', border: '1px solid #1e293b', cursor: 'pointer',
           }}>

@@ -15,8 +15,8 @@ import httpx
 from api.database import db
 
 
-# 練習時刻変更時のDM通知先Discord ID
-PRACTICE_TIME_CHANGE_NOTIFY_USER_ID = "1488129055017533620"
+# 練習時刻変更時の通知先Discordチャンネル
+PRACTICE_TIME_CHANGE_NOTIFY_CHANNEL_ID = "1488129055017533620"
 _WEEKDAY_JP = ['月', '火', '水', '木', '金', '土', '日']
 
 
@@ -35,11 +35,27 @@ def _normalize_time(v) -> Optional[str]:
     return None
 
 
-async def _notify_practice_time_change(practice_date, start_time: str, end_time: str):
-    """練習時刻が変更された際にDiscord DMで通知"""
+async def _notify_practice_time_extended(
+    practice_date, old_start: Optional[str], old_end: Optional[str],
+    new_start: str, new_end: str
+):
+    """練習時間が延長された場合のみDiscordチャンネルへ @everyone 付きで通知"""
     bot_token = os.getenv('DISCORD_BOT_TOKEN', '')
-    if not bot_token or not PRACTICE_TIME_CHANGE_NOTIFY_USER_ID:
+    if not bot_token or not PRACTICE_TIME_CHANGE_NOTIFY_CHANNEL_ID:
         return
+    if not old_start or not old_end or not new_start or not new_end:
+        return
+
+    # 延長判定: 新しい範囲が旧範囲を完全に内包し、いずれかが拡張されていること
+    end_extended = new_end > old_end
+    start_extended = new_start < old_start
+    if not (end_extended or start_extended):
+        return  # 短縮・時刻シフトの場合は通知しない
+
+    # 「コートが HH:MM〜 追加できましたので」の HH:MM
+    # 終了時刻が延長された場合は旧end、開始時刻が延長された場合は新start
+    added_start = old_end if end_extended else new_start
+
     try:
         if isinstance(practice_date, str):
             d = datetime.fromisoformat(practice_date.replace(' ', 'T')).date()
@@ -50,29 +66,27 @@ async def _notify_practice_time_change(practice_date, start_time: str, end_time:
         else:
             return
         date_str = f"{d.month}/{d.day}({_WEEKDAY_JP[d.weekday()]})"
-        content = f"{date_str}の練習は{start_time} ~ {end_time} となります。"
+        content = (
+            f"@everyone\n"
+            f"{date_str}の練習はコートが{added_start}〜追加できましたので、\n"
+            f"{new_start}〜{new_end}\n"
+            f"となります。"
+        )
 
         headers = {'Authorization': f'Bot {bot_token}', 'Content-Type': 'application/json'}
         async with httpx.AsyncClient() as client:
-            dm_ch = await client.post(
-                'https://discord.com/api/v10/users/@me/channels',
+            res = await client.post(
+                f'https://discord.com/api/v10/channels/{PRACTICE_TIME_CHANGE_NOTIFY_CHANNEL_ID}/messages',
                 headers=headers,
-                json={'recipient_id': PRACTICE_TIME_CHANGE_NOTIFY_USER_ID},
+                json={'content': content, 'allowed_mentions': {'parse': ['everyone']}},
                 timeout=5.0,
             )
-            if dm_ch.status_code == 200:
-                channel_id = dm_ch.json()['id']
-                await client.post(
-                    f'https://discord.com/api/v10/channels/{channel_id}/messages',
-                    headers=headers,
-                    json={'content': content},
-                    timeout=5.0,
-                )
-                print(f'✅ 練習時刻変更通知送信成功: {content}')
+            if res.status_code in (200, 201):
+                print(f'✅ 練習時間延長通知送信成功: {content}')
             else:
-                print(f'⚠️ 練習時刻変更通知DMチャンネル作成失敗: {dm_ch.status_code}')
+                print(f'⚠️ 練習時間延長通知失敗: status={res.status_code} body={res.text[:200]}')
     except Exception as e:
-        print(f'⚠️ 練習時刻変更通知失敗: {e}')
+        print(f'⚠️ 練習時間延長通知失敗: {e}')
 
 
 def _fix_time_fields(schedule: dict) -> dict:
@@ -346,20 +360,18 @@ async def update_practice(practice_id: int, practice: PracticeUpdate):
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
 
-        # 開始/終了時刻が変更されていた場合のみ通知
+        # 練習時間が延長された場合のみ通知
         if existing is not None:
             old_start = _normalize_time(existing.get('start_time'))
             old_end = _normalize_time(existing.get('end_time'))
             new_start = update_data.get('start_time', old_start)
             new_end = update_data.get('end_time', old_end)
-            time_changed = (
-                ('start_time' in update_data and old_start != new_start) or
-                ('end_time' in update_data and old_end != new_end)
-            )
-            if time_changed:
+            if old_start and old_end and new_start and new_end:
                 practice_date_for_msg = update_data.get('practice_date') or existing.get('practice_date')
                 try:
-                    await _notify_practice_time_change(practice_date_for_msg, new_start, new_end)
+                    await _notify_practice_time_extended(
+                        practice_date_for_msg, old_start, old_end, new_start, new_end
+                    )
                 except Exception as e:
                     print(f'⚠️ 通知処理エラー（更新自体は成功）: {e}')
 
@@ -370,7 +382,6 @@ async def update_practice(practice_id: int, practice: PracticeUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/practice/{practice_id}")
 @router.put("/practice/{practice_id}/toggle-closed")
 async def toggle_practice_closed(practice_id: int):
     """練習の受付を締切/再開する"""

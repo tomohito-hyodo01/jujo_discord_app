@@ -178,19 +178,44 @@ async def import_from_sheets():
             )
 
             if existing.get('data'):
-                # 既存あり → 予約情報のみ更新
-                practice_id = existing['data'][0]['id']
+                # 既存あり → 開始/終了時刻と予約情報を更新
+                row = existing['data'][0]
+                practice_id = row['id']
                 action = '更新'
+
+                # 既存の時刻を 'HH:MM' に正規化して比較
+                from api.routers.practice import _normalize_time, _notify_practice_time_extended
+                old_start = _normalize_time(row.get('start_time'))
+                old_end = _normalize_time(row.get('end_time'))
+                new_start = schedule['earliest_start']
+                new_end = schedule['latest_end']
+
+                update_fields: dict = {}
+                if old_start != new_start:
+                    update_fields['start_time'] = new_start
+                if old_end != new_end:
+                    update_fields['end_time'] = new_end
                 # 期限が未設定なら開催日の5日前 21:00 に設定
-                if not existing['data'][0].get('deadline_date'):
+                if not row.get('deadline_date'):
                     p_date = datetime.strptime(practice_date, '%Y-%m-%d').date()
                     deadline_dt = datetime.combine(p_date - timedelta(days=5), datetime.min.time()).replace(hour=21)
-                    deadline_str = deadline_dt.strftime('%Y-%m-%d %H:%M:%S')
+                    update_fields['deadline_date'] = deadline_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+                if update_fields:
                     await db.execute_query(
                         'practice_schedule', operation='update',
                         filters={'id': practice_id},
-                        data={'deadline_date': deadline_str}
+                        data=update_fields
                     )
+
+                # 練習時間が延長された場合のみDiscord通知
+                if ('start_time' in update_fields or 'end_time' in update_fields) and old_start and old_end:
+                    try:
+                        await _notify_practice_time_extended(
+                            practice_date, old_start, old_end, new_start, new_end
+                        )
+                    except Exception as e:
+                        print(f'⚠️ 取り込み通知エラー: {e}')
             else:
                 # 新規作成: 申込期限は開催日の5日前 21:00
                 p_date = datetime.strptime(practice_date, '%Y-%m-%d').date()
