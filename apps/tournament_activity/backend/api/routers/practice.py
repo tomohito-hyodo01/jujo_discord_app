@@ -690,7 +690,7 @@ async def notify_practice_reservations(practice_id: int):
 
 @router.post("/practice/notify-upcoming-reservations")
 async def notify_upcoming_reservations():
-    """2日後に開催される練習の予約者をDiscordチャンネルに通知"""
+    """翌日に開催される練習の予約者をDiscordチャンネルに通知（毎週金曜8:00のcronで翌土曜分を通知）"""
     import os
     import httpx
     from datetime import date, timedelta as td
@@ -699,8 +699,8 @@ async def notify_upcoming_reservations():
     if not DISCORD_BOT_TOKEN:
         raise HTTPException(status_code=500, detail="BOT_TOKEN未設定")
 
-    # 2日後の日付
-    target_date = (date.today() + td(days=2)).isoformat()
+    # 翌日の日付（金曜実行→翌土曜の練習が対象）
+    target_date = (date.today() + td(days=1)).isoformat()
 
     # 対象練習を取得
     result = await db.execute_query(
