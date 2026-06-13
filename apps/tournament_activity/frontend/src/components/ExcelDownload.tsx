@@ -56,6 +56,10 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
 
   const getWardName = (id: number) => wards.find(w => w.ward_id === id)?.ward_name || `ID:${id}`
 
+  // 墨田区(ward_id=7)はExcelではなくテキストをDiscordへ送信する運用
+  const SUMIDA_WARD_ID = 7
+  const isSumida = (wardId: number) => wardId === SUMIDA_WARD_ID
+
   const formatDate = (d: string | null) => {
     if (!d) return '-'
     const dt = new Date(d)
@@ -86,8 +90,14 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
           const name = String(url).split('/').pop()?.split('?')[0]
           if (name && !filenames.includes(name)) filenames.push(name)
         })
+        // テキスト運用(墨田区)などファイルが無い場合はサーバーのメッセージを表示
+        if (filenames.length === 0 && result.generated_files) {
+          const msg = Object.values(result.generated_files)[0]
+          setMessage(typeof msg === 'string' ? msg : '申込書を送信しました')
+        } else {
+          setMessage('申込書を生成しました')
+        }
         setGeneratedFiles(prev => ({ ...prev, [tournamentId]: filenames }))
-        setMessage('申込書を生成しました')
         // ファイル一覧を再取得
         loadFiles(tournamentId)
       } else {
@@ -182,6 +192,7 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
               const files = generatedFiles[t.tournament_id] || []
               const count = regCounts[t.tournament_id] ?? 0
               const noRegs = count === 0
+              const sumida = isSumida(t.registrated_ward)
               return (
                 <tr key={t.tournament_id}>
                   <td style={{ ...cellStyle, fontWeight: '500', whiteSpace: 'normal' as const, minWidth: '140px' }}>{t.tournament_name}</td>
@@ -191,12 +202,14 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
                     {(() => {
                       const hasFiles = files.length > 0
                       const btnLabel = generating === t.tournament_id
-                        ? (hasFiles ? '再生成中...' : '生成中...')
+                        ? (sumida ? '送信中...' : hasFiles ? '再生成中...' : '生成中...')
                         : noRegs
                           ? '申込なし'
-                          : hasFiles
-                            ? `再生成（${count}件）`
-                            : `生成（${count}件）`
+                          : sumida
+                            ? `テキスト送信（${count}件）`
+                            : hasFiles
+                              ? `再生成（${count}件）`
+                              : `生成（${count}件）`
                       return (
                         <button
                           onClick={() => handleGenerate(t.tournament_id)}
@@ -217,7 +230,7 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
                   </td>
                   <td style={cellStyle}>
                     {files.length === 0 ? (
-                      <span style={{ color: '#64748b', fontSize: '12px' }}>未生成</span>
+                      <span style={{ color: '#64748b', fontSize: '12px' }}>{sumida ? 'Discordへ送信' : '未生成'}</span>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {files.map(f => (
@@ -248,6 +261,7 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
           const files = generatedFiles[t.tournament_id] || []
           const count = regCounts[t.tournament_id] ?? 0
           const noRegs = count === 0
+          const sumida = isSumida(t.registrated_ward)
           return (
             <div key={t.tournament_id} style={{
               padding: '14px 16px', backgroundColor: '#0c1220', borderRadius: '10px', border: '1px solid #1e293b',
@@ -260,8 +274,8 @@ export default function ExcelDownload({ permissionInfo, discordId }: ExcelDownlo
                 {(() => {
                   const hasFiles = files.length > 0
                   const btnLabel = generating === t.tournament_id
-                    ? (hasFiles ? '再生成中...' : '生成中...')
-                    : noRegs ? '申込なし' : hasFiles ? `再生成（${count}件）` : `生成（${count}件）`
+                    ? (sumida ? '送信中...' : hasFiles ? '再生成中...' : '生成中...')
+                    : noRegs ? '申込なし' : sumida ? `テキスト送信（${count}件）` : hasFiles ? `再生成（${count}件）` : `生成（${count}件）`
                   return (
                     <button onClick={() => handleGenerate(t.tournament_id)} disabled={generating === t.tournament_id || noRegs} style={{
                       padding: '6px 14px', borderRadius: '5px',

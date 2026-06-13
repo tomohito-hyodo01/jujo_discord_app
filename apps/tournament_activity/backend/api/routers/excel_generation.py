@@ -22,8 +22,77 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from services.excel_service_factory import ExcelServiceFactory
 from services.discord_file_service import DiscordFileService
+from services.wards.sumida_text_service import SumidaTextService
 
 router = APIRouter()
+
+# テキスト申込書で運用する区（Excelではなくテキストを生成してDiscordへ送信）
+SUMIDA_WARD_ID = 7
+
+
+async def _build_team_members(registration: dict) -> list:
+    """
+    団体戦の申込1件から出場メンバーの選手情報リストを構築
+
+    出場者 = pair1 + pair2（registrations.py の出場者ロジックと同じ）。
+    pair が無い場合は申込者本人(discord_id)にフォールバック。
+    """
+    member_ids = []
+    if registration.get("pair1"):
+        member_ids.append(registration["pair1"])
+    member_ids.extend(registration.get("pair2") or [])
+
+    members = []
+    for pid in member_ids:
+        if not pid:
+            continue
+        result = await db.execute_query(
+            "player_mst", operation="select", filters={"player_id": pid}
+        )
+        if not result.get("error") and result.get("data"):
+            members.append(result["data"][0])
+
+    # メンバーが取れない場合は申込者本人で代替
+    if not members and registration.get("discord_id"):
+        result = await db.execute_query(
+            "player_mst", operation="select", filters={"discord_id": registration["discord_id"]}
+        )
+        if not result.get("error") and result.get("data"):
+            members.append(result["data"][0])
+
+    return members
+
+
+async def _generate_sumida_text(tournament: dict, registrations: list) -> "ExcelGenerationResponse":
+    """墨田区: 申込書テキストを生成してDiscordチャンネルへ送信"""
+    tournament_name = tournament.get("tournament_name")
+
+    enriched = []
+    for reg in registrations:
+        members = await _build_team_members(reg)
+        if members:
+            enriched.append({**reg, "members": members})
+
+    if not enriched:
+        return ExcelGenerationResponse(
+            success=False,
+            tournament_id=tournament.get("tournament_id"),
+            tournament_name=tournament_name,
+            error="No valid player data found for registrations",
+        )
+
+    service = SumidaTextService()
+    texts = service.build_texts(tournament, enriched)
+
+    discord_service = DiscordFileService()
+    sent = await discord_service.send_text_messages(texts)
+
+    return ExcelGenerationResponse(
+        success=True,
+        tournament_id=tournament.get("tournament_id"),
+        tournament_name=tournament_name,
+        generated_files={"sumida_text": f"{len(texts)}チーム分の申込テキストをDiscordに送信しました（{sent}メッセージ）"},
+    )
 
 # Discord Webhook URL（環境変数から取得）
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL', '')
@@ -144,6 +213,10 @@ async def generate_excel(request: ExcelGenerationRequest):
                 tournament_name=tournament_name,
                 error="No registrations found for this tournament"
             )
+
+        # 墨田区はExcelではなくテキスト申込書を生成してDiscordへ送信
+        if ward_id == SUMIDA_WARD_ID:
+            return await _generate_sumida_text(tournament, registrations)
 
         # 3. 選手情報を取得して申込データに結合
         enriched_registrations = []

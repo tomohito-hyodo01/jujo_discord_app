@@ -152,6 +152,63 @@ class DiscordFileService:
             for f in file_handles:
                 f.close()
 
+    async def send_text_messages(self, contents: List[str]) -> int:
+        """
+        プレーンテキストメッセージをDiscordチャンネルに送信（ファイルなし）
+
+        墨田区などテキストで申込書を送付する運用向け。
+        Discordの1メッセージ上限(2000文字)を超える場合は分割して送信する。
+
+        Args:
+            contents: 送信するテキストのリスト（1要素=1メッセージを想定）
+
+        Returns:
+            送信に成功したメッセージ数
+        """
+        sent = 0
+        for content in contents:
+            if not content:
+                continue
+            for chunk in self._split_for_discord(content):
+                await asyncio.to_thread(self._send_text_to_discord, chunk)
+                sent += 1
+        return sent
+
+    @staticmethod
+    def _split_for_discord(content: str, limit: int = 1900) -> List[str]:
+        """Discordのメッセージ長制限に収まるよう行単位で分割"""
+        if len(content) <= limit:
+            return [content]
+
+        chunks: List[str] = []
+        current = ""
+        for line in content.split("\n"):
+            if len(current) + len(line) + 1 > limit:
+                if current:
+                    chunks.append(current.rstrip("\n"))
+                current = ""
+            current += line + "\n"
+        if current.strip():
+            chunks.append(current.rstrip("\n"))
+        return chunks
+
+    def _send_text_to_discord(self, content: str) -> Dict:
+        """Discord APIでテキストメッセージを送信（同期版）"""
+        url = f"https://discord.com/api/v10/channels/{self.channel_id}/messages"
+        headers = {
+            "Authorization": f"Bot {self.bot_token}",
+            "Content-Type": "application/json",
+        }
+        response = requests.post(
+            url,
+            headers=headers,
+            json={"content": content},
+            timeout=30.0,
+        )
+        if response.status_code not in [200, 201]:
+            raise Exception(f"Discord API error: {response.status_code} - {response.text}")
+        return response.json()
+
     def _get_current_time(self) -> str:
         """現在時刻を取得（日本時間）"""
         from datetime import datetime, timezone, timedelta
