@@ -52,31 +52,38 @@ async def _build_team_members(registration: dict) -> list:
     """
     団体戦の申込1件から出場メンバーの選手情報リストを構築
 
-    出場者 = pair1 + pair2（registrations.py の出場者ロジックと同じ）。
-    pair が無い場合は申込者本人(discord_id)にフォールバック。
+    メンバー = 申込者本人(discord_id) + pair1 + pair2。
+    申込者は出場者(pair1/pair2)に含まれないため先頭に追加する。
+    player_id で重複を除外し、申込者→pair1→pair2 の順を維持する。
     """
+    members = []
+    seen = set()
+
+    # 申込者本人（discord_id）を先頭に追加
+    if registration.get("discord_id"):
+        result = await db.execute_query(
+            "player_mst", operation="select", filters={"discord_id": registration["discord_id"]}
+        )
+        if not result.get("error") and result.get("data"):
+            player = result["data"][0]
+            members.append(player)
+            seen.add(player.get("player_id"))
+
+    # 出場者（pair1 + pair2）を追加
     member_ids = []
     if registration.get("pair1"):
         member_ids.append(registration["pair1"])
     member_ids.extend(registration.get("pair2") or [])
 
-    members = []
     for pid in member_ids:
-        if not pid:
+        if not pid or pid in seen:
             continue
         result = await db.execute_query(
             "player_mst", operation="select", filters={"player_id": pid}
         )
         if not result.get("error") and result.get("data"):
             members.append(result["data"][0])
-
-    # メンバーが取れない場合は申込者本人で代替
-    if not members and registration.get("discord_id"):
-        result = await db.execute_query(
-            "player_mst", operation="select", filters={"discord_id": registration["discord_id"]}
-        )
-        if not result.get("error") and result.get("data"):
-            members.append(result["data"][0])
+            seen.add(pid)
 
     return members
 
