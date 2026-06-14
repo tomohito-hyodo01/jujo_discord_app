@@ -30,6 +30,24 @@ router = APIRouter()
 SUMIDA_WARD_ID = 7
 
 
+def _split_for_discord(content: str, limit: int = 1900) -> list:
+    """Discordのメッセージ長制限(2000文字)に収まるよう行単位で分割"""
+    if len(content) <= limit:
+        return [content]
+
+    chunks = []
+    current = ""
+    for line in content.split("\n"):
+        if len(current) + len(line) + 1 > limit:
+            if current:
+                chunks.append(current.rstrip("\n"))
+            current = ""
+        current += line + "\n"
+    if current.strip():
+        chunks.append(current.rstrip("\n"))
+    return chunks
+
+
 async def _build_team_members(registration: dict) -> list:
     """
     団体戦の申込1件から出場メンバーの選手情報リストを構築
@@ -84,8 +102,28 @@ async def _generate_sumida_text(tournament: dict, registrations: list) -> "Excel
     service = SumidaTextService()
     texts = service.build_texts(tournament, enriched)
 
-    discord_service = DiscordFileService()
-    sent = await discord_service.send_text_messages(texts)
+    # 墨田区のWebhookへ送信（申込通知と同じチャンネル）。未設定時はデフォルトWebhookにフォールバック
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL_SUMIDA") or os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        return ExcelGenerationResponse(
+            success=False,
+            tournament_id=tournament.get("tournament_id"),
+            tournament_name=tournament_name,
+            error="墨田区のDiscord Webhook（DISCORD_WEBHOOK_URL_SUMIDA）が設定されていません",
+        )
+
+    sent = 0
+    async with httpx.AsyncClient() as client:
+        for text in texts:
+            for chunk in _split_for_discord(text):
+                resp = await client.post(webhook_url, json={"content": chunk}, timeout=10.0)
+                if resp.status_code in (200, 204):
+                    sent += 1
+                else:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Discord Webhook error: {resp.status_code} - {resp.text}",
+                    )
 
     return ExcelGenerationResponse(
         success=True,
