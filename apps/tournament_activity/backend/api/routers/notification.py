@@ -687,3 +687,77 @@ async def notify_tournament_registered(req: TournamentNotifyRequest):
     except Exception as e:
         print(f'❌ 大会登録通知エラー: {e}')
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notify/deadline-reminder")
+async def notify_deadline_reminder(target_date: Optional[str] = None):
+    """申込締切の1週間前リマインドをDiscordに送信。
+    締切が「今日の1週間後」(target_date指定時はその日)の大会が対象。毎日cronで実行する想定。"""
+    from api.database import db
+
+    webhook_url = os.getenv('DISCORD_WEBHOOK_URL_TOURNAMENT_NOTIFY', '') or DISCORD_WEBHOOK_URL
+    if not webhook_url:
+        return {'success': True, 'message': 'Webhook URL未設定', 'sent_count': 0}
+
+    try:
+        target = target_date or (date.today() + timedelta(days=7)).isoformat()
+
+        result = await db.execute_query(
+            'tournament_mst', operation='select',
+            filters={'deadline_date': target}, json_fields=['type']
+        )
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+        tournaments = result.get('data', []) or []
+        if not tournaments:
+            return {'success': True, 'message': f'締切が{target}の大会はありません', 'sent_count': 0}
+
+        from datetime import datetime as dt
+        weekdays = ['月', '火', '水', '木', '金', '土', '日']
+
+        def fmt_date(d) -> str:
+            try:
+                s = str(d).split('T')[0].split(' ')[0]
+                p = dt.strptime(s, '%Y-%m-%d')
+                return f"{p.year}/{p.month:02d}/{p.day:02d}({weekdays[p.weekday()]})"
+            except Exception:
+                return str(d)
+
+        results = []
+        for t in tournaments:
+            classification_label = '団体戦' if t.get('classification') == 1 else '個人戦'
+            type_val = t.get('type')
+            types_str = '・'.join(type_val) if isinstance(type_val, list) else (type_val or '')
+
+            content = "@everyone\n⏰ **申込締切まであと1週間です**\n\n"
+            content += f"**{t.get('tournament_name')}**\n"
+            content += f"- 開催日: {fmt_date(t.get('tournament_date'))}\n"
+            content += f"- 締切日: {fmt_date(t.get('deadline_date'))}（あと7日）\n"
+            content += f"- 形式: {classification_label}"
+            if types_str:
+                content += f"\n- 種別: {types_str}"
+            content += "\n\nまだ申込がお済みでない方はお早めにお願いします。"
+
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        webhook_url,
+                        json={'content': content, 'allowed_mentions': {'parse': ['everyone']}},
+                        timeout=10.0,
+                    )
+                    if resp.status_code in (200, 204):
+                        results.append({'tournament': t.get('tournament_name'), 'status': 'sent'})
+                    else:
+                        results.append({'tournament': t.get('tournament_name'), 'status': f'failed: {resp.status_code}'})
+            except Exception as e:
+                results.append({'tournament': t.get('tournament_name'), 'status': f'error: {e}'})
+
+        return {
+            'success': True,
+            'sent_count': len([r for r in results if r['status'] == 'sent']),
+            'results': results,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
