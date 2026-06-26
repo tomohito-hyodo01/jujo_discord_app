@@ -11,12 +11,13 @@ export type Permission =
   | 'view_app_logs'
   | 'view_referee_training'
   | 'manage_practice_reservations'
+  | 'view_game'
 
 // admin_role: 0=管理者, 1=大会申込管理者, 2=一般
 // member_level: 0=正会員, 1=準会員, 2=ゲスト, 3=未所属
 
 const ADMIN_ROLE_PERMISSIONS: Record<number, Permission[]> = {
-  0: ['view_dashboard', 'view_event_list', 'view_player', 'view_apply', 'view_my_registrations', 'view_tournament_register', 'view_excel_download', 'view_practice_manage', 'view_member_list', 'view_app_logs'],
+  0: ['view_dashboard', 'view_event_list', 'view_player', 'view_apply', 'view_my_registrations', 'view_tournament_register', 'view_excel_download', 'view_practice_manage', 'view_member_list', 'view_app_logs', 'view_game'],
   1: ['view_dashboard', 'view_event_list', 'view_player', 'view_apply', 'view_my_registrations', 'view_tournament_register', 'view_excel_download', 'view_practice_manage'],
   2: ['view_dashboard', 'view_event_list', 'view_player', 'view_apply', 'view_my_registrations'],
 }
