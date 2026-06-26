@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import DiscordLogin from './components/DiscordLogin'
 import AuthCallback from './components/AuthCallback'
 import Portal from './components/Portal'
+import GameHub from './components/GameHub'
 import type { UserPermissionInfo } from './utils/permissions'
 
 const DEV_DISCORD_ID = '1427112485047242945'
@@ -38,6 +39,11 @@ function clearAuth() {
 
 function App() {
   const urlParams = new URLSearchParams(window.location.search)
+  // ゲームUIの試遊用バイパス。ローカル開発と /preview/ でのみ有効＝本番(ルート)では無効で安全。
+  const previewMode = import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.pathname.includes('/preview/')
+  if (previewMode && urlParams.get('gametest') === '1') {
+    return <GameHub username="プレビュー" discordId={DEV_DISCORD_ID} onExitToPortal={() => { window.location.href = window.location.pathname }} />
+  }
   const authCode = urlParams.get('code')
   const sessionId = urlParams.get('session')
   const isLocalDev = import.meta.env.DEV || window.location.hostname === 'localhost'

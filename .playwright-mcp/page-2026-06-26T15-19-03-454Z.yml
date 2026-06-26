@@ -1,0 +1,17 @@
+- generic [ref=e18]:
+  - generic:
+    - generic:
+      - generic: 🦐 プレビュー
+      - generic: 0m 🪙0
+    - generic:
+      - generic: BEST 15m
+      - button "×" [ref=e20] [cursor=pointer]
+  - 'button "🛡 無敵: OFF" [ref=e21] [cursor=pointer]'
+  - generic:
+    - generic:
+      - generic: 🦐 エビ走
+      - generic:
+        - text: タップ／スペースでジャンプ（2段ジャンプOK）
+        - text: 障害物・穴・敵をよけて走りぬけろ！
+        - text: 動物・剣士・スナイパー・テニスの王者が出現！
+      - generic: ▶ タップ／スペースでスタート

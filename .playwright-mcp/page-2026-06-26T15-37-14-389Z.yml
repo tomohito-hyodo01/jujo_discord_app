@@ -1,0 +1,15 @@
+- generic [ref=e3]:
+  - heading "🎮 ゲームをえらぶ" [level=2] [ref=e4]
+  - paragraph [ref=e5]: 遊びたいゲームを選んでください（管理者向けの試作）。
+  - generic [ref=e6]:
+    - button "⚔️ 冒険者ギルド（RPG） 町とギルドを冒険。掲示板の依頼を受けて討伐。実際の練習・大会でもレベルが上がる。 ▶ あそぶ" [ref=e7] [cursor=pointer]:
+      - generic [ref=e8]: ⚔️
+      - generic [ref=e9]: 冒険者ギルド（RPG）
+      - generic [ref=e10]: 町とギルドを冒険。掲示板の依頼を受けて討伐。実際の練習・大会でもレベルが上がる。
+      - generic [ref=e11]: ▶ あそぶ
+    - button "🦐 エビ走 自動で走り続けるアクション。ジャンプで障害物を避け、コインを集めて距離をのばそう。ベスト記録に挑戦！ ▶ あそぶ" [ref=e12] [cursor=pointer]:
+      - generic [ref=e13]: 🦐
+      - generic [ref=e14]: エビ走
+      - generic [ref=e15]: 自動で走り続けるアクション。ジャンプで障害物を避け、コインを集めて距離をのばそう。ベスト記録に挑戦！
+      - generic [ref=e16]: ▶ あそぶ
+  - button "← ポータルに戻る" [ref=e17] [cursor=pointer]

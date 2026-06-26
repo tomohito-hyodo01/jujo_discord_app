@@ -1,0 +1,9 @@
+- generic [ref=e18]:
+  - generic:
+    - generic:
+      - generic: 🦐 プレビュー
+      - generic: 3m 🪙0
+    - generic:
+      - generic: BEST 15m
+      - button "×" [ref=e20] [cursor=pointer]
+  - 'button "🛡 無敵: ON" [ref=e42] [cursor=pointer]'

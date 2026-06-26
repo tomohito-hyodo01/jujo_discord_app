@@ -1,0 +1,18 @@
+- generic [ref=e18]:
+  - generic:
+    - generic:
+      - generic: 🦐 プレビュー
+      - generic: 15m 🪙0
+    - generic:
+      - generic: BEST 15m
+      - button "×" [ref=e20] [cursor=pointer]
+  - 'button "🛡 無敵: ON" [active] [ref=e42] [cursor=pointer]'
+  - generic [ref=e33]:
+    - generic [ref=e34]: ゲームオーバー…
+    - generic [ref=e35]: 障害物にぶつかった…
+    - generic [ref=e36]: スコア 15m
+    - generic [ref=e37]: 距離 15m ／ コイン 0（×10）
+    - generic [ref=e38]: BEST 15m
+    - generic [ref=e39]:
+      - button "もう一度" [ref=e40] [cursor=pointer]
+      - button "やめる" [ref=e41] [cursor=pointer]

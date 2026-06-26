@@ -1,0 +1,5 @@
+{
+  "agent": "claude",
+  "permissionMode": "bypassPermissions",
+  "goalMode": false
+}
