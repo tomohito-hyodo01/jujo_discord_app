@@ -15,6 +15,9 @@ const E_SNIPER = '/game/run/enemy_sniper.png?v=1'
 const E_TENNIS = '/game/run/enemy_tennis.png?v=2'  // 鈴木選手（一般男子優勝）の写真をモデルに再生成・主人公と同サイズ
 
 const M_PER_S = 50 / 8          // 距離カウンタの増加ペース：50メートル / 8秒（実スクロール速度とは別）
+const GAME_KEY = 'ebi_run'      // サーバ側ランキングのゲーム識別子
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+interface BoardRow { rank: number; discord_id: string; display_name: string; best_score: number; best_coins: number }
 
 // 独自UI（丸ポップ。FFの青窓とは別系統）
 const POP_FONT = "'Mochiy Pop One','Hiragino Maru Gothic ProN','Yu Gothic',sans-serif"
@@ -80,7 +83,12 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const [assetsReady, setAssetsReady] = useState(false)
   const [invincible, setInvincible] = useState(false)   // 管理者専用の無敵モード（ステージ変化の確認用）
   const [best, setBest] = useState<number>(() => { try { return parseInt(localStorage.getItem(bestKey) || '0', 10) || 0 } catch { return 0 } })
+  const [board, setBoard] = useState<BoardRow[] | null>(null)   // ベスト5ランキング（null=未取得/読込中）
+  const [myRank, setMyRank] = useState<number | null>(null)
   const isAdmin = discordId === '1427112485047242945'
+  // 描画ループは []依存で初期propsを捕捉するため、最新の識別情報はrefで参照する
+  const discordIdRef = useRef(discordId); discordIdRef.current = discordId
+  const usernameRef = useRef(username); usernameRef.current = username
 
   const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement }>({ run: [], runSleep: [], hurts: [] })
   const phaseRef = useRef<'ready' | 'playing' | 'over'>('ready')
@@ -125,6 +133,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     stRef.current = { heroY: baseY, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 1.0, nextCoinT: 1.2, nextPlatT: 3.0, scroll: 0 }
     if (overTimer.current) { window.clearTimeout(overTimer.current); overTimer.current = undefined }
     showCardRef.current = false; setShowCard(false)
+    setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
   const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.jumps < 2) { st.vy = -jumpParams(c.height).VJ; st.jumps += 1 } }
@@ -186,6 +195,24 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       hurtIdxRef.current = Math.floor(Math.random() * Math.max(1, A.current.hurts.length))   // やられ顔をランダム選択
       setResult({ score, coins: st.coins, best: Math.max(bn, score), newBest: nb, cause }); setPhase('over')
       overTimer.current = window.setTimeout(() => { showCardRef.current = true; setShowCard(true) }, 950)
+
+      // サーバへスコア送信＝利用者間で共有するベスト5ランキングを取得
+      const did = discordIdRef.current
+      if (did) {
+        setBoard(null)   // 読込中表示
+        fetch(`${API_URL}/api/game_scores`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ game: GAME_KEY, discord_id: did, display_name: usernameRef.current, score, coins: st.coins }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (d) { setBoard(d.top || []); setMyRank(typeof d.rank === 'number' ? d.rank : null); if (typeof d.best === 'number') setBest(d.best) }
+            else setBoard([])
+          })
+          .catch(() => setBoard([]))
+      } else {
+        setBoard([])   // ローカル開発などdiscord_id未取得時はランキング非対応
+      }
     }
 
     const render = (ts: number) => {
@@ -507,6 +534,34 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
             <div style={{ fontSize: 19, marginTop: 6 }}>スコア {result.score}m</div>
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>距離 {result.score - result.coins * 10}m ／ コイン {result.coins}（×10）</div>
             {result.newBest ? <div style={{ fontSize: 16, color: SUN, fontWeight: 800, marginTop: 8 }}>🎉 ベスト更新！ {result.best}m</div> : <div style={{ fontSize: 13, color: '#1f9d55', marginTop: 8 }}>BEST {result.best}m</div>}
+
+            {/* 利用者間で共有するベスト5ランキング */}
+            <div style={{ marginTop: 12, borderTop: '2px dashed #ffd6cf', paddingTop: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: CORAL }}>🏆 みんなのベスト5</div>
+              {board === null ? (
+                <div style={{ fontSize: 12, color: '#9aa3b2', marginTop: 8 }}>読み込み中…</div>
+              ) : board.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#9aa3b2', marginTop: 8 }}>まだ記録がありません</div>
+              ) : (
+                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {board.map((row) => {
+                    const isMe = row.discord_id === discordId
+                    const medal = row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : `${row.rank}.`
+                    return (
+                      <div key={row.discord_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 8px', borderRadius: 8, background: isMe ? '#fff2cc' : 'transparent', fontWeight: isMe ? 800 : 600 }}>
+                        <span style={{ width: 22, textAlign: 'center', flexShrink: 0 }}>{medal}</span>
+                        <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.display_name}{isMe && ' (あなた)'}</span>
+                        <span style={{ color: CORAL, fontWeight: 800, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{row.best_score}m</span>
+                      </div>
+                    )
+                  })}
+                  {myRank && myRank > board.length && (
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>あなたの順位: {myRank}位</div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 14 }}>
               <button onClick={(e) => { e.stopPropagation(); startGame() }} style={popBtn(CORAL)}>もう一度</button>
               <button onClick={(e) => { e.stopPropagation(); onExit && onExit() }} style={popBtn('#9aa3b2')}>やめる</button>
