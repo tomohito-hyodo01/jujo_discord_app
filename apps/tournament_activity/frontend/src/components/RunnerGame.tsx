@@ -560,8 +560,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       {phase === 'ready' && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', pointerEvents: 'none' }}>
           <div style={{ ...cardStyle, padding: '22px 26px' }}>
-            <div style={{ fontSize: 34, fontWeight: 800, color: CORAL, lineHeight: 1, textShadow: `2px 2px 0 ${SUN}` }}>🦐 エビ走</div>
-            <div style={{ fontSize: 14, lineHeight: 1.9, marginTop: 12 }}>タップ／スペースでジャンプ（2段ジャンプOK）<br />障害物・穴・敵をよけて走りぬけろ！<br /><span style={{ color: '#6b7280' }}>動物・剣士・スナイパー・テニスの王者が出現！</span></div>
+            <div style={{ fontSize: 34, fontWeight: 800, color: CORAL, lineHeight: 1, textShadow: `2px 2px 0 ${SUN}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><img src={HERO_FRAMES[0]} alt="" style={{ width: 38, height: 38, objectFit: 'contain', imageRendering: 'pixelated' }} />エビ走</div>
+            <div style={{ fontSize: 14, lineHeight: 1.9, marginTop: 12 }}>タップ／スペースでジャンプ（2段ジャンプOK）<br />障害物・穴・敵をよけて走りぬけろ！</div>
             <div style={{ fontSize: 16, color: assetsReady ? CORAL : '#9aa3b2', fontWeight: 700, marginTop: 14, animation: 'ebiBlink 1.1s ease-in-out infinite' }}>{assetsReady ? '▶ タップ／スペースでスタート' : '🦐 よみこみ中…'}</div>
           </div>
         </div>

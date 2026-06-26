@@ -28,7 +28,11 @@ const MENU_CARDS: MenuCard[] = [
   { id: 'admin-members', label: 'メンバー一覧', description: 'メンバー情報の管理', permission: 'view_member_list' },
   { id: 'profile-notify', label: 'プロフィール不備通知', description: '不備通知の送信', permission: 'view_app_logs' },
   { id: 'account-merge', label: 'アカウント統合', description: '重複アカウントの統合', permission: 'view_app_logs' },
+  { id: 'game', label: '⚔️ ゲーム(試作)', description: 'RPG・エビ走で遊ぶ', permission: 'view_game' },
 ]
+
+// ゲーム(試作)は左メニューと同様、一旦 管理者 兵頭 のみに表示（view_game権限に加えてこのIDのみ）
+const GAME_ALLOWED_DISCORD_IDS = new Set(['1427112485047242945'])
 
 export default function Home({ discordId, permissionInfo, onNavigate }: HomeProps) {
   const [upcomingRegistrations, setUpcomingRegistrations] = useState<any[]>([])
@@ -196,9 +200,11 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
     load()
   }, [discordId])
 
-  const visibleCards = MENU_CARDS.filter(card =>
-    hasPermission(permissionInfo, card.permission as any)
-  )
+  const visibleCards = MENU_CARDS.filter(card => {
+    if (!hasPermission(permissionInfo, card.permission as any)) return false
+    if (card.id === 'game' && !GAME_ALLOWED_DISCORD_IDS.has(discordId || '')) return false
+    return true
+  })
 
   const formatDate = (d: string) => {
     const dt = new Date(d)
