@@ -10,9 +10,9 @@ const HERO_SLEEP_FRAMES = ['1', '2', '3', '4', '5', '6'].map((n) => `/game/run/h
 const HERO_JUMP = '/game/run/hero_jump.png?v=1'
 const HERO_HURT_FRAMES = ['1', '2', '3'].map((n) => `/game/run/hero_hurt${n}.png?v=12`)  // やられ顔・複数パターン（ランダム表示）
 const E_BOAR = '/game/run/enemy_boar.png?v=1'
-const E_SWORD = '/game/run/enemy_sword.png?v=3'  // サイコパス・ケンジ（カード画像の人物）。主人公と同じチビ頭身で再生成＝サイズ感を合わせた
-const E_SNIPER = '/game/run/enemy_sniper.png?v=4'  // 「初代サウスポー・アズマ」（ブタメンTシャツの選手）。主人公と同じチビ頭身で再生成＝サイズ感を統一
-const E_TENNIS = '/game/run/enemy_tennis.png?v=4'  // 鈴木選手（一般男子優勝）。主人公と同じチビ頭身で再生成＝サイズ感を統一
+const E_SWORD = '/game/run/enemy_sword.png?v=5'  // サイコパス・ケンジ（カード画像の人物）。主人公と同じチビ頭身で再生成＝サイズ感を合わせた
+const E_SNIPER = '/game/run/enemy_sniper.png?v=5'  // 「初代サウスポー・アズマ」（ブタメンTシャツの選手）。主人公と同じチビ頭身で再生成＝サイズ感を統一
+const E_TENNIS = '/game/run/enemy_tennis.png?v=5'  // 鈴木選手（一般男子優勝）。主人公と同じチビ頭身で再生成＝サイズ感を統一
 // 障害物スプライト（主人公と同じセルシェード調の生成素材。手描き図形→リアル質感に差し替え。未ロード時は手描きにフォールバック）
 const O_CONE = '/game/run/obs_cone.png?v=1'
 const O_CRATE = '/game/run/obs_crate.png?v=1'
