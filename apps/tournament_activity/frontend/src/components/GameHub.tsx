@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import Game from './Game'
 import RunnerGame from './RunnerGame'
 
@@ -11,7 +11,7 @@ export default function GameHub({ username, discordId, onExitToPortal }: GameHub
   if (selected === 'rpg') return <Game username={username} discordId={discordId} onExit={() => setSelected(null)} />
   if (selected === 'run') return <RunnerGame username={username} discordId={discordId} onExit={() => setSelected(null)} />
 
-  const card = (onClick: () => void, icon: string, title: string, desc: string, accent: string) => (
+  const card = (onClick: () => void, icon: ReactNode, title: string, desc: string, accent: string) => (
     <button onClick={onClick} style={{
       flex: '1 1 240px', maxWidth: 340, textAlign: 'left', cursor: 'pointer',
       background: 'linear-gradient(180deg,#13233f,#0d1a30)', border: `2px solid ${accent}`, borderRadius: 14,
@@ -33,7 +33,7 @@ export default function GameHub({ username, discordId, onExitToPortal }: GameHub
       <p style={{ margin: '0 0 20px', fontSize: 13, color: '#94a3b8' }}>遊びたいゲームを選んでください（管理者向けの試作）。</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
         {card(() => setSelected('rpg'), '⚔️', '冒険者ギルド（RPG）', '町とギルドを冒険。掲示板の依頼を受けて討伐。実際の練習・大会でもレベルが上がる。', '#3b82f6')}
-        {card(() => setSelected('run'), '🦐', 'エビ走', '自動で走り続けるアクション。ジャンプで障害物を避け、コインを集めて距離をのばそう。ベスト記録に挑戦！', '#f59e0b')}
+        {card(() => setSelected('run'), <img src="/game/run/hero_run1.png?v=11" alt="エビ走" style={{ width: 40, height: 40, objectFit: 'contain', imageRendering: 'pixelated' }} />, 'エビ走', '自動で走り続けるアクション。ジャンプで障害物を避け、コインを集めて距離をのばそう。ベスト記録に挑戦！', '#f59e0b')}
       </div>
       <button onClick={onExitToPortal} style={{ marginTop: 24, padding: '8px 14px', borderRadius: 8, background: '#1e293b', color: '#cbd5e1', border: '1px solid #334155', fontSize: 13, cursor: 'pointer' }}>← ポータルに戻る</button>
     </div>
