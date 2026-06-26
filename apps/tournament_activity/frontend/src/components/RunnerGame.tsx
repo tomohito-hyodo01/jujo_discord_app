@@ -18,6 +18,7 @@ const O_CONE = '/game/run/obs_cone.png?v=1'
 const O_CRATE = '/game/run/obs_crate.png?v=1'
 const O_ROCK = '/game/run/obs_rock.png?v=1'
 const O_STONE = '/game/run/obs_stone.png?v=1'
+const O_COIN = '/game/run/coin.png?v=1'  // 金貨（障害物・主人公と同じセルシェード調。flat円から差し替え）
 
 const M_PER_S = 50 / 8          // 距離カウンタの増加ペース：50メートル / 8秒（実スクロール速度とは別）
 const GAME_KEY = 'ebi_run'      // サーバ側ランキングのゲーム識別子
@@ -95,7 +96,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const discordIdRef = useRef(discordId); discordIdRef.current = discordId
   const usernameRef = useRef(username); usernameRef.current = username
 
-  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
+  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; coin?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
   const phaseRef = useRef<'ready' | 'playing' | 'over'>('ready')
   const hurtIdxRef = useRef(0)
   const assetsReadyRef = useRef(false)
@@ -127,6 +128,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     loadKeyed(O_CRATE).then((c) => { if (alive) A.current.obs.crate = c }).catch(() => {})
     loadKeyed(O_ROCK).then((c) => { if (alive) A.current.obs.rock = c }).catch(() => {})
     loadKeyed(O_STONE).then((c) => { if (alive) A.current.obs.stone = c }).catch(() => {})
+    loadKeyed(O_COIN).then((c) => { if (alive) A.current.coin = c }).catch(() => {})
     return () => { alive = false }
   }, [])
 
@@ -333,6 +335,13 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
               }
               cx = rightmost + island                          // 次の塊は着地島をあけて配置
             }
+            // 直前に出した障害物に既存コインが被るなら、コインを障害物の上へ退避＝被り解消（後から障害物が出るケース）
+            for (const cn of st.coinsArr) {
+              if (cn.taken) continue
+              for (const o of st.obstacles) {
+                if (cn.x > o.x - 14 && cn.x < o.x + o.w + 14 && cn.y > baseY - o.h - 8) { cn.y = baseY - o.h - 18; break }
+              }
+            }
             const lead = rightmost - (W + 30)                  // クラスター全長(px)
             const gapPx = heroH * (2.2 + Math.random() * 2.6)  // クラスター後の空き(px・ランダム)
             st.nextSpawnT = (lead + gapPx) / SCROLL            // px→秒に換算＝次のクラスターと重ならない
@@ -357,7 +366,12 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           const rowX0 = W + 24, rowX1 = W + 24 + (n - 1) * 34
           // この行のx範囲に重なる足場があれば、その上に整列＝足場と被らない（乗って取るごほうび）。無ければ地面寄りのランダム高さ
           const pl = st.platforms.find((p) => rowX1 > p.x - 16 && rowX0 < p.x + p.w + 16)
-          const cy = pl ? pl.y - 20 : baseY - heroH * (0.5 + Math.random() * 0.9)
+          let cy = pl ? pl.y - 20 : baseY - heroH * (0.5 + Math.random() * 0.9)
+          if (!pl) {   // 行xに重なる障害物があれば、その上端より上へ持ち上げる＝コインと障害物が被らない（ジャンプで取れる）
+            let topY = Infinity
+            for (const o of st.obstacles) if (rowX1 > o.x - 14 && rowX0 < o.x + o.w + 14) topY = Math.min(topY, baseY - o.h)
+            if (topY < Infinity) cy = Math.min(cy, topY - 18)
+          }
           for (let i = 0; i < n; i++) st.coinsArr.push({ x: W + 24 + i * 34, y: cy, taken: false })
           st.nextCoinT = 1.4 + Math.random() * 1.2
         }
@@ -422,7 +436,18 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         ctx.fillStyle = '#3f7d2c'; ctx.fillRect(px - 4, baseY - 2, 4, 6); ctx.fillRect(px + pw, baseY - 2, 4, 6)
       }
 
-      for (const cn of st.coinsArr) { if (cn.taken) continue; ctx.beginPath(); ctx.arc(cn.x, cn.y, 11, 0, Math.PI * 2); ctx.fillStyle = '#ffd23f'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#c98a12'; ctx.stroke(); ctx.fillStyle = '#fff2a8'; ctx.fillRect(cn.x - 5, cn.y - 6, 3, 5) }
+      const coinSpr = A.current.coin
+      for (const cn of st.coinsArr) {
+        if (cn.taken) continue
+        if (coinSpr) {                                                  // 金貨スプライト：直径は主人公基準。横幅を伸縮させてくるくる回転風に
+          const D = Math.max(20, heroH * 0.22)
+          const sx = Math.abs(Math.cos(st.playT * 4 + cn.x * 0.03))
+          const dw = Math.max(2, D * (0.22 + 0.78 * sx))
+          ctx.drawImage(coinSpr, Math.round(cn.x - dw / 2), Math.round(cn.y - D / 2), Math.round(dw), Math.round(D))
+        } else {                                                        // フォールバック（画像未ロード時）
+          ctx.beginPath(); ctx.arc(cn.x, cn.y, 11, 0, Math.PI * 2); ctx.fillStyle = '#ffd23f'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#c98a12'; ctx.stroke(); ctx.fillStyle = '#fff2a8'; ctx.fillRect(cn.x - 5, cn.y - 6, 3, 5)
+        }
+      }
       for (const o of st.obstacles) obstacle(o, baseY)
       // 空中の足場（乗れる）
       for (const pl of st.platforms) {
