@@ -16,7 +16,6 @@ import RefereeTraining from './RefereeTraining'
 import AccountMerge from './AccountMerge'
 import ProfileIncompleteNotifier from './ProfileIncompleteNotifier'
 import GameHub from './GameHub'
-import RunnerGame from './RunnerGame'
 import { hasPermission, getMemberLevelName, type Permission, type UserPermissionInfo } from '../utils/permissions'
 
 interface PortalProps {
@@ -39,7 +38,6 @@ interface MenuItem {
 const MENU_ITEMS: MenuItem[] = [
   { id: 'dashboard', label: 'ホーム', permission: 'view_dashboard' },
   { id: 'event-list', label: 'イベント一覧', permission: 'view_event_list' },
-  { id: 'ebi-run', label: 'エビ走(試作品)', permission: 'view_dashboard' },  // 全ログインユーザーに公開（権限ゲートなし）。RPGは含めない
   { id: 'player', label: '選手登録', permission: 'view_player' },
   { id: 'apply', label: '大会申込', permission: 'view_apply' },
   { id: 'referee-training', label: '審判講習', permission: 'view_referee_training' },
@@ -52,16 +50,13 @@ const MENU_ITEMS: MenuItem[] = [
   { id: 'profile-notify', label: 'プロフィール不備通知', permission: 'view_app_logs' },
   { id: 'account-merge', label: 'アカウント統合', permission: 'view_app_logs' },
   { id: 'admin-logs', label: 'ログ', permission: 'view_app_logs' },
-  { id: 'game', label: '⚔️ ゲーム(試作)', permission: 'view_game' },
+  { id: 'game', label: '⚔️ ゲーム(試作)', permission: 'view_dashboard' },  // ハブは全員に公開。RPGはGameHub内で管理者のみ表示
 ]
-
-// ゲーム(試作)は一旦 管理者 兵頭 のみに表示（view_game権限に加えてこのIDのみ）
-const GAME_ALLOWED_DISCORD_IDS = new Set(['1427112485047242945'])
 
 const VALID_PAGES = new Set([
   'dashboard', 'event-list', 'player', 'my-profile', 'apply', 'referee-training', 'my-registrations',
   'admin-tournament', 'admin-tournament-mgmt', 'admin-excel', 'admin-practice', 'admin-members',
-  'admin-logs', 'account-merge', 'profile-notify', 'game', 'ebi-run',
+  'admin-logs', 'account-merge', 'profile-notify', 'game',
 ])
 
 export default function Portal({ discordId, username, permissionInfo, needsPlayerRegistration, needsProfileCompletion, onPlayerRegistered, onProfileCompleted, onLogout }: PortalProps) {
@@ -86,7 +81,6 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
 
   const visibleMenuItems = MENU_ITEMS.filter(item => {
     if (!hasPermission(permissionInfo, item.permission)) return false
-    if (item.id === 'game' && !GAME_ALLOWED_DISCORD_IDS.has(discordId || '')) return false // ゲームは一旦 兵頭のみ
     // 初回選手登録未完了 or プロフィール補完中はホームのみ表示
     if ((needsPlayerRegistration || needsProfileCompletion) && item.id !== 'player' && item.id !== 'dashboard') return false
     return true
@@ -224,13 +218,8 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
         }
         return <ProfileIncompleteNotifier discordId={discordId} />
       case 'game':
-        if (!hasPermission(permissionInfo, 'view_game') || !GAME_ALLOWED_DISCORD_IDS.has(discordId || '')) {
-          return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>
-        }
+        // ハブは全ログインユーザーに公開。RPGはGameHub内で管理者のみ表示
         return <GameHub username={username} discordId={discordId} onExitToPortal={() => navigate('dashboard')} />
-      case 'ebi-run':
-        // エビ走のみ全ログインユーザーに公開。GameHub（RPG含む）は経由せず直接起動
-        return <RunnerGame username={username} discordId={discordId} onExit={() => navigate('dashboard')} />
       default:
         return <Home discordId={discordId} permissionInfo={permissionInfo} onNavigate={navigate} />
     }
