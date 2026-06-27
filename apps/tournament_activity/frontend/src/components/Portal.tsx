@@ -16,6 +16,7 @@ import RefereeTraining from './RefereeTraining'
 import AccountMerge from './AccountMerge'
 import ProfileIncompleteNotifier from './ProfileIncompleteNotifier'
 import GameHub from './GameHub'
+import RunnerGame from './RunnerGame'
 import { hasPermission, getMemberLevelName, type Permission, type UserPermissionInfo } from '../utils/permissions'
 
 interface PortalProps {
@@ -38,6 +39,7 @@ interface MenuItem {
 const MENU_ITEMS: MenuItem[] = [
   { id: 'dashboard', label: 'ホーム', permission: 'view_dashboard' },
   { id: 'event-list', label: 'イベント一覧', permission: 'view_event_list' },
+  { id: 'ebi-run', label: 'エビ走(試作品)', permission: 'view_dashboard' },  // 全ログインユーザーに公開（権限ゲートなし）。RPGは含めない
   { id: 'player', label: '選手登録', permission: 'view_player' },
   { id: 'apply', label: '大会申込', permission: 'view_apply' },
   { id: 'referee-training', label: '審判講習', permission: 'view_referee_training' },
@@ -59,7 +61,7 @@ const GAME_ALLOWED_DISCORD_IDS = new Set(['1427112485047242945'])
 const VALID_PAGES = new Set([
   'dashboard', 'event-list', 'player', 'my-profile', 'apply', 'referee-training', 'my-registrations',
   'admin-tournament', 'admin-tournament-mgmt', 'admin-excel', 'admin-practice', 'admin-members',
-  'admin-logs', 'account-merge', 'profile-notify', 'game',
+  'admin-logs', 'account-merge', 'profile-notify', 'game', 'ebi-run',
 ])
 
 export default function Portal({ discordId, username, permissionInfo, needsPlayerRegistration, needsProfileCompletion, onPlayerRegistered, onProfileCompleted, onLogout }: PortalProps) {
@@ -226,6 +228,9 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
           return <div style={{ padding: '40px', textAlign: 'center', color: '#f87171' }}>権限がありません</div>
         }
         return <GameHub username={username} discordId={discordId} onExitToPortal={() => navigate('dashboard')} />
+      case 'ebi-run':
+        // エビ走のみ全ログインユーザーに公開。GameHub（RPG含む）は経由せず直接起動
+        return <RunnerGame username={username} discordId={discordId} onExit={() => navigate('dashboard')} />
       default:
         return <Home discordId={discordId} permissionInfo={permissionInfo} onNavigate={navigate} />
     }

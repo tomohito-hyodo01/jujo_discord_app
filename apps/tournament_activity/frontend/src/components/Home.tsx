@@ -17,6 +17,7 @@ interface MenuCard {
 
 const MENU_CARDS: MenuCard[] = [
   { id: 'event-list', label: 'イベント一覧', description: '大会・練習の予定を確認', permission: 'view_event_list' },
+  { id: 'ebi-run', label: 'エビ走(試作品)', description: '自動で走るアクション。みんなであそべます', permission: 'view_dashboard' },
   { id: 'apply', label: '大会申込', description: '大会への参加申込', permission: 'view_apply' },
   { id: 'referee-training', label: '審判講習', description: '審判講習の申込', permission: 'view_referee_training' },
   { id: 'my-registrations', label: '申込履歴', description: '自分の申込状況を確認', permission: 'view_my_registrations' },
