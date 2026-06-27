@@ -93,6 +93,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const [myRank, setMyRank] = useState<number | null>(null)
   const [showRank, setShowRank] = useState(false)              // ランキングパネルの表示
   const [rankRows, setRankRows] = useState<BoardRow[] | null>(null)  // パネル用の取得結果（null=読込中）
+  const [rankingSaved, setRankingSaved] = useState(true)       // 直近のランがランキングに記録されたか（無敵モードはfalse）
   const showRankRef = useRef(false)                            // 表示中はタップ/スペースでゲームを開始させない
   const isAdmin = discordId === '1427112485047242945'
   // 描画ループは []依存で初期propsを捕捉するため、最新の識別情報はrefで参照する
@@ -104,6 +105,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const hurtIdxRef = useRef(0)
   const assetsReadyRef = useRef(false)
   const invincibleRef = useRef(false)
+  const usedInvincibleRef = useRef(false)   // このランで一度でも無敵モードを使ったか（使ったら記録しない）
   const showCardRef = useRef(false)
   const overTimer = useRef<number | undefined>(undefined)
   const stRef = useRef<St>({ heroY: 0, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 0, nextCoinT: 0, nextPlatT: 0, scroll: 0 })
@@ -148,6 +150,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     stRef.current = { heroY: baseY, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 1.0, nextCoinT: 1.2, nextPlatT: 3.0, scroll: 0 }
     if (overTimer.current) { window.clearTimeout(overTimer.current); overTimer.current = undefined }
     showCardRef.current = false; setShowCard(false)
+    usedInvincibleRef.current = false   // 新しいランは無敵未使用からスタート
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
@@ -167,6 +170,19 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       .catch(() => setRankRows([]))
   }
   const closeRanking = () => { showRankRef.current = false; setShowRank(false) }
+  // 管理者用：自分のランキング記録をリセット（無敵モードで汚れた記録の消去）。ローカルBESTも初期化。
+  const resetMyRanking = () => {
+    const did = discordIdRef.current
+    if (!did || !isAdmin) return
+    setRankRows(null)
+    try { localStorage.setItem(bestKey, '0') } catch { /* */ }
+    setBest(0)
+    fetch(`${API_URL}/api/game_scores/${GAME_KEY}/${did}`, { method: 'DELETE' })
+      .then(() => fetch(`${API_URL}/api/game_scores/top?game=${GAME_KEY}&limit=${isAdmin ? 500 : 5}`))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setRankRows((d && d.top) || []))
+      .catch(() => setRankRows([]))
+  }
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'Enter') { e.preventDefault(); press() } }
@@ -220,16 +236,18 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       if (invincibleRef.current) return   // 管理者の無敵モード：ゲームオーバーにならない
       const st = stRef.current
       phaseRef.current = 'over'
+      const tainted = usedInvincibleRef.current   // 無敵モードを使ったラン＝記録・ベスト更新の対象外
       const score = Math.floor(st.distM) + st.coins * 10
       let bn = 0; try { bn = parseInt(localStorage.getItem(bestKey) || '0', 10) || 0 } catch { /* */ }
-      const nb = score > bn; if (nb) { try { localStorage.setItem(bestKey, String(score)) } catch { /* */ }; setBest(score) }
+      const nb = !tainted && score > bn; if (nb) { try { localStorage.setItem(bestKey, String(score)) } catch { /* */ }; setBest(score) }
       hurtIdxRef.current = Math.floor(Math.random() * Math.max(1, A.current.hurts.length))   // やられ顔をランダム選択
-      setResult({ score, coins: st.coins, best: Math.max(bn, score), newBest: nb, cause }); setPhase('over')
+      setRankingSaved(!tainted)
+      setResult({ score, coins: st.coins, best: tainted ? bn : Math.max(bn, score), newBest: nb, cause }); setPhase('over')
       overTimer.current = window.setTimeout(() => { showCardRef.current = true; setShowCard(true) }, 950)
 
-      // サーバへスコア送信＝利用者間で共有するベスト5ランキングを取得
+      // サーバへスコア送信＝利用者間で共有するベスト5ランキングを取得（無敵モードのランは送信しない）
       const did = discordIdRef.current
-      if (did) {
+      if (did && !tainted) {
         setBoard(null)   // 読込中表示
         fetch(`${API_URL}/api/game_scores`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -242,7 +260,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           })
           .catch(() => setBoard([]))
       } else {
-        setBoard([])   // ローカル開発などdiscord_id未取得時はランキング非対応
+        setBoard([])   // 無敵モード or discord_id未取得＝ランキング非対応
       }
     }
 
@@ -256,6 +274,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       const SCROLL = Math.min(W * 0.66 + 420, W * 0.24 + 252 + (W * 0.0105 + 4.2) * st.playT)
       const { GRAV } = jumpParams(H)
       const playing = phaseRef.current === 'playing'
+      if (playing && invincibleRef.current) usedInvincibleRef.current = true   // 無敵を使ったランは記録対象外にする
       const AIM_LEAD = Math.max(180, Math.min(360, W * 0.42))
 
       // 時間帯（朝→昼→夕方→夜→…）を経過時間で算出し、各色を補間
@@ -594,6 +613,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>距離 {result.score - result.coins * 10}m ／ コイン {result.coins}（×10）</div>
             {result.newBest ? <div style={{ fontSize: 16, color: SUN, fontWeight: 800, marginTop: 8 }}>🎉 ベスト更新！ {result.best}m</div> : <div style={{ fontSize: 13, color: '#1f9d55', marginTop: 8 }}>BEST {result.best}m</div>}
 
+            {!rankingSaved && <div style={{ fontSize: 12, color: '#b45309', fontWeight: 700, marginTop: 6 }}>🛡 無敵モードのため記録は保存されません</div>}
+
             {/* 利用者間で共有するベスト5ランキング */}
             <div style={{ marginTop: 12, borderTop: '2px dashed #ffd6cf', paddingTop: 10 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: CORAL }}>🏆 みんなのベスト5</div>
@@ -660,7 +681,12 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
                 })
               )}
             </div>
-            <button onClick={(e) => { e.stopPropagation(); closeRanking() }} style={{ ...popBtn('#9aa3b2'), marginTop: 14, alignSelf: 'center' }}>とじる</button>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 14, flexWrap: 'wrap' }}>
+              {isAdmin && (
+                <button onClick={(e) => { e.stopPropagation(); resetMyRanking() }} style={{ ...popBtn('#ef4444'), fontSize: 13 }}>🗑 自分の記録をリセット</button>
+              )}
+              <button onClick={(e) => { e.stopPropagation(); closeRanking() }} style={popBtn('#9aa3b2')}>とじる</button>
+            </div>
           </div>
         </div>
       )}
