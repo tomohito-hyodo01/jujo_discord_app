@@ -91,6 +91,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const [best, setBest] = useState<number>(() => { try { return parseInt(localStorage.getItem(bestKey) || '0', 10) || 0 } catch { return 0 } })
   const [board, setBoard] = useState<BoardRow[] | null>(null)   // ベスト5ランキング（null=未取得/読込中）
   const [myRank, setMyRank] = useState<number | null>(null)
+  const [showRank, setShowRank] = useState(false)              // ランキングパネルの表示
+  const [rankRows, setRankRows] = useState<BoardRow[] | null>(null)  // パネル用の取得結果（null=読込中）
+  const showRankRef = useRef(false)                            // 表示中はタップ/スペースでゲームを開始させない
   const isAdmin = discordId === '1427112485047242945'
   // 描画ループは []依存で初期propsを捕捉するため、最新の識別情報はrefで参照する
   const discordIdRef = useRef(discordId); discordIdRef.current = discordId
@@ -150,10 +153,20 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   }
   const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.jumps < 2) { st.vy = -jumpParams(c.height).VJ; st.jumps += 1 } }
   const press = () => {
+    if (showRankRef.current) return   // ランキング表示中は入力でゲームを始めない
     if (phaseRef.current === 'ready') { if (assetsReadyRef.current) startGame() }
     else if (phaseRef.current === 'playing') jump()
     else if (phaseRef.current === 'over' && showCardRef.current) startGame()
   }
+  // ランキング取得：一般はベスト5、管理者は全員（管理者だけ全件閲覧可）
+  const openRanking = () => {
+    showRankRef.current = true; setShowRank(true); setRankRows(null)
+    fetch(`${API_URL}/api/game_scores/top?game=${GAME_KEY}&limit=${isAdmin ? 500 : 5}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setRankRows((d && d.top) || []))
+      .catch(() => setRankRows([]))
+  }
+  const closeRanking = () => { showRankRef.current = false; setShowRank(false) }
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'Enter') { e.preventDefault(); press() } }
@@ -563,6 +576,11 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
             <div style={{ fontSize: 34, fontWeight: 800, color: CORAL, lineHeight: 1, textShadow: `2px 2px 0 ${SUN}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><img src={HERO_FRAMES[0]} alt="" style={{ width: 38, height: 38, objectFit: 'contain', imageRendering: 'pixelated' }} />エビ走</div>
             <div style={{ fontSize: 14, lineHeight: 1.9, marginTop: 12 }}>タップ／スペースでジャンプ（2段ジャンプOK）<br />障害物・穴・敵をよけて走りぬけろ！</div>
             <div style={{ fontSize: 16, color: assetsReady ? CORAL : '#9aa3b2', fontWeight: 700, marginTop: 14, animation: 'ebiBlink 1.1s ease-in-out infinite' }}>{assetsReady ? '▶ タップ／スペースでスタート' : '🦐 よみこみ中…'}</div>
+            <button
+              onClick={(e) => { e.stopPropagation(); openRanking() }}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{ ...popBtn(SUN), marginTop: 16, fontSize: 14, pointerEvents: 'auto' }}
+            >🏆 ランキング</button>
           </div>
         </div>
       )}
@@ -601,12 +619,48 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
                   )}
                 </div>
               )}
+              {isAdmin && (
+                <button onClick={(e) => { e.stopPropagation(); openRanking() }} style={{ ...popBtn(SUN), marginTop: 10, fontSize: 13 }}>👑 全員を見る</button>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 14 }}>
               <button onClick={(e) => { e.stopPropagation(); startGame() }} style={popBtn(CORAL)}>もう一度</button>
               <button onClick={(e) => { e.stopPropagation(); onExit && onExit() }} style={popBtn('#9aa3b2')}>やめる</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showRank && (
+        <div
+          onPointerDown={(e) => { e.stopPropagation(); closeRanking() }}
+          style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, pointerEvents: 'auto', zIndex: 10 }}
+        >
+          <div onPointerDown={(e) => e.stopPropagation()} style={{ ...cardStyle, padding: '18px 20px', width: 'min(420px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: CORAL, textAlign: 'center' }}>
+              🏆 {isAdmin ? `ランキング（全${rankRows ? rankRows.length : 0}人）` : 'みんなのベスト5'}
+            </div>
+            <div style={{ marginTop: 12, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {rankRows === null ? (
+                <div style={{ fontSize: 13, color: '#9aa3b2', textAlign: 'center', padding: '12px 0' }}>読み込み中…</div>
+              ) : rankRows.length === 0 ? (
+                <div style={{ fontSize: 13, color: '#9aa3b2', textAlign: 'center', padding: '12px 0' }}>まだ記録がありません</div>
+              ) : (
+                rankRows.map((row) => {
+                  const isMe = row.discord_id === discordId
+                  const medal = row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : `${row.rank}.`
+                  return (
+                    <div key={row.discord_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '4px 8px', borderRadius: 8, background: isMe ? '#fff2cc' : 'transparent', fontWeight: isMe ? 800 : 600 }}>
+                      <span style={{ width: 28, textAlign: 'center', flexShrink: 0 }}>{medal}</span>
+                      <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.display_name}{isMe && ' (あなた)'}</span>
+                      <span style={{ color: CORAL, fontWeight: 800, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{row.best_score}m</span>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); closeRanking() }} style={{ ...popBtn('#9aa3b2'), marginTop: 14, alignSelf: 'center' }}>とじる</button>
           </div>
         </div>
       )}
