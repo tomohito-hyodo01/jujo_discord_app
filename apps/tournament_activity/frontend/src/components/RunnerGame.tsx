@@ -336,9 +336,17 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           const reach = SCROLL * 0.6 - heroH * 0.5            // 1ジャンプ(滞空0.6s)で越えられる接地ハザード幅の安全側見積り
           const maxRun = Math.max(heroH * 0.9, reach * 0.82)  // 1つの連続塊の最大幅（マージン込み）
           const island = heroH * 1.5                          // 塊と塊の間にあける着地用の地面
-          // 敵は最初の15秒は出さない。以降は少なめに（テニス・スナイパー・侍は等頻度、レベルで微増）。
+          // レベル別の難易度テーブル（ユーザー表記 Lv = level+1）
+          //  Lv1: 穴(少) ／ Lv2: 穴(普)+障害物(少) ／ Lv3: +敵(少) ／ Lv4: 敵(普) ／ Lv5+: 全部(多)
+          const LV = Math.min(level, 4)
+          const ENEMY_CHANCE = [0, 0, 0.16, 0.28, 0.42][LV]   // 出現枠が敵になる確率（Lv1-2は敵なし、Lv3から）
+          const PIT_CHANCE = [0.35, 0.6, 0.5, 0.5, 0.55][LV]  // 障害物枠内で穴になる確率（残りは地上障害物）
+          const OBSTACLES_ON = LV >= 1                         // 地上障害物はLv2から
+          const EXTRA_GROUP = [0, 0, 0.15, 0.25, 0.55][LV]    // 塊を1つ増やす確率（多め化）
+          const GAP_MUL = [1.0, 1.0, 0.9, 0.8, 0.6][LV]       // クラスター間隔の倍率（小さいほど密＝多め）
+          // 敵：テニス・スナイパー・侍は等頻度（＋ボア）。Lv3から出現し、レベルで増える。
           const enemyKinds: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper']
-          if (st.playT >= 15 && Math.random() < 0.18 + Math.min(0.22, level * 0.06)) {
+          if (Math.random() < ENEMY_CHANCE) {
             const type = enemyKinds[Math.floor(Math.random() * enemyKinds.length)]
             if (type === 'boar') { const h = heroH * 0.46; st.enemies.push({ x: W + 30, w: h * 1.5, h, type, vx: SCROLL * 0.18, aimT: 0, aiming: false, fired: true, bob: 0 }) }
             else if (type === 'sword') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: SCROLL * 0.1, aimT: 0, aiming: false, fired: true, bob: 0 }) }  // sword：主人公と同じチビ頭身スプライト＝h=heroHで頭身もスケールも一致（アスペクト445/540≒0.82）
@@ -348,21 +356,21 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           } else {
             const pitsAllowed = m >= 12
             let groups = 1                                    // 塊の数（レベルで増える。各塊は単独でクリア可能なので破綻しない）
-            if (level >= 2 && Math.random() < 0.5) groups++   // 障害物はレベル2あたりから増やす（序盤は控えめ）
-            if (level >= 3 && Math.random() < 0.4) groups++
+            if (Math.random() < EXTRA_GROUP) groups++
+            if (LV >= 4 && Math.random() < 0.4) groups++      // Lv5は最大3塊＝多め
             let cx = W + 30, rightmost = cx
             for (let g = 0; g < groups; g++) {
-              if (pitsAllowed && Math.random() < (level === 0 ? 0.55 : 0.34)) {
+              if (pitsAllowed && Math.random() < PIT_CHANCE) {
                 // 穴。たまに2連続（合計幅は1ジャンプ内に収める）＝「連続してる穴」
                 const single = Math.min(heroH * 1.05, W * 0.13)
                 if (Math.random() < 0.4 && single * 2 + heroH * 0.1 <= maxRun) {
                   st.pits.push({ x: cx, w: single }); st.pits.push({ x: cx + single + heroH * 0.1, w: single })
                   rightmost = cx + single * 2 + heroH * 0.1
                 } else { const pw = Math.min(heroH * 1.25, W * 0.15, maxRun); st.pits.push({ x: cx, w: pw }); rightmost = cx + pw }
-              } else if (level >= 1) {
-                // 地上障害物は2周目(レベル1)から追加。1周目(レベル0)は穴だけ＝この分岐に来ても何も置かない。
+              } else if (OBSTACLES_ON) {
+                // 地上障害物はLv2から。Lv1は穴だけ＝この分岐に来ても何も置かない。
                 // 地上障害物を1〜2個連続で（石＋箱 など）。合計幅は maxRun 以内にクランプ＝必ず越えられる
-                const count = Math.random() < (level >= 2 ? 0.45 : 0.2) ? 2 : 1
+                const count = Math.random() < (LV >= 4 ? 0.6 : LV >= 2 ? 0.45 : 0.2) ? 2 : 1
                 let ox = cx
                 for (let k = 0; k < count; k++) {
                   const types: ObsType[] = ['cone', 'crate', 'rock', 'stone']
@@ -387,7 +395,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
               }
             }
             const lead = rightmost - (W + 30)                  // クラスター全長(px)
-            const gapPx = heroH * (2.2 + Math.random() * 2.6)  // クラスター後の空き(px・ランダム)
+            const gapPx = heroH * (2.2 + Math.random() * 2.6) * GAP_MUL  // クラスター後の空き(px)。高レベルほど密＝多め
             st.nextSpawnT = (lead + gapPx) / SCROLL            // px→秒に換算＝次のクラスターと重ならない
           }
         }
