@@ -17,7 +17,6 @@ interface MenuCard {
 
 const MENU_CARDS: MenuCard[] = [
   { id: 'event-list', label: 'イベント一覧', description: '大会・練習の予定を確認', permission: 'view_event_list' },
-  { id: 'ebi-run', label: 'エビ走(試作品)', description: '自動で走るアクション。みんなであそべます', permission: 'view_dashboard' },
   { id: 'apply', label: '大会申込', description: '大会への参加申込', permission: 'view_apply' },
   { id: 'referee-training', label: '審判講習', description: '審判講習の申込', permission: 'view_referee_training' },
   { id: 'my-registrations', label: '申込履歴', description: '自分の申込状況を確認', permission: 'view_my_registrations' },
@@ -29,11 +28,8 @@ const MENU_CARDS: MenuCard[] = [
   { id: 'admin-members', label: 'メンバー一覧', description: 'メンバー情報の管理', permission: 'view_member_list' },
   { id: 'profile-notify', label: 'プロフィール不備通知', description: '不備通知の送信', permission: 'view_app_logs' },
   { id: 'account-merge', label: 'アカウント統合', description: '重複アカウントの統合', permission: 'view_app_logs' },
-  { id: 'game', label: '⚔️ ゲーム(試作)', description: 'RPG・エビ走で遊ぶ', permission: 'view_game' },
+  { id: 'game', label: '⚔️ ゲーム(試作)', description: 'エビ走であそぶ（試作）', permission: 'view_dashboard' },  // ハブは全員公開。RPGはGameHub内で管理者のみ
 ]
-
-// ゲーム(試作)は左メニューと同様、一旦 管理者 兵頭 のみに表示（view_game権限に加えてこのIDのみ）
-const GAME_ALLOWED_DISCORD_IDS = new Set(['1427112485047242945'])
 
 export default function Home({ discordId, permissionInfo, onNavigate }: HomeProps) {
   const [upcomingRegistrations, setUpcomingRegistrations] = useState<any[]>([])
@@ -201,11 +197,9 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
     load()
   }, [discordId])
 
-  const visibleCards = MENU_CARDS.filter(card => {
-    if (!hasPermission(permissionInfo, card.permission as any)) return false
-    if (card.id === 'game' && !GAME_ALLOWED_DISCORD_IDS.has(discordId || '')) return false
-    return true
-  })
+  const visibleCards = MENU_CARDS.filter(card =>
+    hasPermission(permissionInfo, card.permission as any)
+  )
 
   const formatDate = (d: string) => {
     const dt = new Date(d)
