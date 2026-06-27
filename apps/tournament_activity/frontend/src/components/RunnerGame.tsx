@@ -94,6 +94,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const [showRank, setShowRank] = useState(false)              // ランキングパネルの表示
   const [rankRows, setRankRows] = useState<BoardRow[] | null>(null)  // パネル用の取得結果（null=読込中）
   const [rankingSaved, setRankingSaved] = useState(true)       // 直近のランがランキングに記録されたか（無敵モードはfalse）
+  const [levelUp, setLevelUp] = useState(false)                // 「LEVEL UP！」バナーの表示
   const showRankRef = useRef(false)                            // 表示中はタップ/スペースでゲームを開始させない
   const isAdmin = discordId === '1427112485047242945'
   // 描画ループは []依存で初期propsを捕捉するため、最新の識別情報はrefで参照する
@@ -106,6 +107,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const assetsReadyRef = useRef(false)
   const invincibleRef = useRef(false)
   const usedInvincibleRef = useRef(false)   // このランで一度でも無敵モードを使ったか（使ったら記録しない）
+  const levelRef = useRef(0)                // 到達したレベル（1日終えるごとに+1）
+  const levelUpTimer = useRef<number | undefined>(undefined)
   const showCardRef = useRef(false)
   const overTimer = useRef<number | undefined>(undefined)
   const stRef = useRef<St>({ heroY: 0, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 0, nextCoinT: 0, nextPlatT: 0, scroll: 0 })
@@ -151,6 +154,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     if (overTimer.current) { window.clearTimeout(overTimer.current); overTimer.current = undefined }
     showCardRef.current = false; setShowCard(false)
     usedInvincibleRef.current = false   // 新しいランは無敵未使用からスタート
+    levelRef.current = 0; setLevelUp(false); if (levelUpTimer.current) { window.clearTimeout(levelUpTimer.current); levelUpTimer.current = undefined }
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
@@ -271,7 +275,10 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       const st = stRef.current, heroH = Math.round(Math.min(110, Math.max(60, H * 0.16)))
       const heroCenterX = Math.round(W * 0.28)
       // 実スクロール速度（px/秒）＝元の軽快な速さに復帰。距離カウンタ(distM=50m/8秒)とは分離。
-      const SCROLL = Math.min(W * 0.66 + 420, W * 0.24 + 252 + (W * 0.0105 + 4.2) * st.playT)
+      // 1日(=4×DAY_PERIOD=40秒)を終えるごとにレベルが上がり、速度を段階的に上げる。
+      const level = Math.floor(st.playT / (4 * DAY_PERIOD))
+      const speedMul = 1 + level * 0.15   // 1日終えるたびに +15%
+      const SCROLL = Math.min(W * 0.66 + 420, W * 0.24 + 252 + (W * 0.0105 + 4.2) * st.playT) * speedMul
       const { GRAV } = jumpParams(H)
       const playing = phaseRef.current === 'playing'
       if (playing && invincibleRef.current) usedInvincibleRef.current = true   // 無敵を使ったランは記録対象外にする
@@ -299,6 +306,14 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
 
       if (playing) {
         st.playT += dt
+        // 1日を終えた瞬間にレベルアップ＝速度が上がり、上部に「LEVEL UP！」を表示
+        const lv = Math.floor(st.playT / (4 * DAY_PERIOD))
+        if (lv > levelRef.current) {
+          levelRef.current = lv
+          setLevelUp(true)
+          if (levelUpTimer.current) window.clearTimeout(levelUpTimer.current)
+          levelUpTimer.current = window.setTimeout(() => setLevelUp(false), 1600)
+        }
         st.distM += M_PER_S * dt               // 距離は時間ベース＝50m/8秒一定
         const prevY = st.heroY
         st.vy += GRAV * dt; st.heroY += st.vy * dt
@@ -324,9 +339,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           // 距離で解禁される敵は単発でときどき混ぜる（クラスターとは別枠）
           const enemyKinds: EnemyType[] = []
           if (m >= 30) enemyKinds.push('boar')
-          if (m >= 55) enemyKinds.push('tennis')
-          if (m >= 85) enemyKinds.push('sword')
-          if (m >= 120) enemyKinds.push('sniper')
+          // テニス・スナイパー・侍は同じ距離で解禁＝3体を等しい頻度で出す
+          if (m >= 60) { enemyKinds.push('tennis'); enemyKinds.push('sword'); enemyKinds.push('sniper') }
           if (enemyKinds.length && Math.random() < 0.3) {
             const type = enemyKinds[Math.floor(Math.random() * enemyKinds.length)]
             if (type === 'boar') { const h = heroH * 0.46; st.enemies.push({ x: W + 30, w: h * 1.5, h, type, vx: SCROLL * 0.18, aimT: 0, aiming: false, fired: true, bob: 0 }) }
@@ -559,7 +573,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       raf = requestAnimationFrame(render)
     }
     raf = requestAnimationFrame(render)
-    return () => { cancelAnimationFrame(raf); if (overTimer.current) window.clearTimeout(overTimer.current) }
+    return () => { cancelAnimationFrame(raf); if (overTimer.current) window.clearTimeout(overTimer.current); if (levelUpTimer.current) window.clearTimeout(levelUpTimer.current) }
   }, [])
 
   const causeText = (cause?: string) => cause === 'pit' ? '穴に落ちてしまった…' : cause === 'shot' ? '撃たれてしまった…' : cause === 'ball' ? 'テニスボールが直撃…' : cause === 'enemy' ? '敵にぶつかった…' : cause === 'obstacle' ? '障害物にぶつかった…' : ''
@@ -580,6 +594,12 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           <button onClick={(e) => { e.stopPropagation(); onExit && onExit() }} onPointerDown={(e) => e.stopPropagation()} style={{ ...popBtn('#ff5a52'), padding: '5px 10px', fontSize: 14, fontWeight: 800, pointerEvents: 'auto' }}>×</button>
         </div>
       </div>
+
+      {levelUp && (
+        <div style={{ position: 'absolute', top: '15%', left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 6 }}>
+          <div style={{ fontFamily: POP_FONT, fontWeight: 800, fontSize: 'clamp(28px, 8vw, 56px)', color: '#fff', WebkitTextStroke: '2px #e23b3b', textShadow: `0 4px 0 ${SUN}, 0 0 18px rgba(255,177,60,0.8)`, animation: 'ebiLevelUp 1.6s ease-out forwards' }}>⚡ LEVEL UP！</div>
+        </div>
+      )}
 
       {isAdmin && (
         <button
@@ -692,7 +712,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       )}
 
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&display=swap');
-@keyframes ebiBlink{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
+@keyframes ebiBlink{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes ebiLevelUp{0%{opacity:0;transform:scale(.4) translateY(10px)}18%{opacity:1;transform:scale(1.15) translateY(0)}30%{transform:scale(1)}80%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1) translateY(-14px)}}`}</style>
     </div>
   )
 }
