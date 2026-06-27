@@ -165,7 +165,7 @@ async def get_top(game: str, limit: int = 5):
     """ベストスコア上位を取得（ランキング表示用）"""
     if game not in ALLOWED_GAMES:
         raise HTTPException(status_code=400, detail="invalid game")
-    limit = max(1, min(50, int(limit)))
+    limit = max(1, min(500, int(limit)))   # 管理者の全件閲覧に対応（上限を引き上げ）
     try:
         await _ensure_table()
         top = await _fetch_top(game, limit)
