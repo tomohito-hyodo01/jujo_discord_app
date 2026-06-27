@@ -336,9 +336,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           const reach = SCROLL * 0.6 - heroH * 0.5            // 1ジャンプ(滞空0.6s)で越えられる接地ハザード幅の安全側見積り
           const maxRun = Math.max(heroH * 0.9, reach * 0.82)  // 1つの連続塊の最大幅（マージン込み）
           const island = heroH * 1.5                          // 塊と塊の間にあける着地用の地面
-          // 敵は最初から出す（少なめ）。テニス・スナイパー・侍は等頻度。レベルが上がるほど少し増える。
+          // 敵は最初の15秒は出さない。以降は少なめに（テニス・スナイパー・侍は等頻度、レベルで微増）。
           const enemyKinds: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper']
-          if (Math.random() < 0.18 + Math.min(0.22, level * 0.06)) {
+          if (st.playT >= 15 && Math.random() < 0.18 + Math.min(0.22, level * 0.06)) {
             const type = enemyKinds[Math.floor(Math.random() * enemyKinds.length)]
             if (type === 'boar') { const h = heroH * 0.46; st.enemies.push({ x: W + 30, w: h * 1.5, h, type, vx: SCROLL * 0.18, aimT: 0, aiming: false, fired: true, bob: 0 }) }
             else if (type === 'sword') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: SCROLL * 0.1, aimT: 0, aiming: false, fired: true, bob: 0 }) }  // sword：主人公と同じチビ頭身スプライト＝h=heroHで頭身もスケールも一致（アスペクト445/540≒0.82）
@@ -352,14 +352,15 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
             if (level >= 3 && Math.random() < 0.4) groups++
             let cx = W + 30, rightmost = cx
             for (let g = 0; g < groups; g++) {
-              if (pitsAllowed && Math.random() < 0.34) {
+              if (pitsAllowed && Math.random() < (level === 0 ? 0.55 : 0.34)) {
                 // 穴。たまに2連続（合計幅は1ジャンプ内に収める）＝「連続してる穴」
                 const single = Math.min(heroH * 1.05, W * 0.13)
                 if (Math.random() < 0.4 && single * 2 + heroH * 0.1 <= maxRun) {
                   st.pits.push({ x: cx, w: single }); st.pits.push({ x: cx + single + heroH * 0.1, w: single })
                   rightmost = cx + single * 2 + heroH * 0.1
                 } else { const pw = Math.min(heroH * 1.25, W * 0.15, maxRun); st.pits.push({ x: cx, w: pw }); rightmost = cx + pw }
-              } else {
+              } else if (level >= 1) {
+                // 地上障害物は2周目(レベル1)から追加。1周目(レベル0)は穴だけ＝この分岐に来ても何も置かない。
                 // 地上障害物を1〜2個連続で（石＋箱 など）。合計幅は maxRun 以内にクランプ＝必ず越えられる
                 const count = Math.random() < (level >= 2 ? 0.45 : 0.2) ? 2 : 1
                 let ox = cx
