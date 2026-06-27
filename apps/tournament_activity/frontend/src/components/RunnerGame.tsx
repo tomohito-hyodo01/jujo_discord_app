@@ -40,7 +40,7 @@ const PALETTES: DayPalette[] = [
   { sky: [[58, 74, 140], [255, 158, 94], [255, 214, 150]], sun: [255, 120, 70], sunPos: [0.80, 0.33], sunR: 0.12, hillB: [120, 140, 100], hillF: [95, 118, 78], grass: [95, 150, 70], grassEdge: [80, 128, 58], dirt: [172, 138, 98], cloud: [255, 198, 168, 0.85] }, // 夕方
   { sky: [[10, 16, 46], [26, 40, 86], [46, 58, 108]], sun: [235, 240, 255], sunPos: [0.80, 0.20], sunR: 0.085, hillB: [42, 66, 54], hillF: [33, 52, 42], grass: [40, 82, 52], grassEdge: [30, 64, 40], dirt: [78, 66, 52], cloud: [170, 185, 220, 0.42] }, // 夜
 ]
-const DAY_PERIOD = 10   // 1時間帯の長さ(秒)。×4=1日=40秒で朝に戻る。
+const DAY_PERIOD = 8    // 1時間帯の長さ(秒)。×4=1日=32秒で朝に戻る（朝昼夕夜の巡りを少し速く）。
 const STARS = Array.from({ length: 46 }, (_, i) => ({ x: ((i * 79 + 13) % 100) / 100, y: ((i * 47 + 7) % 48) / 100, r: 1 + (i % 3), p: (i * 1.7) % 6.283 }))
 
 // マゼンタ抜き。crop=true=内容に切り詰め（敵の単体スプライト用）／crop=false=サイズ維持（走り連番は正規化済み）。
@@ -336,12 +336,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           const reach = SCROLL * 0.6 - heroH * 0.5            // 1ジャンプ(滞空0.6s)で越えられる接地ハザード幅の安全側見積り
           const maxRun = Math.max(heroH * 0.9, reach * 0.82)  // 1つの連続塊の最大幅（マージン込み）
           const island = heroH * 1.5                          // 塊と塊の間にあける着地用の地面
-          // 距離で解禁される敵は単発でときどき混ぜる（クラスターとは別枠）
-          const enemyKinds: EnemyType[] = []
-          if (m >= 30) enemyKinds.push('boar')
-          // テニス・スナイパー・侍は同じ距離で解禁＝3体を等しい頻度で出す
-          if (m >= 60) { enemyKinds.push('tennis'); enemyKinds.push('sword'); enemyKinds.push('sniper') }
-          if (enemyKinds.length && Math.random() < 0.3) {
+          // 敵は最初から出す（少なめ）。テニス・スナイパー・侍は等頻度。レベルが上がるほど少し増える。
+          const enemyKinds: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper']
+          if (Math.random() < 0.18 + Math.min(0.22, level * 0.06)) {
             const type = enemyKinds[Math.floor(Math.random() * enemyKinds.length)]
             if (type === 'boar') { const h = heroH * 0.46; st.enemies.push({ x: W + 30, w: h * 1.5, h, type, vx: SCROLL * 0.18, aimT: 0, aiming: false, fired: true, bob: 0 }) }
             else if (type === 'sword') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: SCROLL * 0.1, aimT: 0, aiming: false, fired: true, bob: 0 }) }  // sword：主人公と同じチビ頭身スプライト＝h=heroHで頭身もスケールも一致（アスペクト445/540≒0.82）
@@ -350,9 +347,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
             st.nextSpawnT = Math.max(0.85, 1.15 - m * 0.0003) + Math.random() * 0.7
           } else {
             const pitsAllowed = m >= 12
-            let groups = 1                                    // 塊の数（距離で増える。各塊は単独でクリア可能なので破綻しない）
-            if (m >= 45 && Math.random() < 0.5) groups++
-            if (m >= 100 && Math.random() < 0.4) groups++
+            let groups = 1                                    // 塊の数（レベルで増える。各塊は単独でクリア可能なので破綻しない）
+            if (level >= 2 && Math.random() < 0.5) groups++   // 障害物はレベル2あたりから増やす（序盤は控えめ）
+            if (level >= 3 && Math.random() < 0.4) groups++
             let cx = W + 30, rightmost = cx
             for (let g = 0; g < groups; g++) {
               if (pitsAllowed && Math.random() < 0.34) {
@@ -364,7 +361,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
                 } else { const pw = Math.min(heroH * 1.25, W * 0.15, maxRun); st.pits.push({ x: cx, w: pw }); rightmost = cx + pw }
               } else {
                 // 地上障害物を1〜2個連続で（石＋箱 など）。合計幅は maxRun 以内にクランプ＝必ず越えられる
-                const count = Math.random() < (m >= 40 ? 0.45 : 0.25) ? 2 : 1
+                const count = Math.random() < (level >= 2 ? 0.45 : 0.2) ? 2 : 1
                 let ox = cx
                 for (let k = 0; k < count; k++) {
                   const types: ObsType[] = ['cone', 'crate', 'rock', 'stone']
