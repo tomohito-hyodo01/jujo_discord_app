@@ -275,9 +275,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       const st = stRef.current, heroH = Math.round(Math.min(110, Math.max(60, H * 0.16)))
       const heroCenterX = Math.round(W * 0.28)
       // 実スクロール速度（px/秒）。距離カウンタ(distM=50m/8秒)とは分離。
-      // 速度はレベル内では一定。経過時間では上げず、レベルが上がった時だけ段階的に+15%する。
+      // 速度はレベル内では一定。経過時間では上げず、レベルが上がった時だけ段階的に+10%する（緩やか）。
       const level = Math.floor(st.playT / (4 * DAY_PERIOD))
-      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.30 + 280) * (1 + level * 0.15))
+      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.30 + 280) * (1 + level * 0.10))
       const { GRAV } = jumpParams(H)
       const playing = phaseRef.current === 'playing'
       if (playing && invincibleRef.current) usedInvincibleRef.current = true   // 無敵を使ったランは記録対象外にする
@@ -369,14 +369,16 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
               } else if (OBSTACLES_ON) {
                 // 地上障害物はLv2から。Lv1は穴だけ＝この分岐に来ても何も置かない。
                 // 地上障害物を1〜2個連続で（石＋箱 など）。合計幅は maxRun 以内にクランプ＝必ず越えられる
-                const count = Math.random() < (LV >= 4 ? 0.6 : LV >= 2 ? 0.45 : 0.2) ? 2 : 1
+                const count = (LV >= 2 && Math.random() < (LV >= 4 ? 0.6 : 0.45)) ? 2 : 1   // 連続(2個)はLv3から。Lv2は単発のみ
                 let ox = cx
                 for (let k = 0; k < count; k++) {
                   const types: ObsType[] = ['cone', 'crate', 'rock', 'stone']
                   const type = types[Math.floor(Math.random() * types.length)]
                   const grow = Math.min(0.22, m * 0.0004)
-                  const base = count === 2 ? 0.42 : (Math.random() < (0.3 + Math.min(0.3, m * 0.0004)) ? 0.6 : 0.45)
-                  const h = heroH * Math.min(0.74, base + grow) * (type === 'crate' ? 0.95 : type === 'stone' ? 0.5 : 1)  // 石は低く平たい
+                  const big = LV >= 2 && Math.random() < (0.3 + Math.min(0.3, m * 0.0004))   // 大きい障害物はLv3から（Lv2は出さない）
+                  const base = count === 2 ? 0.42 : (big ? 0.6 : 0.45)
+                  const hMax = LV >= 2 ? 0.74 : 0.5                                           // Lv2は低めに制限＝大きい障害物なし
+                  const h = heroH * Math.min(hMax, base + grow) * (type === 'crate' ? 0.95 : type === 'stone' ? 0.5 : 1)  // 石は低く平たい
                   let w = type === 'crate' ? h : type === 'stone' ? h * 2.0 : type === 'cone' ? h * 0.7 : h * 0.95  // 当たり判定幅を各スプライトの見た目幅に合わせる（コーン細い/石は横長）
                   if (ox + w - cx > maxRun) w = Math.max(heroH * 0.3, maxRun - (ox - cx))   // 連続塊が reach を超えない
                   st.obstacles.push({ x: ox, w, h, type })
