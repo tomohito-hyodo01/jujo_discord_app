@@ -108,6 +108,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const invincibleRef = useRef(false)
   const usedInvincibleRef = useRef(false)   // このランで一度でも無敵モードを使ったか（使ったら記録しない）
   const levelRef = useRef(0)                // 到達したレベル（1日終えるごとに+1）
+  const endBossLevelRef = useRef(-1)        // レベル1・2の終盤に出す単発の敵を、どのレベルまで出したか
   const levelUpTimer = useRef<number | undefined>(undefined)
   const showCardRef = useRef(false)
   const overTimer = useRef<number | undefined>(undefined)
@@ -154,7 +155,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     if (overTimer.current) { window.clearTimeout(overTimer.current); overTimer.current = undefined }
     showCardRef.current = false; setShowCard(false)
     usedInvincibleRef.current = false   // 新しいランは無敵未使用からスタート
-    levelRef.current = 0; setLevelUp(false); if (levelUpTimer.current) { window.clearTimeout(levelUpTimer.current); levelUpTimer.current = undefined }
+    levelRef.current = 0; endBossLevelRef.current = -1; setLevelUp(false); if (levelUpTimer.current) { window.clearTimeout(levelUpTimer.current); levelUpTimer.current = undefined }
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
@@ -277,7 +278,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       // 実スクロール速度（px/秒）。距離カウンタ(distM=50m/8秒)とは分離。
       // 速度はレベル内では一定。経過時間では上げず、レベルが上がった時だけ段階的に+10%する（緩やか）。
       const level = Math.floor(st.playT / (4 * DAY_PERIOD))
-      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.26 + 240) * (1 + level * 0.10))
+      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.19 + 195) * (1 + level * 0.10))
       const { GRAV } = jumpParams(H)
       const playing = phaseRef.current === 'playing'
       if (playing && invincibleRef.current) usedInvincibleRef.current = true   // 無敵を使ったランは記録対象外にする
@@ -312,6 +313,16 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           setLevelUp(true)
           if (levelUpTimer.current) window.clearTimeout(levelUpTimer.current)
           levelUpTimer.current = window.setTimeout(() => setLevelUp(false), 1600)
+        }
+        // レベル1・2の終盤に、敵を1体だけランダムで出す（通常はLv3まで敵なしなので終わりに腕試し）
+        if (lv <= 1 && endBossLevelRef.current < lv && (st.playT % (4 * DAY_PERIOD)) / (4 * DAY_PERIOD) >= 0.85) {
+          endBossLevelRef.current = lv
+          const bossTypes: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper']
+          const bt = bossTypes[Math.floor(Math.random() * bossTypes.length)]
+          if (bt === 'boar') { const h = heroH * 0.46; st.enemies.push({ x: W + 30, w: h * 1.5, h, type: bt, vx: SCROLL * 0.18, aimT: 0, aiming: false, fired: true, bob: 0 }) }
+          else if (bt === 'sword') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type: bt, vx: SCROLL * 0.1, aimT: 0, aiming: false, fired: true, bob: 0 }) }
+          else if (bt === 'sniper') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.79, h, type: bt, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0 }) }
+          else { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type: bt, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0 }) }
         }
         st.distM += M_PER_S * dt               // 距離は時間ベース＝50m/8秒一定
         const prevY = st.heroY
