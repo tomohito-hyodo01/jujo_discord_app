@@ -277,7 +277,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       // 実スクロール速度（px/秒）。距離カウンタ(distM=50m/8秒)とは分離。
       // 速度はレベル内では一定。経過時間では上げず、レベルが上がった時だけ段階的に+10%する（緩やか）。
       const level = Math.floor(st.playT / (4 * DAY_PERIOD))
-      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.30 + 280) * (1 + level * 0.10))
+      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.26 + 240) * (1 + level * 0.10))
       const { GRAV } = jumpParams(H)
       const playing = phaseRef.current === 'playing'
       if (playing && invincibleRef.current) usedInvincibleRef.current = true   // 無敵を使ったランは記録対象外にする
