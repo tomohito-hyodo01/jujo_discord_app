@@ -21,6 +21,9 @@ router = APIRouter()
 # 対応ゲーム（不正な値でテーブルを汚さないためのホワイトリスト）
 ALLOWED_GAMES = {"ebi_run"}
 
+# 記録リセットを許可するユーザー（当面は管理者 兵頭 のみ＝他者の記録は消せない）
+ADMIN_DISCORD_IDS = {"1427112485047242945"}
+
 _table_ready = False
 
 
@@ -170,6 +173,28 @@ async def get_top(game: str, limit: int = 5):
         await _ensure_table()
         top = await _fetch_top(game, limit)
         return {"top": top}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/game_scores/{game}/{discord_id}")
+async def delete_score(game: str, discord_id: str):
+    """指定ユーザーのベスト記録を削除（リセット）。当面は管理者の記録のみ許可。"""
+    if game not in ALLOWED_GAMES:
+        raise HTTPException(status_code=400, detail="invalid game")
+    if discord_id not in ADMIN_DISCORD_IDS:
+        raise HTTPException(status_code=403, detail="reset not allowed for this user")
+    try:
+        await _ensure_table()
+        async with db.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "DELETE FROM game_scores WHERE game = %s AND discord_id = %s",
+                    (game, discord_id),
+                )
+        return {"success": True}
     except HTTPException:
         raise
     except Exception as e:
