@@ -8,6 +8,7 @@ interface RunnerProps { username?: string; discordId?: string; onExit?: () => vo
 const HERO_FRAMES = ['1', '2', '3', '4', '5', '6'].map((n) => `/game/run/hero_run${n}.png?v=11`)
 const HERO_SLEEP_FRAMES = ['1', '2', '3', '4', '5', '6'].map((n) => `/game/run/hero_run${n}_sleep.png?v=1`)  // 夜の寝顔（閉じ目を絵に描き込んだ走りフレーム）
 const HERO_JUMP = '/game/run/hero_jump.png?v=1'
+const HERO_SWIM_FRAMES = ['1', '2'].map((n) => `/game/run/hero_swim${n}.png?v=1`)  // 水中ステージの泳ぎ（犬かき2コマ）。陸の走りと差し替え
 const HERO_HURT_FRAMES = ['1', '2', '3'].map((n) => `/game/run/hero_hurt${n}.png?v=12`)  // やられ顔・複数パターン（ランダム表示）
 const E_BOAR = '/game/run/enemy_boar.png?v=2'  // 見た目は飼い猫(キジ白)に差し替え。内部の役割・サイズ・動きは従来の突進敵(boar)のまま
 const E_SWORD = '/game/run/enemy_sword.png?v=5'  // サイコパス・ケンジ（カード画像の人物）。主人公と同じチビ頭身で再生成＝サイズ感を合わせた
@@ -115,7 +116,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const discordIdRef = useRef(discordId); discordIdRef.current = discordId
   const usernameRef = useRef(username); usernameRef.current = username
 
-  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; girlDiscover?: HTMLCanvasElement; girlFlee?: HTMLCanvasElement; coin?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
+  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; swim: HTMLCanvasElement[]; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; girlDiscover?: HTMLCanvasElement; girlFlee?: HTMLCanvasElement; coin?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], swim: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
   const phaseRef = useRef<'ready' | 'playing' | 'over'>('ready')
   const hurtIdxRef = useRef(0)
   const assetsReadyRef = useRef(false)
@@ -141,6 +142,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     Promise.all(HERO_SLEEP_FRAMES.map((u) => loadKeyed(u, false).then((c) => c, () => null)))
       .then((cs) => { if (alive) A.current.runSleep = cs.filter(Boolean) as HTMLCanvasElement[] })   // 夜の寝顔フレーム（任意・無くても通常フレームにフォールバック）
     loadKeyed(HERO_JUMP).then((c) => { if (alive) A.current.jump = c }).catch(() => {})
+    Promise.all(HERO_SWIM_FRAMES.map((u) => loadKeyed(u).then((c) => c, () => null)))
+      .then((cs) => { if (alive) A.current.swim = cs.filter(Boolean) as HTMLCanvasElement[] })
     Promise.all(HERO_HURT_FRAMES.map((u) => loadKeyed(u).then((c) => c, () => null)))
       .then((cs) => { if (alive) A.current.hurts = cs.filter(Boolean) as HTMLCanvasElement[]; hurtDone = true; markReady() })
     loadKeyed(E_BOAR).then((c) => { if (alive) A.current.boar = c }).catch(() => {})
@@ -685,6 +688,19 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           for (let i = 0; i < 16; i++) { const ang = -Math.PI * (0.12 + 0.76 * (i / 15)); const sp = heroH * (0.4 + 1.3 * si) * (0.6 + (i % 4) * 0.16); ctx.globalAlpha = 0.8 * si; ctx.beginPath(); ctx.arc(ex + Math.cos(ang) * sp, baseY + Math.sin(ang) * sp, 2 + (i % 3), 0, Math.PI * 2); ctx.fill() }
           ctx.restore()
         }
+      } else if (water && A.current.swim.length) {
+        // ===== 水中：犬かきで泳ぐ（2コマ＋ゆらぎ）。手を上げる↔かき終わりを交互＋上下にぷかぷか＋体を軽くロック＋口元から泡 =====
+        const sp = A.current.swim[Math.floor(st.playT * 3.2) % A.current.swim.length]
+        const bob = (Math.sin(st.playT * 2.6) * 0.5 + 0.5) * heroH * 0.10   // 上下のゆらぎ（0〜heroH*0.10 持ち上げ）
+        const rock = Math.sin(st.playT * 2.2) * 0.09                        // 体を軽く前後にロック(rad)
+        const cx = heroCenterX, cy = st.heroY - heroH * 0.5 - bob
+        ctx.save(); ctx.translate(cx, cy); ctx.rotate(rock); ctx.translate(-cx, -cy)
+        drawSprite(sp, heroCenterX, st.heroY, heroH, bob)
+        ctx.restore()
+        // 泳ぎの泡（口元あたりから後ろ上へ立ち上る）
+        ctx.save(); ctx.strokeStyle = 'rgba(223,247,255,0.75)'; ctx.lineWidth = 1.5
+        for (let i = 0; i < 4; i++) { const t = (st.playT * 0.8 + i * 0.27) % 1; const bx = heroCenterX + heroH * 0.34 + Math.sin(t * 6 + i) * heroH * 0.05; const by = (st.heroY - heroH * 0.72) - t * heroH * 0.85; ctx.globalAlpha = 0.6 * (1 - t); ctx.beginPath(); ctx.arc(bx, by, Math.max(1, heroH * (0.02 + 0.03 * (1 - t))), 0, Math.PI * 2); ctx.stroke() }
+        ctx.restore()
       } else {
         const frames = A.current.run
         const STRIDE = heroH * 0.34                                   // 1コマ進む地面スクロール量（小さめ＝コマ速UPで滑らか）
