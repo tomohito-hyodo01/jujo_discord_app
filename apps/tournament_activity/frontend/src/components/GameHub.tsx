@@ -9,11 +9,12 @@ interface GameHubProps { username?: string; discordId?: string; onExitToPortal: 
 const ADMIN_DISCORD_IDS = new Set(['1427112485047242945'])
 
 export default function GameHub({ username, discordId, onExitToPortal }: GameHubProps) {
-  const [selected, setSelected] = useState<null | 'rpg' | 'run'>(null)
+  const [selected, setSelected] = useState<null | 'rpg' | 'run' | 'run-exer'>(null)
   const isAdmin = ADMIN_DISCORD_IDS.has(discordId || '')
 
   if (selected === 'rpg') return <Game username={username} discordId={discordId} onExit={() => setSelected(null)} />
   if (selected === 'run') return <RunnerGame username={username} discordId={discordId} onExit={() => setSelected(null)} />
+  if (selected === 'run-exer' && isAdmin) return <RunnerGame username={username} discordId={discordId} mode="exer" onExit={() => setSelected(null)} />
 
   const card = (onClick: () => void, icon: ReactNode, title: string, desc: string, accent: string) => (
     <button onClick={onClick} style={{
@@ -38,6 +39,7 @@ export default function GameHub({ username, discordId, onExitToPortal }: GameHub
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
         {isAdmin && card(() => setSelected('rpg'), '⚔️', '冒険者ギルド（RPG）', '町とギルドを冒険。掲示板の依頼を受けて討伐。実際の練習・大会でもレベルが上がる。', '#3b82f6')}
         {card(() => setSelected('run'), <img src="/game/run/hero_run1.png?v=11" alt="エビ走" style={{ width: 40, height: 40, objectFit: 'contain', imageRendering: 'pixelated' }} />, 'エビ走', '自動で走り続けるアクション。ジャンプで障害物を避け、コインを集めて距離をのばそう。ベスト記録に挑戦！', '#f59e0b')}
+        {isAdmin && card(() => setSelected('run-exer'), '🏃', 'エビ走（運動）', 'スマホを持って実際にジャンプ！体を動かして遊ぶエクサゲーム版（管理者向け試作）。運動になる！ランキングは通常モードとは別。', '#22c55e')}
       </div>
       <button onClick={onExitToPortal} style={{ marginTop: 24, padding: '8px 14px', borderRadius: 8, background: '#1e293b', color: '#cbd5e1', border: '1px solid #334155', fontSize: 13, cursor: 'pointer' }}>← ポータルに戻る</button>
     </div>
