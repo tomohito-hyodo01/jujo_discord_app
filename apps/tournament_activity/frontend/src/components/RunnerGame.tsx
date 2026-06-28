@@ -52,6 +52,7 @@ const STARS = Array.from({ length: 46 }, (_, i) => ({ x: ((i * 79 + 13) % 100) /
 const BUBBLES = Array.from({ length: 24 }, (_, i) => ({ x: ((i * 53 + 11) % 100) / 100, p: ((i * 37 + 5) % 100) / 100, s: 0.6 + (i % 5) * 0.16, r: 2 + (i % 4) }))
 const WATER_LEVEL = 5   // この level 以上（＝Lv6以降）は水中ステージ
 const DIVE_DUR = 1.5    // Lv5→6（陸→水中）に入る瞬間の「海に潜る」トランジション秒数
+const WATER_GRACE = 10  // 入水直後の慣らし時間(秒)。この間は難易度をLv1に固定（水中操作に慣れさせる）
 
 // マゼンタ抜き。crop=true=内容に切り詰め（敵の単体スプライト用）／crop=false=サイズ維持（走り連番は正規化済み）。
 function keyImage(img: HTMLImageElement, crop: boolean): HTMLCanvasElement {
@@ -299,7 +300,10 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       // 速度はレベル内では一定。経過時間では上げず、レベルが上がった時だけ段階的に+10%する（緩やか）。
       const level = Math.floor(st.playT / (4 * DAY_PERIOD))
       const water = level >= WATER_LEVEL                          // Lv6以降は水中ステージ
-      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.19 + 195) * (1 + level * 0.10))
+      // 入水直後の慣らし：速度もLv1相当に落とし、慣らし終了後2秒で本来の速度へ滑らかに戻す（急加速の違和感を防ぐ）
+      let speedLevel = level
+      if (diveStartRef.current != null) { const tIn = st.playT - diveStartRef.current; if (tIn < WATER_GRACE) speedLevel = 0; else if (tIn < WATER_GRACE + 2) speedLevel = level * ((tIn - WATER_GRACE) / 2) }
+      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.19 + 195) * (1 + speedLevel * 0.10))
       const GRAV = jumpParams(H).GRAV * (water ? 0.6 : 1)         // 水中は重力を弱めて“ふわっと”浮く（滞空が伸びる＝障害物は越えやすくなる側なので破綻しない）
       const playing = phaseRef.current === 'playing'
       if (playing && invincibleRef.current) usedInvincibleRef.current = true   // 無敵を使ったランは記録対象外にする
@@ -396,7 +400,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           const island = heroH * 1.5                          // 塊と塊の間にあける着地用の地面
           // レベル別の難易度テーブル（ユーザー表記 Lv = level+1）
           //  Lv1: 穴(少) ／ Lv2: 穴(普)+障害物(少) ／ Lv3: +敵(少) ／ Lv4: 敵(普) ／ Lv5+: 全部(多)
-          const LV = Math.min(level, 4)
+          // 入水直後の慣らし(WATER_GRACE秒)はLv1相当(LV=0)に固定＝敵・障害物なし、まばらな穴だけ＝水中操作の練習
+          const waterGrace = diveStartRef.current != null && (st.playT - diveStartRef.current) < WATER_GRACE
+          const LV = waterGrace ? 0 : Math.min(level, 4)
           const ENEMY_CHANCE = [0, 0, 0.16, 0.28, 0.42][LV]   // 出現枠が敵になる確率（Lv1-2は敵なし、Lv3から）
           const GIRL_CHANCE = [0, 0.14, 0.14, 0.13, 0.12][LV] // 無害な女の子の出現確率（Lv2から。難易度を上げない別枠）
           const PIT_CHANCE = [0.35, 0.6, 0.5, 0.5, 0.55][LV]  // 障害物枠内で穴になる確率（残りは地上障害物）
