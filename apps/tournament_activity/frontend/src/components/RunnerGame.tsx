@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 // ===== 「エビ走」エンドレスラン。RPGとは別の独自デザイン（明るいポップな世界＋丸文字UI）。指定キャラが走る =====
 // 物理・移動・距離は全て時間(dt)ベース＝端末のfpsに依存しない。距離は 50m/8秒(=6.25m/s) 一定。
-interface RunnerProps { username?: string; discordId?: string; onExit?: () => void }
+interface RunnerProps { username?: string; discordId?: string; onExit?: () => void; mode?: 'normal' | 'exer' }
 
 // 走り8フレーム（等サイズ・頭部x＋足元で正規化済み＝そのまま使う）＋ジャンプ＋被弾（悲しい顔）
 const HERO_FRAMES = ['1', '2', '3', '4', '5', '6'].map((n) => `/game/run/hero_run${n}.png?v=11`)
@@ -91,10 +91,12 @@ interface St {
   nextSpawnT: number; nextCoinT: number; nextPlatT: number; scroll: number
 }
 
-export default function RunnerGame({ username, discordId, onExit }: RunnerProps) {
+export default function RunnerGame({ username, discordId, onExit, mode = 'normal' }: RunnerProps) {
+  const exerMode = mode === 'exer'                                   // 運動(エクサ)モード＝モーション操作・別ランキング
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const scoreElRef = useRef<HTMLSpanElement | null>(null)
-  const bestKey = 'jujo_run_best_v1_' + (discordId || username || 'dev')
+  const gameKey = exerMode ? 'ebi_run_exer' : GAME_KEY              // サーバランキングを通常と分離
+  const bestKey = 'jujo_run' + (exerMode ? '_exer' : '') + '_best_v1_' + (discordId || username || 'dev')  // ローカルBESTも分離（通常は従来キー維持）
   const [phase, setPhase] = useState<'ready' | 'playing' | 'over'>('ready')
   const [result, setResult] = useState<{ score: number; coins: number; best: number; newBest: boolean; cause: string } | null>(null)
   const [showCard, setShowCard] = useState(false)
@@ -115,6 +117,15 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   // 描画ループは []依存で初期propsを捕捉するため、最新の識別情報はrefで参照する
   const discordIdRef = useRef(discordId); discordIdRef.current = discordId
   const usernameRef = useRef(username); usernameRef.current = username
+  // 運動(エクサ)モード：スマホのモーション(加速度)でジャンプ操作
+  const [motionStatus, setMotionStatus] = useState<'pending' | 'motion' | 'tap'>('pending')
+  const [sensitivity, setSensitivity] = useState<'easy' | 'normal' | 'hard'>('normal')
+  const motionStartedRef = useRef(false)        // 許可フローを開始済みか（再入防止）
+  const freefallStartRef = useRef(0)            // 自由落下の開始時刻（0=非落下）。実ジャンプ判定に使う
+  const motionEventsRef = useRef(0)             // devicemotionイベント受信数（PC等のセンサー無し検出）
+  const motionArmedRef = useRef(true)           // ジャンプ検出の再武装フラグ（着地衝撃での二度発火を防ぐ）
+  const motionFallbackTimerRef = useRef<number | undefined>(undefined)
+  const motionCleanupRef = useRef<null | (() => void)>(null)
 
   const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; swim: HTMLCanvasElement[]; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; girlDiscover?: HTMLCanvasElement; girlFlee?: HTMLCanvasElement; coin?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], swim: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
   const phaseRef = useRef<'ready' | 'playing' | 'over'>('ready')
@@ -181,17 +192,63 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
+  // 運動モード：加速度センサーで「実際のジャンプ」だけを検出する。
+  // 跳ぶと体(=スマホ)が一瞬“無重力(自由落下)”になる＝重力込み加速度の大きさが≒0に落ちる。
+  // これが一定時間続いた時だけジャンプ発火＝スマホを振っただけ(無重力は続かない)では反応しない。
+  const SENS_FF = { easy: { ff: 4.5, ms: 90 }, normal: { ff: 3.5, ms: 120 }, hard: { ff: 2.5, ms: 160 } } as const
+  const attachMotion = () => {
+    motionEventsRef.current = 0
+    motionArmedRef.current = true
+    freefallStartRef.current = 0
+    const cfg = SENS_FF[sensitivity]
+    const handler = (e: DeviceMotionEvent) => {
+      const a = e.accelerationIncludingGravity
+      if (!a || a.x == null) return
+      motionEventsRef.current++
+      const m = Math.hypot(a.x || 0, a.y || 0, a.z || 0)   // 重力込み加速度の大きさ（静止≒9.8、自由落下≒0）。向き非依存
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+      if (m < cfg.ff) {                                     // 無重力＝跳んで浮いている
+        if (freefallStartRef.current === 0) freefallStartRef.current = now
+        else if (motionArmedRef.current && now - freefallStartRef.current >= cfg.ms && phaseRef.current === 'playing') {
+          motionArmedRef.current = false; jump()             // 一定時間続いた＝本物のジャンプ。ジャンプ専用（開始/再開はしない）
+        }
+      } else {
+        freefallStartRef.current = 0
+        if (!motionArmedRef.current && m > 7 && m < 12.5) motionArmedRef.current = true   // 着地して静止域(≒重力)に戻ったら再武装
+      }
+    }
+    window.addEventListener('devicemotion', handler)
+    motionCleanupRef.current = () => window.removeEventListener('devicemotion', handler)
+  }
+  const startExer = async () => {
+    if (motionStartedRef.current) { if (assetsReadyRef.current) startGame(); return }
+    motionStartedRef.current = true                       // 即座にロック＝許可ダイアログ中の二重起動を防ぐ
+    let useMotion = false
+    try {
+      const DM = (window as unknown as { DeviceMotionEvent?: { requestPermission?: () => Promise<string> } }).DeviceMotionEvent
+      if (DM && typeof DM.requestPermission === 'function') useMotion = (await DM.requestPermission()) === 'granted'  // iOS13+ はユーザー操作内で許可必須
+      else if (DM) useMotion = true                       // Android等は許可不要
+    } catch { useMotion = false }
+    if (useMotion) {
+      attachMotion(); setMotionStatus('motion')
+      motionFallbackTimerRef.current = window.setTimeout(() => { if (motionEventsRef.current === 0) setMotionStatus('tap') }, 2200)  // センサー無し(PC等)はイベントが来ない→タップ表示に切替（タップ操作は常に有効）
+    } else { setMotionStatus('tap') }
+    if (assetsReadyRef.current) startGame()
+  }
   const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
   const press = () => {
     if (showRankRef.current) return   // ランキング表示中は入力でゲームを始めない
-    if (phaseRef.current === 'ready') { if (assetsReadyRef.current) startGame() }
+    if (phaseRef.current === 'ready') {
+      if (exerMode) { if (!motionStartedRef.current && assetsReadyRef.current) void startExer(); return }   // 運動モードの開始はstartExerに一本化（二重開始防止／iOS許可はタップ・ボタンのジェスチャ内で要求）
+      if (assetsReadyRef.current) startGame()
+    }
     else if (phaseRef.current === 'playing') jump()
     else if (phaseRef.current === 'over' && showCardRef.current) startGame()
   }
   // ランキング取得：一般はベスト5、管理者は全員（管理者だけ全件閲覧可）
   const openRanking = () => {
     showRankRef.current = true; setShowRank(true); setRankRows(null)
-    fetch(`${API_URL}/api/game_scores/top?game=${GAME_KEY}&limit=${isAdmin ? 500 : 5}`)
+    fetch(`${API_URL}/api/game_scores/top?game=${gameKey}&limit=${isAdmin ? 500 : 5}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setRankRows((d && d.top) || []))
       .catch(() => setRankRows([]))
@@ -204,8 +261,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     setRankRows(null)
     try { localStorage.setItem(bestKey, '0') } catch { /* */ }
     setBest(0)
-    fetch(`${API_URL}/api/game_scores/${GAME_KEY}/${did}`, { method: 'DELETE' })
-      .then(() => fetch(`${API_URL}/api/game_scores/top?game=${GAME_KEY}&limit=${isAdmin ? 500 : 5}`))
+    fetch(`${API_URL}/api/game_scores/${gameKey}/${did}`, { method: 'DELETE' })
+      .then(() => fetch(`${API_URL}/api/game_scores/top?game=${gameKey}&limit=${isAdmin ? 500 : 5}`))
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setRankRows((d && d.top) || []))
       .catch(() => setRankRows([]))
@@ -215,6 +272,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     const key = (e: KeyboardEvent) => { if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w' || e.key === 'Enter') { e.preventDefault(); press() } }
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key)
   }, [])
+  useEffect(() => () => { if (motionCleanupRef.current) motionCleanupRef.current(); if (motionFallbackTimerRef.current) window.clearTimeout(motionFallbackTimerRef.current) }, [])  // 運動モードのモーションリスナ/タイマをアンマウント時に解除
 
   useEffect(() => {
     const c = canvasRef.current; if (!c) return
@@ -280,7 +338,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         setBoard(null)   // 読込中表示
         fetch(`${API_URL}/api/game_scores`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ game: GAME_KEY, discord_id: did, display_name: usernameRef.current, score, coins: st.coins }),
+          body: JSON.stringify({ game: gameKey, discord_id: did, display_name: usernameRef.current, score, coins: st.coins }),
         })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => {
@@ -798,9 +856,28 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       {phase === 'ready' && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', pointerEvents: 'none' }}>
           <div style={{ ...cardStyle, padding: '22px 26px' }}>
-            <div style={{ fontSize: 34, fontWeight: 800, color: CORAL, lineHeight: 1, textShadow: `2px 2px 0 ${SUN}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><img src={HERO_FRAMES[0]} alt="" style={{ width: 38, height: 38, objectFit: 'contain', imageRendering: 'pixelated' }} />エビ走</div>
-            <div style={{ fontSize: 14, lineHeight: 1.9, marginTop: 12 }}>タップ／スペースでジャンプ（2段ジャンプOK）<br />障害物・穴・敵をよけて走りぬけろ！</div>
-            <div style={{ fontSize: 16, color: assetsReady ? CORAL : '#9aa3b2', fontWeight: 700, marginTop: 14, animation: 'ebiBlink 1.1s ease-in-out infinite' }}>{assetsReady ? '▶ タップ／スペースでスタート' : '🦐 よみこみ中…'}</div>
+            <div style={{ fontSize: 34, fontWeight: 800, color: CORAL, lineHeight: 1, textShadow: `2px 2px 0 ${SUN}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><img src={HERO_FRAMES[0]} alt="" style={{ width: 38, height: 38, objectFit: 'contain', imageRendering: 'pixelated' }} />エビ走{exerMode ? '（運動）' : ''}</div>
+            {exerMode ? (
+              <>
+                <div style={{ fontSize: 14, lineHeight: 1.9, marginTop: 12 }}>📱スマホを持って <b>その場でジャンプ！</b><br />実際に跳んで体が浮いた時だけ反応します（振っても×）。タップでもOK</div>
+                <div onPointerDown={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 12, pointerEvents: 'auto' }}>
+                  {([['easy', 'やさしい'], ['normal', 'ふつう'], ['hard', 'シビア']] as const).map(([k, label]) => (
+                    <button key={k} onClick={(e) => { e.stopPropagation(); setSensitivity(k) }}
+                      style={{ padding: '5px 10px', borderRadius: 999, border: '2px solid ' + (sensitivity === k ? CORAL : '#e7d9c8'), background: sensitivity === k ? CORAL : '#fff', color: sensitivity === k ? '#fff' : INK, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: POP_FONT }}>{label}</button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: '#9aa3b2', marginTop: 4 }}>反応しにくければ「やさしい」に</div>
+                {assetsReady
+                  ? <button onClick={(e) => { e.stopPropagation(); void startExer() }} onPointerDown={(e) => e.stopPropagation()} style={{ ...popBtn(CORAL), marginTop: 12, fontSize: 16, pointerEvents: 'auto' }}>🏃 許可してスタート</button>
+                  : <div style={{ fontSize: 16, color: '#9aa3b2', fontWeight: 700, marginTop: 12 }}>🦐 よみこみ中…</div>}
+                {motionStatus === 'tap' && <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>※モーション非対応のためタップで遊べます</div>}
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 14, lineHeight: 1.9, marginTop: 12 }}>タップ／スペースでジャンプ（2段ジャンプOK）<br />障害物・穴・敵をよけて走りぬけろ！</div>
+                <div style={{ fontSize: 16, color: assetsReady ? CORAL : '#9aa3b2', fontWeight: 700, marginTop: 14, animation: 'ebiBlink 1.1s ease-in-out infinite' }}>{assetsReady ? '▶ タップ／スペースでスタート' : '🦐 よみこみ中…'}</div>
+              </>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); openRanking() }}
               onPointerDown={(e) => e.stopPropagation()}
@@ -808,6 +885,10 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
             >🏆 ランキング</button>
           </div>
         </div>
+      )}
+
+      {exerMode && phase === 'playing' && motionStatus === 'tap' && (
+        <div style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', ...pill, fontSize: 11, color: '#b45309', pointerEvents: 'none', whiteSpace: 'nowrap' }}>タップでジャンプ（モーション非対応）</div>
       )}
 
       {phase === 'over' && result && showCard && (
