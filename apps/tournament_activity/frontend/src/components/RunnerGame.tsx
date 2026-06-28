@@ -44,6 +44,9 @@ const PALETTES: DayPalette[] = [
   { sky: [[10, 16, 46], [26, 40, 86], [46, 58, 108]], sun: [235, 240, 255], sunPos: [0.80, 0.20], sunR: 0.085, hillB: [42, 66, 54], hillF: [33, 52, 42], grass: [40, 82, 52], grassEdge: [30, 64, 40], dirt: [78, 66, 52], cloud: [170, 185, 220, 0.42] }, // 夜
 ]
 const DAY_PERIOD = 8    // 1時間帯の長さ(秒)。×4=1日=32秒で朝に戻る（朝昼夕夜の巡りを少し速く）。
+const DIST_PER_LEVEL = M_PER_S * 4 * DAY_PERIOD   // 1レベル分の距離(m)。distM=6.25×playT、1レベル=4×DAY_PERIOD秒ぶん
+// 保存スコア(best_score/best_coins)から到達レベル(ユーザー表記=1始まり)を逆算。距離=score-coins×10。
+const levelOfScore = (best_score: number, best_coins: number) => Math.floor(Math.max(0, best_score - best_coins * 10) / DIST_PER_LEVEL) + 1
 const STARS = Array.from({ length: 46 }, (_, i) => ({ x: ((i * 79 + 13) % 100) / 100, y: ((i * 47 + 7) % 48) / 100, r: 1 + (i % 3), p: (i * 1.7) % 6.283 }))
 
 // マゼンタ抜き。crop=true=内容に切り詰め（敵の単体スプライト用）／crop=false=サイズ維持（走り連番は正規化済み）。
@@ -98,6 +101,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const [rankRows, setRankRows] = useState<BoardRow[] | null>(null)  // パネル用の取得結果（null=読込中）
   const [rankingSaved, setRankingSaved] = useState(true)       // 直近のランがランキングに記録されたか（無敵モードはfalse）
   const [levelUp, setLevelUp] = useState(false)                // 「LEVEL UP！」バナーの表示
+  const [displayLevel, setDisplayLevel] = useState(1)          // 表示用の現在レベル（ユーザー表記=内部level+1）
   const showRankRef = useRef(false)                            // 表示中はタップ/スペースでゲームを開始させない
   const isAdmin = discordId === '1427112485047242945'
   // 描画ループは []依存で初期propsを捕捉するため、最新の識別情報はrefで参照する
@@ -160,7 +164,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     if (overTimer.current) { window.clearTimeout(overTimer.current); overTimer.current = undefined }
     showCardRef.current = false; setShowCard(false)
     usedInvincibleRef.current = false   // 新しいランは無敵未使用からスタート
-    levelRef.current = 0; endBossLevelRef.current = -1; setLevelUp(false); if (levelUpTimer.current) { window.clearTimeout(levelUpTimer.current); levelUpTimer.current = undefined }
+    levelRef.current = 0; endBossLevelRef.current = -1; setLevelUp(false); setDisplayLevel(1); if (levelUpTimer.current) { window.clearTimeout(levelUpTimer.current); levelUpTimer.current = undefined }
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
@@ -317,6 +321,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         const lv = Math.floor(st.playT / (4 * DAY_PERIOD))
         if (lv > levelRef.current) {
           levelRef.current = lv
+          setDisplayLevel(lv + 1)
           setLevelUp(true)
           if (levelUpTimer.current) window.clearTimeout(levelUpTimer.current)
           levelUpTimer.current = window.setTimeout(() => setLevelUp(false), 1600)
@@ -638,6 +643,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'nowrap', minWidth: 0, flexShrink: 1 }}>
           <span style={{ ...pill, fontWeight: 700, fontSize: 12, padding: '4px 9px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flexShrink: 1 }}>🦐 {username || 'ランナー'}</span>
           <span ref={scoreElRef} style={{ ...pill, color: CORAL, fontWeight: 800, fontSize: 12, padding: '4px 8px', whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>0m 🪙0</span>
+          <span style={{ ...pill, color: '#7c3aed', fontWeight: 800, fontSize: 12, padding: '4px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}>Lv.{displayLevel}</span>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
           <span style={{ ...pill, color: '#1f9d55', fontWeight: 700, fontSize: 11, padding: '4px 8px', whiteSpace: 'nowrap' }}>BEST {best}m</span>
@@ -646,8 +652,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       </div>
 
       {levelUp && (
-        <div style={{ position: 'absolute', top: '15%', left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 6 }}>
+        <div style={{ position: 'absolute', top: '15%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, pointerEvents: 'none', zIndex: 6 }}>
           <div style={{ fontFamily: POP_FONT, fontWeight: 800, fontSize: 'clamp(28px, 8vw, 56px)', color: '#fff', WebkitTextStroke: '2px #e23b3b', textShadow: `0 4px 0 ${SUN}, 0 0 18px rgba(255,177,60,0.8)`, animation: 'ebiLevelUp 1.6s ease-out forwards' }}>⚡ LEVEL UP！</div>
+          <div style={{ fontFamily: POP_FONT, fontWeight: 800, fontSize: 'clamp(18px, 5vw, 32px)', color: '#fff', WebkitTextStroke: '1.5px #7c3aed', textShadow: '0 3px 0 rgba(0,0,0,0.25)', animation: 'ebiLevelUp 1.6s ease-out forwards' }}>Lv.{displayLevel}</div>
         </div>
       )}
 
@@ -701,6 +708,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
                       <div key={row.discord_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 8px', borderRadius: 8, background: isMe ? '#fff2cc' : 'transparent', fontWeight: isMe ? 800 : 600 }}>
                         <span style={{ width: 22, textAlign: 'center', flexShrink: 0 }}>{medal}</span>
                         <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.display_name}{isMe && ' (あなた)'}</span>
+                        <span style={{ color: '#7c3aed', fontWeight: 800, fontSize: 11, flexShrink: 0 }}>Lv.{levelOfScore(row.best_score, row.best_coins)}</span>
                         <span style={{ color: CORAL, fontWeight: 800, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{row.best_score}m</span>
                       </div>
                     )
@@ -745,6 +753,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
                     <div key={row.discord_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '4px 8px', borderRadius: 8, background: isMe ? '#fff2cc' : 'transparent', fontWeight: isMe ? 800 : 600 }}>
                       <span style={{ width: 28, textAlign: 'center', flexShrink: 0 }}>{medal}</span>
                       <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.display_name}{isMe && ' (あなた)'}</span>
+                      <span style={{ color: '#7c3aed', fontWeight: 800, fontSize: 11, flexShrink: 0 }}>Lv.{levelOfScore(row.best_score, row.best_coins)}</span>
                       <span style={{ color: CORAL, fontWeight: 800, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{row.best_score}m</span>
                     </div>
                   )
