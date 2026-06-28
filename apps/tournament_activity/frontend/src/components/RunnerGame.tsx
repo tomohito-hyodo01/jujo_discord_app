@@ -357,19 +357,23 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           //  Lv1: 穴(少) ／ Lv2: 穴(普)+障害物(少) ／ Lv3: +敵(少) ／ Lv4: 敵(普) ／ Lv5+: 全部(多)
           const LV = Math.min(level, 4)
           const ENEMY_CHANCE = [0, 0, 0.16, 0.28, 0.42][LV]   // 出現枠が敵になる確率（Lv1-2は敵なし、Lv3から）
+          const GIRL_CHANCE = [0, 0.14, 0.14, 0.13, 0.12][LV] // 無害な女の子の出現確率（Lv2から。難易度を上げない別枠）
           const PIT_CHANCE = [0.35, 0.6, 0.5, 0.5, 0.55][LV]  // 障害物枠内で穴になる確率（残りは地上障害物）
           const OBSTACLES_ON = LV >= 1                         // 地上障害物はLv2から
           const EXTRA_GROUP = [0, 0, 0.15, 0.25, 0.55][LV]    // 塊を1つ増やす確率（多め化）
           const GAP_MUL = [1.0, 1.0, 0.9, 0.8, 0.6][LV]       // クラスター間隔の倍率（小さいほど密＝多め）
-          // 敵：テニス・スナイパー・侍は等頻度（＋ボア）。Lv3から出現し、レベルで増える。女の子は無害枠で混ぜる。
-          const enemyKinds: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper', 'girl']
-          if (Math.random() < ENEMY_CHANCE) {
+          // 敵：テニス・スナイパー・侍は等頻度（＋ボア）。Lv3から出現し、レベルで増える。
+          const enemyKinds: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper']
+          if (Math.random() < GIRL_CHANCE) {
+            // 無害な女の子（Lv2から）。攻撃せず接近→発見→右へ逃走。難易度を上げない別枠。
+            const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.8, h, type: 'girl', vx: 0, aimT: 0, aiming: false, fired: false, bob: 0, gphase: 0 })
+            st.nextSpawnT = Math.max(0.85, 1.15 - m * 0.0003) + Math.random() * 0.7
+          } else if (Math.random() < ENEMY_CHANCE) {
             const type = enemyKinds[Math.floor(Math.random() * enemyKinds.length)]
             if (type === 'boar') { const h = heroH * 0.46; st.enemies.push({ x: W + 30, w: h * 1.5, h, type, vx: SCROLL * 0.18, aimT: 0, aiming: false, fired: true, bob: 0 }) }
             else if (type === 'sword') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: SCROLL * 0.1, aimT: 0, aiming: false, fired: true, bob: 0 }) }  // sword：主人公と同じチビ頭身スプライト＝h=heroHで頭身もスケールも一致（アスペクト445/540≒0.82）
             else if (type === 'sniper') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.79, h, type, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0 }) }  // sniper：主人公と同じ高さ（heroH）。スプライトのアスペクト(429/540≒0.79)で幅
-            else if (type === 'tennis') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0 }) }  // tennis：主人公と同じ高さ（heroH）。スプライトのアスペクト(492/720≒0.68)で幅
-            else { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.8, h, type, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0, gphase: 0 }) }  // girl：侍と同じ高さ（heroH）。攻撃せず接近→発見→右へ逃走
+            else { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0 }) }  // tennis：主人公と同じ高さ（heroH）。スプライトのアスペクト(492/720≒0.68)で幅
             st.nextSpawnT = Math.max(0.85, 1.15 - m * 0.0003) + Math.random() * 0.7
           } else {
             const pitsAllowed = m >= 12
