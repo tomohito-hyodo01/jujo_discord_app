@@ -13,6 +13,9 @@ const E_BOAR = '/game/run/enemy_boar.png?v=1'
 const E_SWORD = '/game/run/enemy_sword.png?v=5'  // サイコパス・ケンジ（カード画像の人物）。主人公と同じチビ頭身で再生成＝サイズ感を合わせた
 const E_SNIPER = '/game/run/enemy_sniper.png?v=6'  // 「初代サウスポー・アズマ」。本人写真ベースで顔をそっくりに再生成（ブタメンT・ガッツポーズ）
 const E_TENNIS = '/game/run/enemy_tennis.png?v=8'  // 鈴木選手（一般男子優勝）。主人公と同じチビ頭身で再生成＝サイズ感を統一
+// 逃げる女の子（攻撃しない・接触してもセーフ）。出現→主人公(左)を発見してビクッ→右へ逃げ去る。侍と同じ等身。
+const E_GIRL_DISCOVER = '/game/run/enemy_girl_discover.png?v=1'  // 発見ポーズ（左向き＝主人公を見て後ずさり）
+const E_GIRL_FLEE = '/game/run/enemy_girl_flee.png?v=1'          // 逃走ポーズ（右向き＝主人公と反対へ走り去る）
 // 障害物スプライト（主人公と同じセルシェード調の生成素材。手描き図形→リアル質感に差し替え。未ロード時は手描きにフォールバック）
 const O_CONE = '/game/run/obs_cone.png?v=1'
 const O_CRATE = '/game/run/obs_crate.png?v=1'
@@ -65,9 +68,9 @@ const loadImg = (url: string) => new Promise<HTMLImageElement>((res, rej) => { c
 const loadKeyed = (url: string, crop = true) => loadImg(url).then((i) => keyImage(i, crop))
 
 type ObsType = 'cone' | 'crate' | 'rock' | 'stone'
-type EnemyType = 'boar' | 'sword' | 'sniper' | 'tennis'
+type EnemyType = 'boar' | 'sword' | 'sniper' | 'tennis' | 'girl'
 interface Obstacle { x: number; w: number; h: number; type: ObsType }
-interface Enemy { x: number; w: number; h: number; type: EnemyType; vx: number; aimT: number; aiming: boolean; fired: boolean; bob: number }
+interface Enemy { x: number; w: number; h: number; type: EnemyType; vx: number; aimT: number; aiming: boolean; fired: boolean; bob: number; gphase?: number }  // gphase: 女の子の状態 0=接近 1=発見ビクッ 2=逃走
 interface Bullet { x: number; y: number; r: number; vy: number; bounce: boolean }
 interface Pit { x: number; w: number }
 interface Platform { x: number; y: number; w: number }   // 空中の足場（上から乗れる）
@@ -101,7 +104,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const discordIdRef = useRef(discordId); discordIdRef.current = discordId
   const usernameRef = useRef(username); usernameRef.current = username
 
-  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; coin?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
+  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; girlDiscover?: HTMLCanvasElement; girlFlee?: HTMLCanvasElement; coin?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
   const phaseRef = useRef<'ready' | 'playing' | 'over'>('ready')
   const hurtIdxRef = useRef(0)
   const assetsReadyRef = useRef(false)
@@ -132,6 +135,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     loadKeyed(E_SWORD).then((c) => { if (alive) A.current.sword = c }).catch(() => {})
     loadKeyed(E_SNIPER).then((c) => { if (alive) A.current.sniper = c }).catch(() => {})
     loadKeyed(E_TENNIS).then((c) => { if (alive) A.current.tennis = c }).catch(() => {})
+    loadKeyed(E_GIRL_DISCOVER).then((c) => { if (alive) A.current.girlDiscover = c }).catch(() => {})
+    loadKeyed(E_GIRL_FLEE).then((c) => { if (alive) A.current.girlFlee = c }).catch(() => {})
     // 障害物スプライト（マゼンタ抜き。失敗時は手描きフォールバックのまま）
     loadKeyed(O_CONE).then((c) => { if (alive) A.current.obs.cone = c }).catch(() => {})
     loadKeyed(O_CRATE).then((c) => { if (alive) A.current.obs.crate = c }).catch(() => {})
@@ -229,9 +234,11 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(x + w * 0.3, top + h * 0.25, w * 0.2, h * 0.12)
       }
     }
-    const drawSprite = (spr: HTMLCanvasElement, cx: number, baseY: number, h: number, bob = 0) => {
+    const drawSprite = (spr: HTMLCanvasElement, cx: number, baseY: number, h: number, bob = 0, flip = false) => {
       const scale = h / spr.height, w = spr.width * scale
-      ctx.drawImage(spr, Math.round(cx - w / 2), Math.round(baseY - h - bob), Math.round(w), Math.round(h))
+      const dx0 = Math.round(cx - w / 2), dy0 = Math.round(baseY - h - bob), dw = Math.round(w), dh = Math.round(h)
+      if (flip) { ctx.save(); ctx.translate(dx0 + dw, dy0); ctx.scale(-1, 1); ctx.drawImage(spr, 0, 0, dw, dh); ctx.restore() }
+      else ctx.drawImage(spr, dx0, dy0, dw, dh)
     }
     const isShooter = (e: Enemy) => e.type === 'sniper' || e.type === 'tennis'
     const muzzleY = (e: Enemy, baseY: number) => e.type === 'tennis' ? baseY - e.h * 0.62 : baseY - e.h * 0.58
@@ -354,14 +361,15 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           const OBSTACLES_ON = LV >= 1                         // 地上障害物はLv2から
           const EXTRA_GROUP = [0, 0, 0.15, 0.25, 0.55][LV]    // 塊を1つ増やす確率（多め化）
           const GAP_MUL = [1.0, 1.0, 0.9, 0.8, 0.6][LV]       // クラスター間隔の倍率（小さいほど密＝多め）
-          // 敵：テニス・スナイパー・侍は等頻度（＋ボア）。Lv3から出現し、レベルで増える。
-          const enemyKinds: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper']
+          // 敵：テニス・スナイパー・侍は等頻度（＋ボア）。Lv3から出現し、レベルで増える。女の子は無害枠で混ぜる。
+          const enemyKinds: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper', 'girl']
           if (Math.random() < ENEMY_CHANCE) {
             const type = enemyKinds[Math.floor(Math.random() * enemyKinds.length)]
             if (type === 'boar') { const h = heroH * 0.46; st.enemies.push({ x: W + 30, w: h * 1.5, h, type, vx: SCROLL * 0.18, aimT: 0, aiming: false, fired: true, bob: 0 }) }
             else if (type === 'sword') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: SCROLL * 0.1, aimT: 0, aiming: false, fired: true, bob: 0 }) }  // sword：主人公と同じチビ頭身スプライト＝h=heroHで頭身もスケールも一致（アスペクト445/540≒0.82）
             else if (type === 'sniper') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.79, h, type, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0 }) }  // sniper：主人公と同じ高さ（heroH）。スプライトのアスペクト(429/540≒0.79)で幅
-            else { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0 }) }  // tennis：主人公と同じ高さ（heroH）。スプライトのアスペクト(492/720≒0.68)で幅
+            else if (type === 'tennis') { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.7, h, type, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0 }) }  // tennis：主人公と同じ高さ（heroH）。スプライトのアスペクト(492/720≒0.68)で幅
+            else { const h = heroH; st.enemies.push({ x: W + 30, w: h * 0.8, h, type, vx: 0, aimT: 0, aiming: false, fired: false, bob: 0, gphase: 0 }) }  // girl：侍と同じ高さ（heroH）。攻撃せず接近→発見→右へ逃走
             st.nextSpawnT = Math.max(0.85, 1.15 - m * 0.0003) + Math.random() * 0.7
           } else {
             const pitsAllowed = m >= 12
@@ -446,6 +454,19 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         for (const pl of st.platforms) pl.x -= dx
         for (const cn of st.coinsArr) cn.x -= dx
         for (const e of st.enemies) {
+          if (e.type === 'girl') {
+            const triggerX = heroCenterX + e.h * 2.2          // 主人公の少し前まで来たら発見
+            if (e.gphase === 0) {                              // 接近：左へ走って入ってくる（地面＋少し速め）
+              e.x -= dx + SCROLL * 0.15 * dt
+              if (e.x <= triggerX) { e.gphase = 1; e.aimT = 0 }
+            } else if (e.gphase === 1) {                       // 発見：その場でビクッ（地面と一緒に流れる）
+              e.x -= dx; e.aimT += dt
+              if (e.aimT >= 0.55) e.gphase = 2
+            } else {                                           // 逃走：地面スクロールを上回って右へ走り去る
+              e.x += SCROLL * 1.5 * dt
+            }
+            continue
+          }
           if (isShooter(e) && !e.fired) {
             if (!e.aiming && e.x - heroCenterX <= AIM_LEAD) e.aiming = true
             if (e.aiming) {           // 構え中はその場で狙う（前方の公平な距離から撃つ）
@@ -467,7 +488,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         st.obstacles = st.obstacles.filter((o) => o.x + o.w > -20)
         st.pits = st.pits.filter((p) => p.x + p.w > -20)
         st.platforms = st.platforms.filter((pl) => pl.x + pl.w > -20)
-        st.enemies = st.enemies.filter((e) => e.x + e.w > -60)
+        st.enemies = st.enemies.filter((e) => e.x + e.w > -60 && !(e.type === 'girl' && e.x > W + 100))  // 女の子は右へ逃げ切ったら除去
         st.bullets = st.bullets.filter((b) => b.x > -40)
         st.coinsArr = st.coinsArr.filter((cn) => cn.x > -20 && !cn.taken)
 
@@ -475,7 +496,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         const hbW = heroH * 0.46, hbH = heroH * 0.8
         const hb = { x: heroCenterX - hbW / 2, y: st.heroY - hbH, w: hbW, h: hbH }
         for (const o of st.obstacles) { if (hb.x < o.x + o.w * 0.82 && hb.x + hb.w > o.x + o.w * 0.18 && st.heroY > baseY - o.h * 0.82) { die('obstacle'); break } }
-        if (phaseRef.current === 'playing') for (const e of st.enemies) { if (isShooter(e)) continue; if (hb.x < e.x + e.w * 0.82 && hb.x + hb.w > e.x + e.w * 0.18 && st.heroY > baseY - e.h * 0.82) { die('enemy'); break } }
+        if (phaseRef.current === 'playing') for (const e of st.enemies) { if (isShooter(e) || e.type === 'girl') continue; if (hb.x < e.x + e.w * 0.82 && hb.x + hb.w > e.x + e.w * 0.18 && st.heroY > baseY - e.h * 0.82) { die('enemy'); break } }  // 女の子は攻撃せず接触してもセーフ
         if (phaseRef.current === 'playing') for (const b of st.bullets) { if (b.x + b.r > hb.x && b.x - b.r < hb.x + hb.w && b.y + b.r > hb.y && b.y - b.r < hb.y + hb.h) { die(b.bounce ? 'ball' : 'shot'); break } }
         if (phaseRef.current === 'playing') for (const cn of st.coinsArr) { if (!cn.taken && Math.abs(cn.x - (hb.x + hb.w / 2)) < 22 && Math.abs(cn.y - (hb.y + hb.h / 2)) < heroH * 0.6) { cn.taken = true; st.coins++ } }
       }
@@ -522,6 +543,13 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       }
       ctx.imageSmoothingEnabled = false
       for (const e of st.enemies) {
+        if (e.type === 'girl') {
+          // 接近(0)=逃走スプライトを左反転して左へ走る／発見(1)=発見スプライト(左向き)／逃走(2)=逃走スプライト(右向き)
+          const gspr = e.gphase === 1 ? A.current.girlDiscover : A.current.girlFlee
+          if (gspr) drawSprite(gspr, e.x + e.w / 2, baseY, e.h, 0, e.gphase === 0)
+          else { ctx.fillStyle = '#c9a3c9'; ctx.fillRect(e.x, baseY - e.h, e.w, e.h) }
+          continue
+        }
         const spr = e.type === 'boar' ? A.current.boar : e.type === 'sword' ? A.current.sword : e.type === 'sniper' ? A.current.sniper : A.current.tennis
         if (spr) drawSprite(spr, e.x + e.w / 2, baseY, e.h, e.bob)
         else { ctx.fillStyle = '#8a4b2a'; ctx.fillRect(e.x, baseY - e.h, e.w, e.h) }
