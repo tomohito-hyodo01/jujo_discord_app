@@ -300,10 +300,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       // 速度はレベル内では一定。経過時間では上げず、レベルが上がった時だけ段階的に+10%する（緩やか）。
       const level = Math.floor(st.playT / (4 * DAY_PERIOD))
       const water = level >= WATER_LEVEL                          // Lv6以降は水中ステージ
-      // 入水直後の慣らし：速度もLv1相当に落とし、慣らし終了後2秒で本来の速度へ滑らかに戻す（急加速の違和感を防ぐ）
-      let speedLevel = level
-      if (diveStartRef.current != null) { const tIn = st.playT - diveStartRef.current; if (tIn < WATER_GRACE) speedLevel = 0; else if (tIn < WATER_GRACE + 2) speedLevel = level * ((tIn - WATER_GRACE) / 2) }
-      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.19 + 195) * (1 + speedLevel * 0.10))
+      // 入水直後の慣らしは「難易度（敵・障害物）」だけLv1にする。スクロール速度は緩めない＝そのレベルの速度のまま。
+      const SCROLL = Math.min(W * 0.66 + 420, (W * 0.19 + 195) * (1 + level * 0.10))
       const GRAV = jumpParams(H).GRAV * (water ? 0.6 : 1)         // 水中は重力を弱めて“ふわっと”浮く（滞空が伸びる＝障害物は越えやすくなる側なので破綻しない）
       const playing = phaseRef.current === 'playing'
       if (playing && invincibleRef.current) usedInvincibleRef.current = true   // 無敵を使ったランは記録対象外にする
