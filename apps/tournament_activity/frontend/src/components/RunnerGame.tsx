@@ -404,9 +404,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           // 入水直後の慣らし(WATER_GRACE秒)はLv1相当(LV=0)に固定＝敵・障害物なし、まばらな穴だけ＝水中操作の練習
           const waterGrace = diveStartRef.current != null && (st.playT - diveStartRef.current) < WATER_GRACE
           const LV = waterGrace ? 0 : Math.min(level, 4)
-          const ENEMY_CHANCE = [0, 0, 0.16, 0.28, 0.42][LV]   // 出現枠が敵になる確率（Lv1-2は敵なし、Lv3から）
+          const ENEMY_CHANCE = [0, 0, 0.16, 0.28, 0.28][LV]   // 出現枠が敵になる確率（Lv1-2は敵なし、Lv3から）。Lv5は敵=普通(Lv4と同じ)
           const GIRL_CHANCE = [0, 0.14, 0.14, 0.13, 0.12][LV] // 無害な女の子の出現確率（Lv2から。難易度を上げない別枠）
-          const PIT_CHANCE = [0.35, 0.6, 0.5, 0.5, 0.55][LV]  // 障害物枠内で穴になる確率（残りは地上障害物）
+          const PIT_CHANCE = [0.35, 0.6, 0.5, 0.5, 0.75][LV]  // 障害物枠内で穴になる確率（残りは地上障害物）。Lv5は穴寄り＝穴:多/障害物:普通（密度はEXTRA_GROUP/GAP_MULで維持）
           const OBSTACLES_ON = LV >= 1                         // 地上障害物はLv2から
           const EXTRA_GROUP = [0, 0, 0.15, 0.25, 0.55][LV]    // 塊を1つ増やす確率（多め化）
           const GAP_MUL = [1.0, 1.0, 0.9, 0.8, 0.6][LV]       // クラスター間隔の倍率（小さいほど密＝多め）
