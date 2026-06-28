@@ -51,6 +51,7 @@ const STARS = Array.from({ length: 46 }, (_, i) => ({ x: ((i * 79 + 13) % 100) /
 // 水中ステージ用の泡（立ち上る粒）。x=横位置(0-1)/p=初期位相/s=上昇速度係数/r=半径
 const BUBBLES = Array.from({ length: 24 }, (_, i) => ({ x: ((i * 53 + 11) % 100) / 100, p: ((i * 37 + 5) % 100) / 100, s: 0.6 + (i % 5) * 0.16, r: 2 + (i % 4) }))
 const WATER_LEVEL = 5   // この level 以上（＝Lv6以降）は水中ステージ
+const DIVE_DUR = 1.5    // Lv5→6（陸→水中）に入る瞬間の「海に潜る」トランジション秒数
 
 // マゼンタ抜き。crop=true=内容に切り詰め（敵の単体スプライト用）／crop=false=サイズ維持（走り連番は正規化済み）。
 function keyImage(img: HTMLImageElement, crop: boolean): HTMLCanvasElement {
@@ -122,6 +123,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const levelRef = useRef(0)                // 到達したレベル（1日終えるごとに+1）
   const endBossLevelRef = useRef(-1)        // レベル1・2の終盤に出す単発の敵を、どのレベルまで出したか
   const levelUpTimer = useRef<number | undefined>(undefined)
+  const diveStartRef = useRef<number | null>(null)   // Lv5→6の潜水演出の開始playT（null=非アクティブ）
   const showCardRef = useRef(false)
   const overTimer = useRef<number | undefined>(undefined)
   const stRef = useRef<St>({ heroY: 0, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 0, nextCoinT: 0, nextPlatT: 0, scroll: 0 })
@@ -169,12 +171,13 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     stRef.current = { heroY: baseY, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: sl * 4 * DAY_PERIOD, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 1.0, nextCoinT: 1.2, nextPlatT: 3.0, scroll: 0 }
     if (overTimer.current) { window.clearTimeout(overTimer.current); overTimer.current = undefined }
     showCardRef.current = false; setShowCard(false)
+    diveStartRef.current = (sl === WATER_LEVEL) ? stRef.current.playT : null   // 開始Lvがちょうど6なら、その瞬間から潜水演出（確認/演出用）
     usedInvincibleRef.current = sl > 0   // レベルスキップしたランは記録対象外（無敵モードと同じ扱い）
     levelRef.current = sl; endBossLevelRef.current = sl - 1; setLevelUp(false); setDisplayLevel(sl + 1); if (levelUpTimer.current) { window.clearTimeout(levelUpTimer.current); levelUpTimer.current = undefined }
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
-  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
+  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
   const press = () => {
     if (showRankRef.current) return   // ランキング表示中は入力でゲームを始めない
     if (phaseRef.current === 'ready') { if (assetsReadyRef.current) startGame() }
@@ -351,6 +354,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         // 1日を終えた瞬間にレベルアップ＝速度が上がり、上部に「LEVEL UP！」を表示
         const lv = Math.floor(st.playT / (4 * DAY_PERIOD))
         if (lv > levelRef.current) {
+          if (lv >= WATER_LEVEL && levelRef.current < WATER_LEVEL) diveStartRef.current = st.playT   // Lv5→6に入った瞬間＝海に潜る演出を開始
           levelRef.current = lv
           setDisplayLevel(lv + 1)
           setLevelUp(true)
@@ -370,7 +374,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         st.distM += M_PER_S * dt               // 距離は時間ベース＝50m/8秒一定
         const prevY = st.heroY
         st.vy += GRAV * dt; st.heroY += st.vy * dt
-        const feetOverPit = !invincibleRef.current && st.pits.some((p) => heroCenterX > p.x + 6 && heroCenterX < p.x + p.w - 6)
+        const diveActive = diveStartRef.current != null && (st.playT - diveStartRef.current) >= 0 && (st.playT - diveStartRef.current) < DIVE_DUR   // 潜水演出中は無敵＆穴落ち無効（公平に）
+        const feetOverPit = !invincibleRef.current && !diveActive && st.pits.some((p) => heroCenterX > p.x + 6 && heroCenterX < p.x + p.w - 6)
         // 着地できる面：地面(穴の上は無し)＋上から乗れる空中ブロック（一方通行）
         let support = feetOverPit ? Infinity : baseY
         for (const pl of st.platforms) {
@@ -535,9 +540,9 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         // 当たり判定は描画より前に（死亡時は最初から悲しい顔だけ）
         const hbW = heroH * 0.46, hbH = heroH * 0.8
         const hb = { x: heroCenterX - hbW / 2, y: st.heroY - hbH, w: hbW, h: hbH }
-        for (const o of st.obstacles) { if (hb.x < o.x + o.w * 0.82 && hb.x + hb.w > o.x + o.w * 0.18 && st.heroY > baseY - o.h * 0.82) { die('obstacle'); break } }
-        if (phaseRef.current === 'playing') for (const e of st.enemies) { if (isShooter(e) || e.type === 'girl') continue; if (hb.x < e.x + e.w * 0.82 && hb.x + hb.w > e.x + e.w * 0.18 && st.heroY > baseY - e.h * 0.82) { die('enemy'); break } }  // 女の子は攻撃せず接触してもセーフ
-        if (phaseRef.current === 'playing') for (const b of st.bullets) { if (b.x + b.r > hb.x && b.x - b.r < hb.x + hb.w && b.y + b.r > hb.y && b.y - b.r < hb.y + hb.h) { die(b.bounce ? 'ball' : 'shot'); break } }
+        if (!diveActive) for (const o of st.obstacles) { if (hb.x < o.x + o.w * 0.82 && hb.x + hb.w > o.x + o.w * 0.18 && st.heroY > baseY - o.h * 0.82) { die('obstacle'); break } }
+        if (phaseRef.current === 'playing' && !diveActive) for (const e of st.enemies) { if (isShooter(e) || e.type === 'girl') continue; if (hb.x < e.x + e.w * 0.82 && hb.x + hb.w > e.x + e.w * 0.18 && st.heroY > baseY - e.h * 0.82) { die('enemy'); break } }  // 女の子は攻撃せず接触してもセーフ
+        if (phaseRef.current === 'playing' && !diveActive) for (const b of st.bullets) { if (b.x + b.r > hb.x && b.x - b.r < hb.x + hb.w && b.y + b.r > hb.y && b.y - b.r < hb.y + hb.h) { die(b.bounce ? 'ball' : 'shot'); break } }
         if (phaseRef.current === 'playing') for (const cn of st.coinsArr) { if (!cn.taken && Math.abs(cn.x - (hb.x + hb.w / 2)) < 22 && Math.abs(cn.y - (hb.y + hb.h / 2)) < heroH * 0.6) { cn.taken = true; st.coins++ } }
       }
 
@@ -562,6 +567,39 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         ctx.fillStyle = lpw([198, 178, 130], [44, 58, 74], nightA); ctx.fillRect(0, baseY + Math.round(groundH * 0.5), W, groundH)        // 濡れ砂（下層）
         ctx.fillStyle = lpw([176, 158, 114], [34, 46, 60], nightA)                                                                        // 小石/砂粒
         for (let x = -((st.scroll) % 70); x < W; x += 70) ctx.fillRect(Math.round(x), baseY + Math.round(groundH * 0.72), 16, 4)
+      }
+      // ===== Lv5→6「海にダイブ」トランジションの背景：着水(≈dp0.6)を境に水が下から満ちる。背景として描く＝障害物/主人公は隠れない =====
+      if (diveStartRef.current != null) {
+        const dp = (st.playT - diveStartRef.current) / DIVE_DUR
+        if (dp >= 0 && dp <= 1) {
+          const wp = Math.max(0, Math.min(1, (dp - 0.42) / 0.58))              // 着水以降に水位が上がる（それ以前は水上の景色のまま）
+          const e = wp * wp * (3 - 2 * wp)
+          const surfaceY = Math.round(H * (1 - e))                             // 下端→上端へ＝水位が上がる
+          // 1) 水面より上は「水上の景色」（空＋遠景の丘＋地面の草）で上書き＝まだ水の上
+          if (surfaceY > 0) {
+            ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, surfaceY); ctx.clip()
+            const sky2 = ctx.createLinearGradient(0, 0, 0, H); sky2.addColorStop(0, rgbS(P.sky[0])); sky2.addColorStop(0.55, rgbS(P.sky[1])); sky2.addColorStop(1, rgbS(P.sky[2]))
+            ctx.fillStyle = sky2; ctx.fillRect(0, 0, W, surfaceY)
+            hill(W, baseY, st.scroll * 0.45, rgbS(P.hillF), H * 0.07, 150, 4)
+            if (surfaceY > baseY) { ctx.fillStyle = rgbS(P.grass); ctx.fillRect(0, baseY, W, surfaceY - baseY); ctx.fillStyle = rgbS(P.grassEdge); ctx.fillRect(0, baseY, W, 5) }
+            ctx.restore()
+          }
+          // 2) 水面の白い泡立ち（波打つ帯。水が上がり始めてから）
+          if (wp > 0.02) {
+            ctx.save(); ctx.fillStyle = 'rgba(232,252,255,0.95)'
+            ctx.beginPath(); ctx.moveTo(0, surfaceY - 18)
+            for (let x = 0; x <= W; x += 10) ctx.lineTo(x, surfaceY + Math.sin(x * 0.07 + st.playT * 11) * 7)
+            ctx.lineTo(W, surfaceY - 18); ctx.closePath(); ctx.fill(); ctx.restore()
+          }
+          // 3) 着水の白フラッシュ（主人公が水面にぶつかる瞬間 ≈dp0.6）
+          if (dp > 0.5 && dp < 0.78) { ctx.save(); ctx.globalAlpha = Math.max(0, 1 - Math.abs(dp - 0.62) / 0.16) * 0.45; ctx.fillStyle = '#eafdff'; ctx.fillRect(0, 0, W, H); ctx.restore() }
+          // 4) 泡の急増（着水後・水面付近から立ち上る）
+          if (wp > 0) {
+            ctx.save(); ctx.strokeStyle = '#eafcff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.55 * wp * (1 - dp * 0.5)
+            for (let i = 0; i < 26; i++) { const yy = surfaceY + 30 + ((i * 17) % 100) / 100 * (H * 0.5) - ((st.playT * 80) % (H * 0.5)); const xx = (((i * 53) % 100) / 100 * W + Math.sin(st.playT * 3 + i) * 9 + W) % W; ctx.beginPath(); ctx.arc(xx, ((yy % H) + H) % H, 2 + (i % 4), 0, Math.PI * 2); ctx.stroke() }
+            ctx.restore()
+          }
+        }
       }
       // 落とし穴（地面をくり抜いた暗い谷）
       const pitGrad = ctx.createLinearGradient(0, baseY, 0, H); pitGrad.addColorStop(0, '#3a2b1e'); pitGrad.addColorStop(1, '#14100a')   // 1フレーム1回生成（穴ごとに作らない）
@@ -626,6 +664,23 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         if (spr) { const bigH = Math.min(H * 0.5, 260), scale = bigH / spr.height, bw = spr.width * scale; ctx.save(); ctx.translate(W * 0.5, H * 0.5); ctx.rotate(-0.1); ctx.drawImage(spr, -bw / 2, -bigH / 2, Math.round(bw), Math.round(bigH)); ctx.restore() }
         ctx.textAlign = 'center'; ctx.fillStyle = '#ffe27a'; ctx.font = `700 ${Math.round(Math.min(46, W * 0.07))}px ${POP_FONT}`
         ctx.fillText('やられた…', W * 0.5, H * 0.2); ctx.textAlign = 'left'
+      } else if (diveStartRef.current != null && (st.playT - diveStartRef.current) >= 0 && (st.playT - diveStartRef.current) < DIVE_DUR) {
+        // ===== 主人公の海ダイブ演出：ジャンプ→頭から突っ込む弧→着水しぶき→水中で走り再開（一周回って直立） =====
+        const dp = (st.playT - diveStartRef.current) / DIVE_DUR
+        const dspr = A.current.jump || A.current.run[0] || A.current.hurts[0]
+        // キーフレーム [dp, 上方向の高さ(heroH倍), 回転(rad), 前方向x(heroH倍)]
+        const KF = [[0, 0, 0, 0], [0.12, 0, 0, 0], [0.34, 2.1, -0.7, 0.3], [0.5, 1.0, -2.0, 0.55], [0.62, -0.05, -3.14, 0.62], [0.8, 0, -5.0, 0.4], [1, 0, -6.283, 0]]
+        let yUp = 0, rot = 0, xo = 0
+        for (let i = 0; i < KF.length - 1; i++) { const a = KF[i], b = KF[i + 1]; if (dp >= a[0] && dp <= b[0]) { let u = (dp - a[0]) / (b[0] - a[0]); u = u * u * (3 - 2 * u); yUp = a[1] + (b[1] - a[1]) * u; rot = a[2] + (b[2] - a[2]) * u; xo = a[3] + (b[3] - a[3]) * u; break } }
+        const hx = heroCenterX + xo * heroH, hy = baseY - yUp * heroH
+        if (dspr) { ctx.save(); ctx.translate(hx, hy - heroH * 0.5); ctx.rotate(rot); ctx.imageSmoothingEnabled = false; const sc = heroH / dspr.height, w = dspr.width * sc; ctx.drawImage(dspr, -Math.round(w / 2), -Math.round(heroH / 2), Math.round(w), Math.round(heroH)); ctx.restore() }
+        // 着水しぶき（entry≈dp0.64 前後に水面から白い飛沫が放射状に上がる）
+        if (dp > 0.52 && dp < 0.9) {
+          const si = Math.max(0, 1 - Math.abs(dp - 0.64) / 0.26), ex = heroCenterX + 0.6 * heroH
+          ctx.save(); ctx.fillStyle = 'rgba(236,253,255,0.92)'
+          for (let i = 0; i < 16; i++) { const ang = -Math.PI * (0.12 + 0.76 * (i / 15)); const sp = heroH * (0.4 + 1.3 * si) * (0.6 + (i % 4) * 0.16); ctx.globalAlpha = 0.8 * si; ctx.beginPath(); ctx.arc(ex + Math.cos(ang) * sp, baseY + Math.sin(ang) * sp, 2 + (i % 3), 0, Math.PI * 2); ctx.fill() }
+          ctx.restore()
+        }
       } else {
         const frames = A.current.run
         const STRIDE = heroH * 0.34                                   // 1コマ進む地面スクロール量（小さめ＝コマ速UPで滑らか）
