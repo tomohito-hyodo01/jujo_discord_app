@@ -89,6 +89,7 @@ interface St {
   heroY: number; vy: number; jumps: number; falling: boolean; grounded: boolean; distM: number; coins: number; playT: number
   obstacles: Obstacle[]; enemies: Enemy[]; bullets: Bullet[]; pits: Pit[]; platforms: Platform[]; coinsArr: Coin[]
   nextSpawnT: number; nextCoinT: number; nextPlatT: number; scroll: number
+  nextReactT: number; react: { onset: number; rt: number | null; show: number } | null; reactRTs: number[]   // ⚡反応イベント（テニス球出し・管理者テスト）
 }
 
 export default function RunnerGame({ username, discordId, onExit }: RunnerProps) {
@@ -96,7 +97,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const scoreElRef = useRef<HTMLSpanElement | null>(null)
   const bestKey = 'jujo_run_best_v1_' + (discordId || username || 'dev')
   const [phase, setPhase] = useState<'ready' | 'playing' | 'over'>('ready')
-  const [result, setResult] = useState<{ score: number; coins: number; best: number; newBest: boolean; cause: string } | null>(null)
+  const [result, setResult] = useState<{ score: number; coins: number; best: number; newBest: boolean; cause: string; reactMed?: number; reactN?: number } | null>(null)
   const [showCard, setShowCard] = useState(false)
   const [assetsReady, setAssetsReady] = useState(false)
   const [invincible, setInvincible] = useState(false)   // 管理者専用の無敵モード（ステージ変化の確認用）
@@ -128,7 +129,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const diveStartRef = useRef<number | null>(null)   // Lv5→6の潜水演出の開始playT（null=非アクティブ）
   const showCardRef = useRef(false)
   const overTimer = useRef<number | undefined>(undefined)
-  const stRef = useRef<St>({ heroY: 0, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 0, nextCoinT: 0, nextPlatT: 0, scroll: 0 })
+  const stRef = useRef<St>({ heroY: 0, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 0, nextCoinT: 0, nextPlatT: 0, scroll: 0, nextReactT: 0, react: null, reactRTs: [] })
 
   // ジャンプ初速・重力（時間ベース）：頂点≒heroH*1.5、滞空≒0.78秒になるよう算出
   const jumpParams = (h: number) => { const heroH = Math.min(110, Math.max(60, h * 0.16)); const apex = heroH * 0.82, T = 0.6; const VJ = 4 * apex / T; return { VJ, GRAV: 2 * VJ / T } }
@@ -172,7 +173,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     const c = canvasRef.current; if (!c) return
     const groundH = Math.round(c.height * 0.22), baseY = c.height - groundH
     const sl = startLevelRef.current                                   // 管理者の開始レベル（0=Lv1）。playTを進めて難易度・ステージ・時間帯ごとジャンプ
-    stRef.current = { heroY: baseY, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: sl * 4 * DAY_PERIOD, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 1.0, nextCoinT: 1.2, nextPlatT: 3.0, scroll: 0 }
+    stRef.current = { heroY: baseY, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: sl * 4 * DAY_PERIOD, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 1.0, nextCoinT: 1.2, nextPlatT: 3.0, scroll: 0, nextReactT: 4, react: null, reactRTs: [] }
     if (overTimer.current) { window.clearTimeout(overTimer.current); overTimer.current = undefined }
     showCardRef.current = false; setShowCard(false)
     diveStartRef.current = (sl === WATER_LEVEL) ? stRef.current.playT : null   // 開始Lvがちょうど6なら、その瞬間から潜水演出（確認/演出用）
@@ -181,7 +182,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
-  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
+  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.react && st.react.rt == null) { const rt = Math.round(performance.now() - st.react.onset); st.react.rt = rt; st.react.show = performance.now() + 800; if (rt >= 90 && rt < 850) { st.reactRTs.push(rt); st.coins += 2 } }   /* ⚡反応イベントへの返答＝RT計測＋ボーナス（ジャンプ自体は通常通り続行） */ if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
   const press = () => {
     if (showRankRef.current) return   // ランキング表示中は入力でゲームを始めない
     if (phaseRef.current === 'ready') { if (assetsReadyRef.current) startGame() }
@@ -271,7 +272,8 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
       const nb = !tainted && score > bn; if (nb) { try { localStorage.setItem(bestKey, String(score)) } catch { /* */ }; setBest(score) }
       hurtIdxRef.current = Math.floor(Math.random() * Math.max(1, A.current.hurts.length))   // やられ顔をランダム選択
       setRankingSaved(!tainted)
-      setResult({ score, coins: st.coins, best: tainted ? bn : Math.max(bn, score), newBest: nb, cause }); setPhase('over')
+      const rr = [...st.reactRTs].sort((a, b) => a - b); const reactN = rr.length; const reactMed = reactN ? (reactN % 2 ? rr[(reactN - 1) / 2] : Math.round((rr[reactN / 2 - 1] + rr[reactN / 2]) / 2)) : undefined
+      setResult({ score, coins: st.coins, best: tainted ? bn : Math.max(bn, score), newBest: nb, cause, reactMed, reactN }); setPhase('over')
       overTimer.current = window.setTimeout(() => { showCardRef.current = true; setShowCard(true) }, 950)
 
       // サーバへスコア送信＝利用者間で共有するベスト5ランキングを取得（無敵モードのランは送信しない）
@@ -483,6 +485,17 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
             }
           }
           st.nextPlatT = 2.2 + Math.random() * 3.0
+        }
+        // ⚡反応イベント（テニスの球出し）：管理者のみ。障害物の無い“空き区間”かつ接地中に突発合図→ジャンプで反応＝RTをms計測。外しても罰なし＝ボーナスのみ。
+        if (isAdmin) {
+          if (st.react && performance.now() > st.react.show) st.react = null
+          st.nextReactT -= dt
+          if (st.nextReactT <= 0 && !st.react) {
+            const zone = heroCenterX + SCROLL * 0.95
+            const busy = st.obstacles.some((o) => o.x < zone && o.x + o.w > heroCenterX - heroH * 0.5) || st.pits.some((p) => p.x < zone && p.x + p.w > heroCenterX - heroH * 0.5)
+            if (st.grounded && !busy) { const t = performance.now(); st.react = { onset: t, rt: null, show: t + 850 }; st.nextReactT = 8 + Math.random() * 6 }
+            else st.nextReactT = 0.4   // 障害物が近い→少し待って再試行
+          }
         }
         st.nextCoinT -= dt
         if (st.nextCoinT <= 0) {
@@ -739,6 +752,23 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         }
       }
 
+      // ⚡反応イベントの描画（テニスボール＋「今だ！」、返答後はRT表示）
+      if (st.react) {
+        const r = st.react, bx = heroCenterX + heroH * 0.75, by = st.heroY - heroH * 1.15
+        ctx.save(); ctx.textAlign = 'center'
+        if (r.rt == null) {
+          ctx.globalAlpha = 0.14 + 0.1 * Math.sin(st.playT * 28); ctx.fillStyle = '#d8f24a'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1   // 軽いフラッシュ
+          ctx.fillStyle = '#c8e84a'; ctx.strokeStyle = '#54631a'; ctx.lineWidth = Math.max(2, heroH * 0.03)
+          ctx.beginPath(); ctx.arc(bx, by, heroH * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+          ctx.beginPath(); ctx.arc(bx - heroH * 0.12, by, heroH * 0.3, -0.6, 0.6); ctx.stroke()   // 白シーム
+          ctx.fillStyle = '#fff'; ctx.strokeStyle = '#e8553a'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.32)}px ${POP_FONT}`
+          ctx.strokeText('今だ！', heroCenterX, by - heroH * 0.55); ctx.fillText('今だ！', heroCenterX, by - heroH * 0.55)
+        } else {
+          ctx.fillStyle = r.rt < 300 ? '#16a34a' : '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.3)}px ${POP_FONT}`
+          const txt = `${r.rt}ms +2🪙`; ctx.strokeText(txt, heroCenterX, by); ctx.fillText(txt, heroCenterX, by)
+        }
+        ctx.restore(); ctx.textAlign = 'left'
+      }
       if (scoreElRef.current && phaseRef.current === 'playing') scoreElRef.current.textContent = `${Math.floor(st.distM)}m 🪙${st.coins}`
       // 検証用フック（localhost / /preview のみ。本番では無効）。クリア可能性・被り判定の自動計測に使う。
       if (typeof window !== 'undefined' && (location.hostname === 'localhost' || location.pathname.includes('/preview/'))) (window as { __ebi?: unknown }).__ebi = { st, baseY, heroH, heroCenterX, SCROLL, W, H, groundH, phase: phaseRef.current }
@@ -817,6 +847,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
             {causeText(result.cause) && <div style={{ fontSize: 13, color: '#8a5a3c', marginTop: 2 }}>{causeText(result.cause)}</div>}
             <div style={{ fontSize: 19, marginTop: 6 }}>スコア {result.score}m</div>
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>距離 {result.score - result.coins * 10}m ／ コイン {result.coins}（×10）</div>
+            {result.reactN ? <div style={{ fontSize: 14, color: '#16a34a', fontWeight: 800, marginTop: 6 }}>⚡反応 平均 {result.reactMed}ms（×{result.reactN}）</div> : null}
             {result.newBest ? <div style={{ fontSize: 16, color: SUN, fontWeight: 800, marginTop: 8 }}>🎉 ベスト更新！ {result.best}m</div> : <div style={{ fontSize: 13, color: '#1f9d55', marginTop: 8 }}>BEST {result.best}m</div>}
 
             {!rankingSaved && <div style={{ fontSize: 12, color: '#b45309', fontWeight: 700, marginTop: 6 }}>🛡 無敵モードのため記録は保存されません</div>}
