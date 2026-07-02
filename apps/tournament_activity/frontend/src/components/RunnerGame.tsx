@@ -89,7 +89,7 @@ interface St {
   heroY: number; vy: number; jumps: number; falling: boolean; grounded: boolean; distM: number; coins: number; playT: number
   obstacles: Obstacle[]; enemies: Enemy[]; bullets: Bullet[]; pits: Pit[]; platforms: Platform[]; coinsArr: Coin[]
   nextSpawnT: number; nextCoinT: number; nextPlatT: number; scroll: number
-  nextReactT: number; react: { onset: number; rt: number | null; show: number } | null; reactRTs: number[]   // ⚡反応イベント（テニス球出し・管理者テスト）
+  reactRTs: number[]; dodge: { phase: 'warn' | 'armed' | 'live' | 'done'; idx: number; n: number; onset: number; tNext: number; ballX: number | null; respT: number | null; rts: number[]; med: number } | null   // ⚡避けろ！チャレンジ（反応計測・管理者テスト）
 }
 
 export default function RunnerGame({ username, discordId, onExit }: RunnerProps) {
@@ -129,7 +129,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const diveStartRef = useRef<number | null>(null)   // Lv5→6の潜水演出の開始playT（null=非アクティブ）
   const showCardRef = useRef(false)
   const overTimer = useRef<number | undefined>(undefined)
-  const stRef = useRef<St>({ heroY: 0, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 0, nextCoinT: 0, nextPlatT: 0, scroll: 0, nextReactT: 0, react: null, reactRTs: [] })
+  const stRef = useRef<St>({ heroY: 0, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: 0, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 0, nextCoinT: 0, nextPlatT: 0, scroll: 0, reactRTs: [], dodge: null })
 
   // ジャンプ初速・重力（時間ベース）：頂点≒heroH*1.5、滞空≒0.78秒になるよう算出
   const jumpParams = (h: number) => { const heroH = Math.min(110, Math.max(60, h * 0.16)); const apex = heroH * 0.82, T = 0.6; const VJ = 4 * apex / T; return { VJ, GRAV: 2 * VJ / T } }
@@ -173,7 +173,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     const c = canvasRef.current; if (!c) return
     const groundH = Math.round(c.height * 0.22), baseY = c.height - groundH
     const sl = startLevelRef.current                                   // 管理者の開始レベル（0=Lv1）。playTを進めて難易度・ステージ・時間帯ごとジャンプ
-    stRef.current = { heroY: baseY, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: sl * 4 * DAY_PERIOD, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 1.0, nextCoinT: 1.2, nextPlatT: 3.0, scroll: 0, nextReactT: 4, react: null, reactRTs: [] }
+    stRef.current = { heroY: baseY, vy: 0, jumps: 0, falling: false, grounded: true, distM: 0, coins: 0, playT: sl * 4 * DAY_PERIOD, obstacles: [], enemies: [], bullets: [], pits: [], platforms: [], coinsArr: [], nextSpawnT: 1.0, nextCoinT: 1.2, nextPlatT: 3.0, scroll: 0, reactRTs: [], dodge: null }
     if (overTimer.current) { window.clearTimeout(overTimer.current); overTimer.current = undefined }
     showCardRef.current = false; setShowCard(false)
     diveStartRef.current = (sl === WATER_LEVEL) ? stRef.current.playT : null   // 開始Lvがちょうど6なら、その瞬間から潜水演出（確認/演出用）
@@ -182,7 +182,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
-  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.react && st.react.rt == null) { const rt = Math.round(performance.now() - st.react.onset); st.react.rt = rt; st.react.show = performance.now() + 800; if (rt >= 90 && rt < 850) { st.reactRTs.push(rt); st.coins += 2 } }   /* ⚡反応イベントへの返答＝RT計測＋ボーナス（ジャンプ自体は通常通り続行） */ if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
+  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.dodge && st.dodge.phase === 'live' && st.dodge.respT == null) { const rt = Math.round(performance.now() - st.dodge.onset); if (rt >= 90) { st.dodge.respT = rt; st.dodge.rts.push(rt); st.reactRTs.push(rt) } }   /* ⚡避けろ！：ライブ中のジャンプ＝反応。RTを記録（ジャンプ自体は続行＝これでボールを避ける） */if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
   const press = () => {
     if (showRankRef.current) return   // ランキング表示中は入力でゲームを始めない
     if (phaseRef.current === 'ready') { if (assetsReadyRef.current) startGame() }
@@ -367,9 +367,10 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           setLevelUp(true)
           if (levelUpTimer.current) window.clearTimeout(levelUpTimer.current)
           levelUpTimer.current = window.setTimeout(() => setLevelUp(false), 1600)
+          if (isAdmin && !st.dodge && lv < WATER_LEVEL) { st.dodge = { phase: 'warn', idx: 0, n: 3, onset: 0, tNext: st.playT + 1.2, ballX: null, respT: null, rts: [], med: 0 }; st.obstacles = []; st.pits = []; st.enemies = []; st.bullets = []; st.coinsArr = [] }   // ⚡避けろ！チャレンジ起動（管理者テスト・陸上Lvのみ＝潜水中はジャンプ制限で不公平になるため水中Lvは除外）
         }
         // レベル1・2の終盤に、敵を1体だけランダムで出す（通常はLv3まで敵なしなので終わりに腕試し）
-        if (lv <= 1 && endBossLevelRef.current < lv && (st.playT % (4 * DAY_PERIOD)) / (4 * DAY_PERIOD) >= 0.85) {
+        if (lv <= 1 && !st.dodge && endBossLevelRef.current < lv && (st.playT % (4 * DAY_PERIOD)) / (4 * DAY_PERIOD) >= 0.85) {
           endBossLevelRef.current = lv
           const bossTypes: EnemyType[] = ['boar', 'tennis', 'sword', 'sniper']
           const bt = bossTypes[Math.floor(Math.random() * bossTypes.length)]
@@ -396,7 +397,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
 
         // 出現：障害物は「連続した塊（クラスター）」でランダムに配置。各塊は必ず1ジャンプで越えられる幅(reach)に収め、塊と塊の間には着地できる地面(島)をあける＝2段ジャンプで必ずクリア可能。
         st.nextSpawnT -= dt
-        if (st.nextSpawnT <= 0) {
+        if (st.nextSpawnT <= 0 && !st.dodge) {
           const m = st.distM
           const reach = SCROLL * 0.6 - heroH * 0.5            // 1ジャンプ(滞空0.6s)で越えられる接地ハザード幅の安全側見積り
           const maxRun = Math.max(heroH * 0.9, reach * 0.82)  // 1つの連続塊の最大幅（マージン込み）
@@ -474,7 +475,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           }
         }
         st.nextPlatT -= dt
-        if (st.nextPlatT <= 0) {
+        if (st.nextPlatT <= 0 && !st.dodge) {
           if (st.distM >= 35) {
             const pw = heroH * (2.0 + Math.random() * 1.8), py = baseY - heroH * (1.0 + Math.random() * 0.4)
             const plat = { x: W + 30, y: py, w: pw }
@@ -486,19 +487,27 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           }
           st.nextPlatT = 2.2 + Math.random() * 3.0
         }
-        // ⚡反応イベント（テニスの球出し）：管理者のみ。障害物の無い“空き区間”かつ接地中に突発合図→ジャンプで反応＝RTをms計測。外しても罰なし＝ボーナスのみ。
-        if (isAdmin) {
-          if (st.react && performance.now() > st.react.show) st.react = null
-          st.nextReactT -= dt
-          if (st.nextReactT <= 0 && !st.react) {
-            const zone = heroCenterX + SCROLL * 0.95
-            const busy = st.obstacles.some((o) => o.x < zone && o.x + o.w > heroCenterX - heroH * 0.5) || st.pits.some((p) => p.x < zone && p.x + p.w > heroCenterX - heroH * 0.5)
-            if (st.grounded && !busy) { const t = performance.now(); st.react = { onset: t, rt: null, show: t + 850 }; st.nextReactT = 8 + Math.random() * 6 }
-            else st.nextReactT = 0.4   // 障害物が近い→少し待って再試行
+        // ⚡避けろ！チャレンジ（管理者テスト）：クリアしたフィールドに速いボールが連続飛来。ジャンプで避け、発射→ジャンプのRTを計測。被弾＝一発アウト。
+        if (st.dodge) {
+          const d = st.dodge
+          const BALL_SPD = (W + heroH * 0.3 - heroCenterX) / 0.6   // 発射から約0.6秒で到達＝眺めて跳ぶ余裕を与えず“反応”を強制（＝計測が反応になる）
+          if (d.phase === 'warn' && st.playT >= d.tNext) { d.phase = 'armed'; d.tNext = st.playT + 0.4 + Math.random() * 1.0 }
+          else if (d.phase === 'armed' && st.playT >= d.tNext) { d.phase = 'live'; d.onset = performance.now(); d.ballX = W + heroH * 0.3; d.respT = null }
+          else if (d.phase === 'live' && d.ballX != null) {
+            d.ballX -= BALL_SPD * dt
+            if (d.ballX <= heroCenterX) {                              // ボールが主人公に到達＝判定
+              const airborne = st.heroY < baseY - heroH * 0.55         // ボール直径ぶん(≈0.52)より上に居れば回避成功
+              if (airborne) {
+                d.idx += 1
+                if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8; d.ballX = null; st.coins += 5 }
+                else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 0.7; d.ballX = null }
+              } else { d.ballX = null; die('dodge') }
+            }
           }
+          else if (d.phase === 'done' && st.playT >= d.tNext) { st.dodge = null }
         }
         st.nextCoinT -= dt
-        if (st.nextCoinT <= 0) {
+        if (st.nextCoinT <= 0 && !st.dodge) {
           const n = 3 + Math.floor(Math.random() * 3)
           const rowX0 = W + 24, rowX1 = W + 24 + (n - 1) * 34
           // この行のx範囲に重なる足場があれば、その上に整列＝足場と被らない（乗って取るごほうび）。無ければ地面寄りのランダム高さ
@@ -752,20 +761,29 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         }
       }
 
-      // ⚡反応イベントの描画（テニスボール＋「今だ！」、返答後はRT表示）
-      if (st.react) {
-        const r = st.react, bx = heroCenterX + heroH * 0.75, by = st.heroY - heroH * 1.15
+      // ⚡避けろ！チャレンジの描画（警告→ボール飛来→RT／クリア表示）
+      if (st.dodge) {
+        const d = st.dodge
         ctx.save(); ctx.textAlign = 'center'
-        if (r.rt == null) {
-          ctx.globalAlpha = 0.14 + 0.1 * Math.sin(st.playT * 28); ctx.fillStyle = '#d8f24a'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1   // 軽いフラッシュ
+        if (d.phase === 'warn') {
+          ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(0, 0, W, H)
+          ctx.fillStyle = '#ff3b30'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.06); ctx.font = `800 ${Math.round(heroH * 0.58)}px ${POP_FONT}`
+          ctx.strokeText('⚠️ 避けろ！', W / 2, H * 0.4); ctx.fillText('⚠️ 避けろ！', W / 2, H * 0.4)
+          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.24)}px ${POP_FONT}`; ctx.fillText(`ボールをジャンプでかわせ（全${d.n}球）`, W / 2, H * 0.4 + heroH * 0.5)
+        } else if (d.phase === 'live' && d.ballX != null) {
+          const since = performance.now() - d.onset
+          if (since < 120) { ctx.globalAlpha = 0.25 * (1 - since / 120); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }   // 発射フラッシュ
+          const by = baseY - heroH * 0.26
           ctx.fillStyle = '#c8e84a'; ctx.strokeStyle = '#54631a'; ctx.lineWidth = Math.max(2, heroH * 0.03)
-          ctx.beginPath(); ctx.arc(bx, by, heroH * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-          ctx.beginPath(); ctx.arc(bx - heroH * 0.12, by, heroH * 0.3, -0.6, 0.6); ctx.stroke()   // 白シーム
-          ctx.fillStyle = '#fff'; ctx.strokeStyle = '#e8553a'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.32)}px ${POP_FONT}`
-          ctx.strokeText('今だ！', heroCenterX, by - heroH * 0.55); ctx.fillText('今だ！', heroCenterX, by - heroH * 0.55)
-        } else {
-          ctx.fillStyle = r.rt < 300 ? '#16a34a' : '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.3)}px ${POP_FONT}`
-          const txt = `${r.rt}ms +2🪙`; ctx.strokeText(txt, heroCenterX, by); ctx.fillText(txt, heroCenterX, by)
+          ctx.beginPath(); ctx.arc(d.ballX, by, heroH * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+          ctx.beginPath(); ctx.arc(d.ballX + heroH * 0.12, by, heroH * 0.3, Math.PI - 0.6, Math.PI + 0.6); ctx.stroke()   // 白シーム
+          if (d.respT != null) { ctx.fillStyle = d.respT < 300 ? '#16a34a' : '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.3)}px ${POP_FONT}`; ctx.strokeText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2); ctx.fillText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2) }
+          ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 3; ctx.font = `800 ${Math.round(heroH * 0.22)}px ${POP_FONT}`; ctx.strokeText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14); ctx.fillText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14)
+        } else if (d.phase === 'done') {
+          ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, 0, W, H)
+          ctx.fillStyle = '#16a34a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.06); ctx.font = `800 ${Math.round(heroH * 0.45)}px ${POP_FONT}`
+          ctx.strokeText(`⚡ 反応 ${d.med}ms`, W / 2, H * 0.4); ctx.fillText(`⚡ 反応 ${d.med}ms`, W / 2, H * 0.4)
+          ctx.fillStyle = '#ffd23f'; ctx.font = `700 ${Math.round(heroH * 0.24)}px ${POP_FONT}`; ctx.fillText('クリア！ +5🪙', W / 2, H * 0.4 + heroH * 0.45)
         }
         ctx.restore(); ctx.textAlign = 'left'
       }
@@ -778,7 +796,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     return () => { cancelAnimationFrame(raf); if (overTimer.current) window.clearTimeout(overTimer.current); if (levelUpTimer.current) window.clearTimeout(levelUpTimer.current) }
   }, [])
 
-  const causeText = (cause?: string) => cause === 'pit' ? '穴に落ちてしまった…' : cause === 'shot' ? '撃たれてしまった…' : cause === 'ball' ? 'テニスボールが直撃…' : cause === 'enemy' ? '敵にぶつかった…' : cause === 'obstacle' ? '障害物にぶつかった…' : ''
+  const causeText = (cause?: string) => cause === 'pit' ? '穴に落ちてしまった…' : cause === 'shot' ? '撃たれてしまった…' : cause === 'ball' ? 'テニスボールが直撃…' : cause === 'enemy' ? '敵にぶつかった…' : cause === 'obstacle' ? '障害物にぶつかった…' : cause === 'dodge' ? 'ボールを避けきれなかった…' : ''
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: '#5fb0ff', overflow: 'hidden', touchAction: 'none', fontFamily: POP_FONT }}
