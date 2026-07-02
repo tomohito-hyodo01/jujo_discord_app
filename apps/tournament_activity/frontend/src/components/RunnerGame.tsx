@@ -487,7 +487,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           }
           st.nextPlatT = 2.2 + Math.random() * 3.0
         }
-        // ⚡避けろ！チャレンジ（管理者テスト）：クリアしたフィールドに速いボールが連続飛来。ジャンプで避け、発射→ジャンプのRTを計測。被弾＝一発アウト。
+        // ⚡避けろ！チャレンジ（管理者テスト）：クリアしたフィールドに速いボールが連続飛来。ジャンプで避け、発射→ジャンプのRTを計測。回避成功でボーナスコイン（被弾しても死なない＝罰なし）。
         if (st.dodge) {
           const d = st.dodge
           const BALL_SPD = (W + heroH * 0.3 - heroCenterX) / 0.6   // 発射から約0.6秒で到達＝眺めて跳ぶ余裕を与えず“反応”を強制（＝計測が反応になる）
@@ -495,13 +495,11 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           else if (d.phase === 'armed' && st.playT >= d.tNext) { d.phase = 'live'; d.onset = performance.now(); d.ballX = W + heroH * 0.3; d.respT = null }
           else if (d.phase === 'live' && d.ballX != null) {
             d.ballX -= BALL_SPD * dt
-            if (d.ballX <= heroCenterX) {                              // ボールが主人公に到達＝判定
-              const airborne = st.heroY < baseY - heroH * 0.55         // ボール直径ぶん(≈0.52)より上に居れば回避成功
-              if (airborne) {
-                d.idx += 1
-                if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8; d.ballX = null; st.coins += 5 }
-                else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 0.7; d.ballX = null }
-              } else { d.ballX = null; die('dodge') }
+            if (d.ballX <= heroCenterX) {                              // ボールが主人公に到達＝判定（被弾しても死なない＝罰なし）
+              if (st.heroY < baseY - heroH * 0.55) st.coins += 3        // ボール直径ぶん(≈0.52)より上に跳べていれば回避成功→ボーナスコイン。外してもそのまま次へ
+              d.idx += 1; d.ballX = null
+              if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8 }
+              else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 0.7 }
             }
           }
           else if (d.phase === 'done' && st.playT >= d.tNext) { st.dodge = null }
@@ -766,10 +764,13 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         const d = st.dodge
         ctx.save(); ctx.textAlign = 'center'
         if (d.phase === 'warn') {
-          ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(0, 0, W, H)
-          ctx.fillStyle = '#ff3b30'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.06); ctx.font = `800 ${Math.round(heroH * 0.58)}px ${POP_FONT}`
-          ctx.strokeText('⚠️ 避けろ！', W / 2, H * 0.4); ctx.fillText('⚠️ 避けろ！', W / 2, H * 0.4)
-          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.24)}px ${POP_FONT}`; ctx.fillText(`ボールをジャンプでかわせ（全${d.n}球）`, W / 2, H * 0.4 + heroH * 0.5)
+          ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, H * 0.30, W, H * 0.26)                       // 暗い帯（ロックマンのボス前WARNING風）
+          const rl = Math.max(3, heroH * 0.04); ctx.fillStyle = '#ff2b2b'; ctx.fillRect(0, H * 0.30, W, rl); ctx.fillRect(0, H * 0.56 - rl, W, rl)   // 帯の上下に赤ライン
+          if (Math.floor(st.playT * 6) % 2 === 0) {                                                       // 赤で点滅（ロックマン風）
+            ctx.fillStyle = '#ff2b2b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.5)}px ${POP_FONT}`
+            ctx.strokeText('WARNING', W / 2, H * 0.44); ctx.fillText('WARNING', W / 2, H * 0.44)
+          }
+          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.19)}px ${POP_FONT}`; ctx.fillText(`ボールをジャンプでかわせ！（全${d.n}球）`, W / 2, H * 0.51)
         } else if (d.phase === 'live' && d.ballX != null) {
           const since = performance.now() - d.onset
           if (since < 120) { ctx.globalAlpha = 0.25 * (1 - since / 120); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }   // 発射フラッシュ
@@ -783,7 +784,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, 0, W, H)
           ctx.fillStyle = '#16a34a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.06); ctx.font = `800 ${Math.round(heroH * 0.45)}px ${POP_FONT}`
           ctx.strokeText(`⚡ 反応 ${d.med}ms`, W / 2, H * 0.4); ctx.fillText(`⚡ 反応 ${d.med}ms`, W / 2, H * 0.4)
-          ctx.fillStyle = '#ffd23f'; ctx.font = `700 ${Math.round(heroH * 0.24)}px ${POP_FONT}`; ctx.fillText('クリア！ +5🪙', W / 2, H * 0.4 + heroH * 0.45)
+          ctx.fillStyle = '#ffd23f'; ctx.font = `700 ${Math.round(heroH * 0.24)}px ${POP_FONT}`; ctx.fillText('ナイスリターン！', W / 2, H * 0.4 + heroH * 0.45)
         }
         ctx.restore(); ctx.textAlign = 'left'
       }
