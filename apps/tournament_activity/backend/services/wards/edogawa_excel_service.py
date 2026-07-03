@@ -85,11 +85,11 @@ class EdogawaExcelService(BaseExcelService):
             # BC列: 氏名（結合セル）
             self._set_cell_value(ws, f'B{row}', player['player_name'])
 
-            # D列: 生年月日
+            # D列: 生年月日（YYYY/MM/DD形式の文字列で出力）
             birth_date = player['birth_date']
             if isinstance(birth_date, str):
                 birth_date = datetime.strptime(birth_date, "%Y-%m-%d").date()
-            self._set_cell_value(ws, f'D{row}', birth_date)
+            self._set_cell_value(ws, f'D{row}', birth_date.strftime("%Y/%m/%d") if birth_date else "")
 
             # E列: 年齢（計算式を維持するため、ここでは触らない）
             # ※テンプレートに既に計算式が入っているため
@@ -178,11 +178,11 @@ class EdogawaExcelService(BaseExcelService):
                 # C列: 氏名
                 self._set_cell_value(ws, f'C{row}', player['player_name'])
 
-                # D列: 生年月日
+                # D列: 生年月日（YYYY/MM/DD形式の文字列で出力）
                 birth_date = player['birth_date']
                 if isinstance(birth_date, str):
                     birth_date = datetime.strptime(birth_date, "%Y-%m-%d").date()
-                self._set_cell_value(ws, f'D{row}', birth_date)
+                self._set_cell_value(ws, f'D{row}', birth_date.strftime("%Y/%m/%d") if birth_date else "")
 
                 # E列: 所属名
                 self._set_cell_value(ws, f'E{row}', player.get('affiliated_club', ''))
