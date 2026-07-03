@@ -362,16 +362,23 @@ async def generate_excel(request: ExcelGenerationRequest):
                 error="Failed to generate Excel files"
             )
 
-        # 5. Discordチャンネルにファイルを送信
-        discord_service = DiscordFileService()
-        file_urls = await discord_service.upload_tournament_files(
-            ward_id=ward_id,
-            tournament_name=tournament_name,
-            file_paths=file_paths
-        )
-
         # file_pathsからファイル名を抽出
         generated_files = {key: Path(path).name for key, path in file_paths.items()}
+
+        # 5. Discordチャンネルにファイルを送信（ベストエフォート）。
+        #    この機能の主目的は「その場で生成→ダウンロード」なので、Discord送信が
+        #    失敗（チャンネル削除・権限不足等）してもExcel生成自体は成功扱いにし、
+        #    ダウンロードをブロックしない。
+        file_urls = None
+        try:
+            discord_service = DiscordFileService()
+            file_urls = await discord_service.upload_tournament_files(
+                ward_id=ward_id,
+                tournament_name=tournament_name,
+                file_paths=file_paths
+            )
+        except Exception as e:
+            print(f"⚠️ Discord送信失敗（Excel生成は成功・ダウンロード可能）: {e}")
 
         return ExcelGenerationResponse(
             success=True,
