@@ -22,6 +22,7 @@ const O_CONE = '/game/run/obs_cone.png?v=1'
 const O_CRATE = '/game/run/obs_crate.png?v=1'
 const O_ROCK = '/game/run/obs_rock.png?v=1'
 const O_STONE = '/game/run/obs_stone.png?v=1'
+const O_BALL = '/game/run/ball_tennis.png?v=1'  // 避けろ！チャレンジの飛来ボール（リアルなテニスボール）
 const O_COIN = '/game/run/coin.png?v=1'  // 金貨（障害物・主人公と同じセルシェード調。flat円から差し替え）
 
 const M_PER_S = 50 / 8          // 距離カウンタの増加ペース：50メートル / 8秒（実スクロール速度とは別）
@@ -89,7 +90,7 @@ interface St {
   heroY: number; vy: number; jumps: number; falling: boolean; grounded: boolean; distM: number; coins: number; playT: number
   obstacles: Obstacle[]; enemies: Enemy[]; bullets: Bullet[]; pits: Pit[]; platforms: Platform[]; coinsArr: Coin[]
   nextSpawnT: number; nextCoinT: number; nextPlatT: number; scroll: number
-  reactRTs: number[]; dodge: { phase: 'warn' | 'armed' | 'live' | 'done'; idx: number; n: number; onset: number; tNext: number; ballX: number | null; respT: number | null; rts: number[]; med: number } | null   // ⚡避けろ！チャレンジ（反応計測・管理者テスト）
+  reactRTs: number[]; dodge: { phase: 'warn' | 'armed' | 'live' | 'foul' | 'done'; idx: number; n: number; onset: number; tNext: number; ballX: number | null; respT: number | null; spd: number; rts: number[]; med: number } | null   // ⚡避けろ！チャレンジ（反応計測・管理者テスト）
 }
 
 export default function RunnerGame({ username, discordId, onExit }: RunnerProps) {
@@ -117,7 +118,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
   const discordIdRef = useRef(discordId); discordIdRef.current = discordId
   const usernameRef = useRef(username); usernameRef.current = username
 
-  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; swim: HTMLCanvasElement[]; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; girlDiscover?: HTMLCanvasElement; girlFlee?: HTMLCanvasElement; coin?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], swim: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
+  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; swim: HTMLCanvasElement[]; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; girlDiscover?: HTMLCanvasElement; girlFlee?: HTMLCanvasElement; coin?: HTMLCanvasElement; ball?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], swim: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
   const phaseRef = useRef<'ready' | 'playing' | 'over'>('ready')
   const hurtIdxRef = useRef(0)
   const assetsReadyRef = useRef(false)
@@ -158,6 +159,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     loadKeyed(O_CRATE).then((c) => { if (alive) A.current.obs.crate = c }).catch(() => {})
     loadKeyed(O_ROCK).then((c) => { if (alive) A.current.obs.rock = c }).catch(() => {})
     loadKeyed(O_STONE).then((c) => { if (alive) A.current.obs.stone = c }).catch(() => {})
+    loadKeyed(O_BALL).then((c) => { if (alive) A.current.ball = c }).catch(() => {})
     loadKeyed(O_COIN).then((c) => { if (alive) A.current.coin = c }).catch(() => {})
     return () => { alive = false }
   }, [])
@@ -182,7 +184,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
-  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.dodge && st.dodge.phase === 'live' && st.dodge.respT == null) { const rt = Math.round(performance.now() - st.dodge.onset); if (rt >= 90) { st.dodge.respT = rt; st.dodge.rts.push(rt); st.reactRTs.push(rt) } }   /* ⚡避けろ！：ライブ中のジャンプ＝反応。RTを記録（ジャンプ自体は続行＝これでボールを避ける） */if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
+  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.dodge && st.dodge.phase === 'live' && st.dodge.respT == null) { const rt = Math.round(performance.now() - st.dodge.onset); if (rt >= 90) { st.dodge.respT = rt; st.dodge.rts.push(rt); st.reactRTs.push(rt) } } else if (st.dodge && st.dodge.phase === 'armed') { st.dodge.phase = 'foul'; st.dodge.tNext = st.playT + 0.7 }   /* ⚡避けろ！：ライブ中ジャンプ＝反応RT記録／ボール発射前(armed)ジャンプ＝フライング＝その球は無効 */if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
   const press = () => {
     if (showRankRef.current) return   // ランキング表示中は入力でゲームを始めない
     if (phaseRef.current === 'ready') { if (assetsReadyRef.current) startGame() }
@@ -367,7 +369,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           setLevelUp(true)
           if (levelUpTimer.current) window.clearTimeout(levelUpTimer.current)
           levelUpTimer.current = window.setTimeout(() => setLevelUp(false), 1600)
-          if (isAdmin && !st.dodge && lv < WATER_LEVEL) { st.dodge = { phase: 'warn', idx: 0, n: 3, onset: 0, tNext: st.playT + 1.2, ballX: null, respT: null, rts: [], med: 0 }; st.obstacles = []; st.pits = []; st.enemies = []; st.bullets = []; st.coinsArr = [] }   // ⚡避けろ！チャレンジ起動（管理者テスト・陸上Lvのみ＝潜水中はジャンプ制限で不公平になるため水中Lvは除外）
+          if (isAdmin && !st.dodge && lv < WATER_LEVEL) { st.dodge = { phase: 'warn', idx: 0, n: 3, onset: 0, tNext: st.playT + 1.2, ballX: null, respT: null, spd: 0, rts: [], med: 0 }; st.obstacles = []; st.pits = []; st.enemies = []; st.bullets = []; st.coinsArr = [] }   // ⚡避けろ！チャレンジ起動（管理者テスト・陸上Lvのみ＝潜水中はジャンプ制限で不公平になるため水中Lvは除外）
         }
         // レベル1・2の終盤に、敵を1体だけランダムで出す（通常はLv3まで敵なしなので終わりに腕試し）
         if (lv <= 1 && !st.dodge && endBossLevelRef.current < lv && (st.playT % (4 * DAY_PERIOD)) / (4 * DAY_PERIOD) >= 0.85) {
@@ -490,17 +492,22 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         // ⚡避けろ！チャレンジ（管理者テスト）：クリアしたフィールドに速いボールが連続飛来。ジャンプで避け、発射→ジャンプのRTを計測。回避成功でボーナスコイン（被弾しても死なない＝罰なし）。
         if (st.dodge) {
           const d = st.dodge
-          const BALL_SPD = (W + heroH * 0.3 - heroCenterX) / 0.6   // 発射から約0.6秒で到達＝眺めて跳ぶ余裕を与えず“反応”を強制（＝計測が反応になる）
-          if (d.phase === 'warn' && st.playT >= d.tNext) { d.phase = 'armed'; d.tNext = st.playT + 0.4 + Math.random() * 1.0 }
-          else if (d.phase === 'armed' && st.playT >= d.tNext) { d.phase = 'live'; d.onset = performance.now(); d.ballX = W + heroH * 0.3; d.respT = null }
+          const dist = W + heroH * 0.3 - heroCenterX
+          if (d.phase === 'warn' && st.playT >= d.tNext) { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }   // 溜め＝毎回ランダム(0.5〜2.5s)でタイミング予測不能
+          else if (d.phase === 'armed' && st.playT >= d.tNext) { d.phase = 'live'; d.onset = performance.now(); d.ballX = W + heroH * 0.3; d.respT = null; d.spd = dist / (0.42 + Math.random() * 0.55) }   // 到達時間0.42〜0.97sをランダム＝球速も毎回バラバラ
           else if (d.phase === 'live' && d.ballX != null) {
-            d.ballX -= BALL_SPD * dt
+            d.ballX -= d.spd * dt
             if (d.ballX <= heroCenterX) {                              // ボールが主人公に到達＝判定（被弾しても死なない＝罰なし）
               if (st.heroY < baseY - heroH * 0.55) st.coins += 3        // ボール直径ぶん(≈0.52)より上に跳べていれば回避成功→ボーナスコイン。外してもそのまま次へ
               d.idx += 1; d.ballX = null
               if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8 }
-              else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 0.7 }
+              else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }
             }
+          }
+          else if (d.phase === 'foul' && st.playT >= d.tNext) {        // フライング（発射前ジャンプ）＝その球は無効。次の球へ
+            d.idx += 1; d.ballX = null; d.respT = null
+            if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8 }
+            else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }
           }
           else if (d.phase === 'done' && st.playT >= d.tNext) { st.dodge = null }
         }
@@ -774,12 +781,16 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
         } else if (d.phase === 'live' && d.ballX != null) {
           const since = performance.now() - d.onset
           if (since < 120) { ctx.globalAlpha = 0.25 * (1 - since / 120); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }   // 発射フラッシュ
-          const by = baseY - heroH * 0.26
-          ctx.fillStyle = '#c8e84a'; ctx.strokeStyle = '#54631a'; ctx.lineWidth = Math.max(2, heroH * 0.03)
-          ctx.beginPath(); ctx.arc(d.ballX, by, heroH * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-          ctx.beginPath(); ctx.arc(d.ballX + heroH * 0.12, by, heroH * 0.3, Math.PI - 0.6, Math.PI + 0.6); ctx.stroke()   // 白シーム
+          const by = baseY - heroH * 0.26, D = heroH * 0.52
+          const bs = A.current.ball
+          if (bs) { ctx.save(); ctx.translate(d.ballX, by); ctx.rotate((W - d.ballX) * 0.035); ctx.drawImage(bs, -D / 2, -D / 2, D, D); ctx.restore() }   // リアルなテニスボール＋回転
+          else { ctx.fillStyle = '#c8e84a'; ctx.strokeStyle = '#54631a'; ctx.lineWidth = Math.max(2, heroH * 0.03); ctx.beginPath(); ctx.arc(d.ballX, by, heroH * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.stroke() }
           if (d.respT != null) { ctx.fillStyle = d.respT < 300 ? '#16a34a' : '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.3)}px ${POP_FONT}`; ctx.strokeText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2); ctx.fillText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2) }
           ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 3; ctx.font = `800 ${Math.round(heroH * 0.22)}px ${POP_FONT}`; ctx.strokeText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14); ctx.fillText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14)
+        } else if (d.phase === 'foul') {
+          ctx.fillStyle = '#3b82f6'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.42)}px ${POP_FONT}`
+          ctx.strokeText('早すぎ！', W / 2, H * 0.4); ctx.fillText('早すぎ！', W / 2, H * 0.4)
+          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.19)}px ${POP_FONT}`; ctx.fillText('ボールが出る前に跳んだ＝無効', W / 2, H * 0.4 + heroH * 0.4)
         } else if (d.phase === 'done') {
           ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, 0, W, H)
           ctx.fillStyle = '#16a34a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.06); ctx.font = `800 ${Math.round(heroH * 0.45)}px ${POP_FONT}`
