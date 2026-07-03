@@ -199,6 +199,67 @@ class ExcelGenerationResponse(BaseModel):
     error: Optional[str] = None
 
 
+# 主催区ID → 申込通知webhook環境変数（申込通知・締切通知と同じ「各区の管理者チャンネル」）
+WARD_WEBHOOK_ENV = {
+    99: 'DISCORD_WEBHOOK_URL',            # 東京都・その他広域
+    23: 'DISCORD_WEBHOOK_URL_EDOGAWA',    # 江戸川区
+    8:  'DISCORD_WEBHOOK_URL_KOTO',       # 江東区
+    2:  'DISCORD_WEBHOOK_URL_CHUO',       # 中央区
+    7:  'DISCORD_WEBHOOK_URL_SUMIDA',     # 墨田区
+    18: 'DISCORD_WEBHOOK_URL_ARAKAWA',    # 荒川区
+    21: 'DISCORD_WEBHOOK_URL_ADACHI',     # 足立区
+    5:  'DISCORD_WEBHOOK_URL_BUNKYO',     # 文京区
+    101:'DISCORD_WEBHOOK_URL_NAGAREYAMA', # 流山市
+    100:'DISCORD_WEBHOOK_URL_EDOGAWA',    # 浦安市 → 江戸川区チャンネル
+}
+
+
+async def _send_excel_to_ward_webhook(ward_id: int, tournament_name: str, file_paths: Dict[str, str]):
+    """生成した申込書Excelを、主催区の管理者チャンネル（区別webhook）へ添付送信する。
+    未設定の区はデフォルト(広域)webhookにフォールバック。戻り値は添付CDN URLの辞書（取得できれば）。"""
+    import json as _json
+
+    env_key = WARD_WEBHOOK_ENV.get(ward_id)
+    webhook_url = (os.getenv(env_key) if env_key else None) or os.getenv('DISCORD_WEBHOOK_URL')
+    if not webhook_url:
+        print(f"⚠️ 区別webhook未設定のためExcel送信スキップ (ward_id={ward_id})")
+        return None
+
+    # 添付ファイルを組み立て
+    multipart = []
+    keys = []
+    for i, (key, path) in enumerate(file_paths.items()):
+        p = Path(path)
+        if not p.exists():
+            continue
+        with open(p, 'rb') as fh:
+            multipart.append((
+                f'files[{len(keys)}]',
+                (p.name, fh.read(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+            ))
+        keys.append(key)
+    if not multipart:
+        return None
+
+    content = f"📄 **{tournament_name} の申込書を生成しました**"
+    data = {'payload_json': _json.dumps({'content': content})}
+    sep = '&' if '?' in webhook_url else '?'
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{webhook_url}{sep}wait=true", files=multipart, data=data, timeout=30.0)
+        if resp.status_code not in (200, 204):
+            raise Exception(f"webhook error {resp.status_code}: {resp.text[:200]}")
+        # 添付のCDN URLを対応付け（取得できれば）
+        urls = {}
+        try:
+            atts = resp.json().get('attachments', [])
+            for k, att in zip(keys, atts):
+                if att.get('url'):
+                    urls[k] = att['url']
+        except Exception:
+            pass
+        return urls or None
+
+
 @router.post("/excel/generate", response_model=ExcelGenerationResponse)
 async def generate_excel(request: ExcelGenerationRequest):
     """
@@ -365,18 +426,13 @@ async def generate_excel(request: ExcelGenerationRequest):
         # file_pathsからファイル名を抽出
         generated_files = {key: Path(path).name for key, path in file_paths.items()}
 
-        # 5. Discordチャンネルにファイルを送信（ベストエフォート）。
-        #    この機能の主目的は「その場で生成→ダウンロード」なので、Discord送信が
-        #    失敗（チャンネル削除・権限不足等）してもExcel生成自体は成功扱いにし、
+        # 5. Discordの「各区の管理者チャンネル」にファイルを送信（ベストエフォート）。
+        #    申込通知・締切通知と同じ区別webhookを流用して主催区のチャンネルへ送る。
+        #    主目的は「その場で生成→ダウンロード」なので、送信失敗でも生成は成功扱いにし
         #    ダウンロードをブロックしない。
         file_urls = None
         try:
-            discord_service = DiscordFileService()
-            file_urls = await discord_service.upload_tournament_files(
-                ward_id=ward_id,
-                tournament_name=tournament_name,
-                file_paths=file_paths
-            )
+            file_urls = await _send_excel_to_ward_webhook(ward_id, tournament_name, file_paths)
         except Exception as e:
             print(f"⚠️ Discord送信失敗（Excel生成は成功・ダウンロード可能）: {e}")
 
