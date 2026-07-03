@@ -184,7 +184,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
     setBoard(null); setMyRank(null)
     phaseRef.current = 'playing'; setPhase('playing'); setResult(null)
   }
-  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.dodge && st.dodge.phase === 'live' && st.dodge.respT == null) { const rt = Math.round(performance.now() - st.dodge.onset); if (rt >= 90) { st.dodge.respT = rt; st.dodge.rts.push(rt); st.reactRTs.push(rt) } } else if (st.dodge && st.dodge.phase === 'armed') { st.dodge.phase = 'foul'; st.dodge.tNext = st.playT + 0.7 }   /* ⚡避けろ！：ライブ中ジャンプ＝反応RT記録／ボール発射前(armed)ジャンプ＝フライング＝その球は無効 */if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
+  const jump = () => { const st = stRef.current, c = canvasRef.current; if (!c || phaseRef.current !== 'playing') return; if (st.dodge && st.dodge.phase === 'live' && st.dodge.respT == null) { const rt = Math.round(performance.now() - st.dodge.onset); if (rt >= 90) { st.dodge.respT = rt; st.dodge.rts.push(rt); st.reactRTs.push(rt) } } else if (st.dodge && (st.dodge.phase === 'warn' || st.dodge.phase === 'armed')) { st.dodge.phase = 'foul'; st.dodge.tNext = st.playT + 0.7 }   /* ⚡避けろ！：ライブ中ジャンプ＝反応RT記録／ボール発射前(warn/armed)のジャンプ＝フライング＝その球は無効 */if (diveStartRef.current != null && (st.playT - diveStartRef.current) < DIVE_DUR) return; if (st.jumps < 2) { const water = Math.floor(st.playT / (4 * DAY_PERIOD)) >= WATER_LEVEL; st.vy = -jumpParams(c.height).VJ * (water ? 0.86 : 1); st.jumps += 1 } }  // 水中はジャンプ初速を少し抑える（重力減と合わせて“ふわっと”）
   const press = () => {
     if (showRankRef.current) return   // ランキング表示中は入力でゲームを始めない
     if (phaseRef.current === 'ready') { if (assetsReadyRef.current) startGame() }
@@ -494,7 +494,7 @@ export default function RunnerGame({ username, discordId, onExit }: RunnerProps)
           const d = st.dodge
           const dist = W + heroH * 0.3 - heroCenterX
           if (d.phase === 'warn' && st.playT >= d.tNext) { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }   // 溜め＝毎回ランダム(0.5〜2.5s)でタイミング予測不能
-          else if (d.phase === 'armed' && st.playT >= d.tNext) { d.phase = 'live'; d.onset = performance.now(); d.ballX = W + heroH * 0.3; d.respT = null; d.spd = dist / (0.42 + Math.random() * 0.55) }   // 到達時間0.42〜0.97sをランダム＝球速も毎回バラバラ
+          else if (d.phase === 'armed' && st.playT >= d.tNext) { if (st.jumps > 0) { d.phase = 'foul'; d.tNext = st.playT + 0.7 } else { d.phase = 'live'; d.onset = performance.now(); d.ballX = W + heroH * 0.3; d.respT = null; d.spd = dist / (0.42 + Math.random() * 0.55) } }   // 発射の瞬間に空中(=事前ジャンプ)ならフライング。地上なら発射：到達時間0.42〜0.97sをランダム＝球速も毎回バラバラ
           else if (d.phase === 'live' && d.ballX != null) {
             d.ballX -= d.spd * dt
             if (d.ballX <= heroCenterX) {                              // ボールが主人公に到達＝判定（被弾しても死なない＝罰なし）
