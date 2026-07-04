@@ -23,6 +23,7 @@ const O_CRATE = '/game/run/obs_crate.png?v=1'
 const O_ROCK = '/game/run/obs_rock.png?v=1'
 const O_STONE = '/game/run/obs_stone.png?v=1'
 const O_BALL = '/game/run/ball_tennis.png?v=1'  // 避けろ！チャレンジの飛来ボール（リアルなテニスボール）
+const O_BOSS = '/game/run/boss_laser.png?v=1'  // 反応チャレンジのレーザーボス（キャップの人）。シャツにマゼンタがあるのでキー処理せず読む
 const O_COIN = '/game/run/coin.png?v=1'  // 金貨（障害物・主人公と同じセルシェード調。flat円から差し替え）
 
 const M_PER_S = 50 / 8          // 距離カウンタの増加ペース：50メートル / 8秒（実スクロール速度とは別）
@@ -76,6 +77,7 @@ function keyImage(img: HTMLImageElement, crop: boolean): HTMLCanvasElement {
 }
 const loadImg = (url: string) => new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url })
 const loadKeyed = (url: string, crop = true) => loadImg(url).then((i) => keyImage(i, crop))
+const loadRaw = (url: string) => loadImg(url).then((i) => { const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; c.getContext('2d')!.drawImage(i, 0, 0); return c })   // マゼンタ抜きせずそのまま（既に透過処理済みのボス用＝服のマゼンタを守る）
 
 type ObsType = 'cone' | 'crate' | 'rock' | 'stone'
 type EnemyType = 'boar' | 'sword' | 'sniper' | 'tennis' | 'girl'
@@ -129,12 +131,13 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
   const motionFallbackTimerRef = useRef<number | undefined>(undefined)
   const motionCleanupRef = useRef<null | (() => void)>(null)
 
-  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; swim: HTMLCanvasElement[]; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; girlDiscover?: HTMLCanvasElement; girlFlee?: HTMLCanvasElement; coin?: HTMLCanvasElement; ball?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], swim: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
+  const A = useRef<{ run: HTMLCanvasElement[]; runSleep: HTMLCanvasElement[]; jump?: HTMLCanvasElement; swim: HTMLCanvasElement[]; hurts: HTMLCanvasElement[]; boar?: HTMLCanvasElement; sword?: HTMLCanvasElement; sniper?: HTMLCanvasElement; tennis?: HTMLCanvasElement; girlDiscover?: HTMLCanvasElement; girlFlee?: HTMLCanvasElement; coin?: HTMLCanvasElement; ball?: HTMLCanvasElement; boss?: HTMLCanvasElement; obs: Record<ObsType, HTMLCanvasElement | undefined> }>({ run: [], runSleep: [], swim: [], hurts: [], obs: { cone: undefined, crate: undefined, rock: undefined, stone: undefined } })
   const phaseRef = useRef<'ready' | 'playing' | 'over'>('ready')
   const hurtIdxRef = useRef(0)
   const assetsReadyRef = useRef(false)
   const invincibleRef = useRef(false)
   const forceDodgeRef = useRef(false)   // ⚡反応テストボタン：手動で避けろ！チャレンジを起動（管理者テスト用）
+  const coinFxRef = useRef<{ at: number; x: number; y: number; n: number } | null>(null)   // 回避成功で頭上に舞い上がる「+コイン」エフェクト
   const usedInvincibleRef = useRef(false)   // このランで一度でも無敵モードを使ったか（使ったら記録しない）
   const levelRef = useRef(0)                // 到達したレベル（1日終えるごとに+1）
   const endBossLevelRef = useRef(-1)        // レベル1・2の終盤に出す単発の敵を、どのレベルまで出したか
@@ -172,6 +175,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
     loadKeyed(O_ROCK).then((c) => { if (alive) A.current.obs.rock = c }).catch(() => {})
     loadKeyed(O_STONE).then((c) => { if (alive) A.current.obs.stone = c }).catch(() => {})
     loadKeyed(O_BALL).then((c) => { if (alive) A.current.ball = c }).catch(() => {})
+    loadRaw(O_BOSS).then((c) => { if (alive) A.current.boss = c }).catch(() => {})
     loadKeyed(O_COIN).then((c) => { if (alive) A.current.coin = c }).catch(() => {})
     return () => { alive = false }
   }, [])
@@ -552,14 +556,12 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
         // ⚡避けろ！チャレンジ（管理者テスト）：クリアしたフィールドに速いボールが連続飛来。ジャンプで避け、発射→ジャンプのRTを計測。回避成功でボーナスコイン（被弾しても死なない＝罰なし）。
         if (st.dodge) {
           const d = st.dodge
-          const dist = W + heroH * 0.3 - heroCenterX
           if (d.phase === 'warn' && st.playT >= d.tNext) { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }   // 溜め＝毎回ランダム(0.5〜2.5s)でタイミング予測不能
-          else if (d.phase === 'armed' && st.playT >= d.tNext) { if (st.jumps > 0) { d.phase = 'foul'; d.tNext = st.playT + 0.7 } else { d.phase = 'live'; d.onset = performance.now(); d.ballX = W + heroH * 0.3; d.respT = null; d.spd = dist / (0.42 + Math.random() * 0.55) } }   // 発射の瞬間に空中(=事前ジャンプ)ならフライング。地上なら発射：到達時間0.42〜0.97sをランダム＝球速も毎回バラバラ
-          else if (d.phase === 'live' && d.ballX != null) {
-            d.ballX -= d.spd * dt
-            if (d.ballX <= heroCenterX) {                              // ボールが主人公に到達＝判定（被弾しても死なない＝罰なし）
-              if (st.heroY < baseY - heroH * 0.55) st.coins += 3        // ボール直径ぶん(≈0.52)より上に跳べていれば回避成功→ボーナスコイン。外してもそのまま次へ
-              d.idx += 1; d.ballX = null
+          else if (d.phase === 'armed' && st.playT >= d.tNext) { if (st.jumps > 0) { d.phase = 'foul'; d.tNext = st.playT + 0.7 } else { d.phase = 'live'; d.onset = performance.now(); d.ballX = null; d.respT = null; d.spd = 450 + Math.random() * 220 } }   // 超速レーザー発射。発射の瞬間に空中(=事前ジャンプ)ならフライング。地上なら着弾までの猶予450〜670msをランダム＝毎回スピードが変わる（速いが反応で避けられる範囲）
+          else if (d.phase === 'live') {
+            if (performance.now() - d.onset >= d.spd) {                // レーザー着弾＝判定（被弾しても死なない＝罰なし）
+              if (st.heroY < baseY - heroH * 0.42) { st.coins += 3; coinFxRef.current = { at: performance.now(), x: heroCenterX, y: st.heroY - heroH * 0.9, n: 3 } }   // ビームより上に跳べていれば回避成功→コイン＋頭上エフェクト
+              d.idx += 1
               if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8 }
               else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }
             }
@@ -830,6 +832,12 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
       if (st.dodge) {
         const d = st.dodge
         ctx.save(); ctx.textAlign = 'center'
+        // レーザーボス（キャップの人）を画面右に描画。構え中は指先チャージのグロー。
+        const boss = A.current.boss
+        const bh = heroH * 1.35, bx = W * 0.82
+        const tipX = bx - bh * 0.34, tipY = baseY - bh * 0.5   // 左に伸ばした腕の指先のおよその位置（ビーム原点）
+        if (boss) { const bw = boss.width * (bh / boss.height); ctx.drawImage(boss, Math.round(bx - bw / 2), Math.round(baseY - bh), Math.round(bw), Math.round(bh)) }
+        if (d.phase === 'armed') { ctx.save(); ctx.globalAlpha = 0.5 + 0.4 * Math.sin(st.playT * 20); ctx.fillStyle = '#fff'; ctx.shadowColor = '#f0f'; ctx.shadowBlur = heroH * 0.4; ctx.beginPath(); ctx.arc(tipX, tipY, heroH * (0.1 + 0.05 * Math.sin(st.playT * 20)), 0, Math.PI * 2); ctx.fill(); ctx.restore() }   // 構え＝指先チャージ
         if (d.phase === 'warn') {
           ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, H * 0.30, W, H * 0.26)                       // 暗い帯（ロックマンのボス前WARNING風）
           const rl = Math.max(3, heroH * 0.04); ctx.fillStyle = '#ff2b2b'; ctx.fillRect(0, H * 0.30, W, rl); ctx.fillRect(0, H * 0.56 - rl, W, rl)   // 帯の上下に赤ライン
@@ -837,25 +845,52 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
             ctx.fillStyle = '#ff2b2b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.5)}px ${POP_FONT}`
             ctx.strokeText('WARNING', W / 2, H * 0.44); ctx.fillText('WARNING', W / 2, H * 0.44)
           }
-          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.19)}px ${POP_FONT}`; ctx.fillText(`ボールをジャンプでかわせ！（全${d.n}球）`, W / 2, H * 0.51)
-        } else if (d.phase === 'live' && d.ballX != null) {
+          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.19)}px ${POP_FONT}`; ctx.fillText(`レーザーをジャンプでかわせ！（全${d.n}発）`, W / 2, H * 0.51)
+        } else if (d.phase === 'live') {
           const since = performance.now() - d.onset
-          if (since < 120) { ctx.globalAlpha = 0.25 * (1 - since / 120); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }   // 発射フラッシュ
-          const by = baseY - heroH * 0.26, D = heroH * 0.52
-          const bs = A.current.ball
-          if (bs) { ctx.save(); ctx.translate(d.ballX, by); ctx.rotate((W - d.ballX) * 0.035); ctx.drawImage(bs, -D / 2, -D / 2, D, D); ctx.restore() }   // リアルなテニスボール＋回転
-          else { ctx.fillStyle = '#c8e84a'; ctx.strokeStyle = '#54631a'; ctx.lineWidth = Math.max(2, heroH * 0.03); ctx.beginPath(); ctx.arc(d.ballX, by, heroH * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.stroke() }
+          if (since < 90) { ctx.globalAlpha = 0.45 * (1 - since / 90); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }   // 発射フラッシュ
+          const beamY = baseY - heroH * 0.26, bt = heroH * 0.12                              // 虹レーザー：中心と半太さ
+          const grad = ctx.createLinearGradient(0, beamY - bt, 0, beamY + bt)
+          const hs = (since * 0.6) % 360
+          for (let i = 0; i <= 6; i++) grad.addColorStop(i / 6, `hsl(${(hs + i * 60) % 360},100%,60%)`)
+          ctx.save(); ctx.globalAlpha = 0.9; ctx.shadowColor = '#fff'; ctx.shadowBlur = heroH * 0.35
+          ctx.fillStyle = grad; ctx.fillRect(0, beamY - bt, tipX, bt * 2)                     // 虹ビーム本体
+          ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fillRect(0, beamY - bt * 0.32, tipX, bt * 0.64)   // 白コア
+          ctx.restore()
+          ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(2, heroH * 0.05); ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(tipX - heroH * 0.18, beamY); ctx.stroke(); ctx.restore()   // 指先→ビーム
+          ctx.save(); ctx.globalAlpha = 0.95; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(tipX, tipY, heroH * 0.13, 0, Math.PI * 2); ctx.fill(); ctx.restore()   // 指先フラッシュ
           if (d.respT != null) { ctx.fillStyle = d.respT < 300 ? '#16a34a' : '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.3)}px ${POP_FONT}`; ctx.strokeText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2); ctx.fillText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2) }
           ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 3; ctx.font = `800 ${Math.round(heroH * 0.22)}px ${POP_FONT}`; ctx.strokeText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14); ctx.fillText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14)
         } else if (d.phase === 'foul') {
           ctx.fillStyle = '#3b82f6'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.42)}px ${POP_FONT}`
           ctx.strokeText('早すぎ！', W / 2, H * 0.4); ctx.fillText('早すぎ！', W / 2, H * 0.4)
-          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.19)}px ${POP_FONT}`; ctx.fillText('ボールが出る前に跳んだ＝無効', W / 2, H * 0.4 + heroH * 0.4)
+          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.19)}px ${POP_FONT}`; ctx.fillText('レーザーが出る前に跳んだ＝無効', W / 2, H * 0.4 + heroH * 0.4)
         } else if (d.phase === 'done') {
-          ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, 0, W, H)
-          ctx.fillStyle = '#16a34a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.06); ctx.font = `800 ${Math.round(heroH * 0.45)}px ${POP_FONT}`
-          ctx.strokeText(`⚡ 反応 ${d.med}ms`, W / 2, H * 0.4); ctx.fillText(`⚡ 反応 ${d.med}ms`, W / 2, H * 0.4)
-          ctx.fillStyle = '#ffd23f'; ctx.font = `700 ${Math.round(heroH * 0.24)}px ${POP_FONT}`; ctx.fillText('ナイスリターン！', W / 2, H * 0.4 + heroH * 0.45)
+          ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, H)
+          if (d.med > 0) {
+            const sec = (d.med / 1000).toFixed(2)
+            const rating = d.med < 250 ? '⚡ めっちゃ速い！' : d.med < 350 ? 'はやい！' : d.med < 500 ? 'ふつう' : 'ゆっくり'
+            ctx.fillStyle = '#facc15'; ctx.strokeStyle = '#7a4a00'; ctx.lineWidth = Math.max(3, heroH * 0.06); ctx.font = `800 ${Math.round(heroH * 0.46)}px ${POP_FONT}`
+            ctx.strokeText(`反応 ${sec}秒`, W / 2, H * 0.4); ctx.fillText(`反応 ${sec}秒`, W / 2, H * 0.4)
+            ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(heroH * 0.26)}px ${POP_FONT}`; ctx.fillText(`${rating}（${d.med}ms）`, W / 2, H * 0.4 + heroH * 0.5)
+          } else {
+            ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.36)}px ${POP_FONT}`
+            ctx.strokeText('計測なし', W / 2, H * 0.4); ctx.fillText('計測なし', W / 2, H * 0.4)
+          }
+        }
+        // 回避成功の「+コイン」エフェクト（頭上に舞い上がってフェード）
+        const fx = coinFxRef.current
+        if (fx) {
+          const age = (performance.now() - fx.at) / 850
+          if (age >= 1) coinFxRef.current = null
+          else {
+            ctx.save(); ctx.globalAlpha = 1 - age; const cs = A.current.coin, cd = heroH * 0.32
+            for (let i = 0; i < fx.n; i++) { const px = fx.x + (i - (fx.n - 1) / 2) * heroH * 0.36, py = fx.y - age * heroH * 0.95
+              if (cs) ctx.drawImage(cs, px - cd / 2, py - cd / 2, cd, cd); else { ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(px, py, cd * 0.42, 0, Math.PI * 2); ctx.fill() } }
+            ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#7a4a00'; ctx.lineWidth = Math.max(2, heroH * 0.045); ctx.textAlign = 'center'; ctx.font = `800 ${Math.round(heroH * 0.32)}px ${POP_FONT}`
+            ctx.strokeText(`+${fx.n}`, fx.x, fx.y - age * heroH * 0.95 - heroH * 0.36); ctx.fillText(`+${fx.n}`, fx.x, fx.y - age * heroH * 0.95 - heroH * 0.36)
+            ctx.restore()
+          }
         }
         ctx.restore(); ctx.textAlign = 'left'
       }
@@ -968,7 +1003,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
             {causeText(result.cause) && <div style={{ fontSize: 13, color: '#8a5a3c', marginTop: 2 }}>{causeText(result.cause)}</div>}
             <div style={{ fontSize: 19, marginTop: 6 }}>スコア {result.score}m</div>
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>距離 {result.score - result.coins * 10}m ／ コイン {result.coins}（×10）</div>
-            {result.reactN ? <div style={{ fontSize: 14, color: '#16a34a', fontWeight: 800, marginTop: 6 }}>⚡反応 平均 {result.reactMed}ms（×{result.reactN}）</div> : null}
+            {result.reactN ? <div style={{ fontSize: 14, color: '#16a34a', fontWeight: 800, marginTop: 6 }}>⚡反応 平均 {((result.reactMed || 0) / 1000).toFixed(2)}秒（{result.reactMed}ms・×{result.reactN}）</div> : null}
             {result.newBest ? <div style={{ fontSize: 16, color: SUN, fontWeight: 800, marginTop: 8 }}>🎉 ベスト更新！ {result.best}m</div> : <div style={{ fontSize: 13, color: '#1f9d55', marginTop: 8 }}>BEST {result.best}m</div>}
 
             {!rankingSaved && <div style={{ fontSize: 12, color: '#b45309', fontWeight: 700, marginTop: 6 }}>🛡 無敵モードのため記録は保存されません</div>}
