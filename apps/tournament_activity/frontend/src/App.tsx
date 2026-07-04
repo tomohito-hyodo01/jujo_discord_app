@@ -4,6 +4,7 @@ import AuthCallback from './components/AuthCallback'
 import Portal from './components/Portal'
 import GameHub from './components/GameHub'
 import type { UserPermissionInfo } from './utils/permissions'
+import { getProfileIssues } from './utils/playerValidation'
 
 const DEV_DISCORD_ID = '1427112485047242945'
 const AUTH_STORAGE_KEY = 'jujo_auth'
@@ -70,12 +71,12 @@ function App() {
             memberLevel: memberLevel ?? playerData.member_level ?? 2,
             practiceAdmin: playerData.practice_admin ?? 0,
           }
-          // 正会員・準会員で必須項目が未入力ならプロフィール補完が必要
+          // 正会員・準会員で、大会申込に必要な情報に不備（未入力 or 不正な値）が
+          // あればプロフィール補完が必要。判定は申込時(getProfileIssues)と同一基準。
           const ml = perms.memberLevel
           let needsCompletion = false
           if (ml < 2) {
-            const requiredFields = ['birth_date', 'post_number', 'address', 'phone_number']
-            needsCompletion = requiredFields.some(f => !playerData[f])
+            needsCompletion = getProfileIssues(playerData).length > 0
           }
           return { needsRegistration: false, needsCompletion, perms }
         }
@@ -250,8 +251,9 @@ function App() {
         setPermissionInfo({ ...perms, memberLevel: permissionInfo.memberLevel })
       }}
       onProfileCompleted={async () => {
-        setNeedsProfileCompletion(false)
-        const { perms } = await checkPlayerAndPermissions(discordUserId, permissionInfo.memberLevel)
+        // 補完後に再検証。まだ不備が残っていればゲートを維持する
+        const { needsCompletion, perms } = await checkPlayerAndPermissions(discordUserId, permissionInfo.memberLevel)
+        setNeedsProfileCompletion(needsCompletion)
         setPermissionInfo({ ...perms, memberLevel: permissionInfo.memberLevel })
       }}
       onLogout={clearAuth}

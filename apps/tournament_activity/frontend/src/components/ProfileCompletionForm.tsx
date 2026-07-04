@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { UserPermissionInfo } from '../utils/permissions'
+import { getProfileIssues } from '../utils/playerValidation'
 
 interface ProfileCompletionFormProps {
   discordId: string
@@ -65,12 +66,27 @@ export default function ProfileCompletionForm({ discordId, permissionInfo, onCom
     setMessage('')
 
     try {
+      // 保存前に、入力値で不備が解消されているか再検証（未解消なら保存しない）
+      const candidate = {
+        birth_date: formData.birthDate || player.birth_date,
+        post_number: formData.postalCode || player.post_number,
+        address: formData.address || player.address,
+        phone_number: formData.phoneNumber || player.phone_number,
+      }
+      const remaining = getProfileIssues(candidate)
+      if (remaining.length > 0) {
+        setMessage('入力内容に不備があります: ' + remaining.map(i => i.message).join(' / '))
+        setSaving(false)
+        return
+      }
+
       const updateData: Record<string, any> = {}
-      if (!player.birth_date && formData.birthDate) updateData.birth_date = formData.birthDate
+      // 不備のある項目（未入力 or 不正な値）は上書き保存する
+      if (issueFields.includes('birth_date') && formData.birthDate) updateData.birth_date = formData.birthDate
       if (!player.jsta_number && formData.jstaNumber) updateData.jsta_number = formData.jstaNumber
-      if (!player.post_number && formData.postalCode) updateData.post_number = formData.postalCode
-      if (!player.address && formData.address) updateData.address = formData.address
-      if (!player.phone_number && formData.phoneNumber) updateData.phone_number = formData.phoneNumber
+      if (issueFields.includes('post_number') && formData.postalCode) updateData.post_number = formData.postalCode
+      if (issueFields.includes('address') && formData.address) updateData.address = formData.address
+      if (issueFields.includes('phone_number') && formData.phoneNumber) updateData.phone_number = formData.phoneNumber
       if (!player.affiliated_club && formData.affiliatedClub) updateData.affiliated_club = formData.affiliatedClub
 
       const res = await fetch(`${apiUrl}/api/players/discord/${discordId}`, {
@@ -106,26 +122,32 @@ export default function ProfileCompletionForm({ discordId, permissionInfo, onCom
   if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>読み込み中...</div>
   if (!player) return <div style={{ padding: '40px', color: '#94a3b8' }}>選手情報が見つかりません</div>
 
-  // 未入力の項目のみ表示
-  const missingFields: string[] = []
-  if (!player.birth_date) missingFields.push('birth_date')
+  // 大会申込に必要な項目の不備（未入力 or 不正な値）
+  const issues = getProfileIssues(player)
+  const issueFields = issues.map(i => i.field) as string[]
+  const hintMap: Record<string, string> = {}
+  issues.forEach(i => { if (i.reason === 'invalid') hintMap[i.field] = i.message })
+
+  // 表示する項目 = 不備のある必須項目 ＋ 未入力の任意項目(日連番号・所属クラブ)
+  const missingFields: string[] = [...issueFields]
   if (!player.jsta_number) missingFields.push('jsta_number')
-  if (!player.post_number) missingFields.push('post_number')
-  if (!player.address) missingFields.push('address')
-  if (!player.phone_number) missingFields.push('phone_number')
   if (!player.affiliated_club) missingFields.push('affiliated_club')
+
+  const hint = (field: string) => hintMap[field] ? (
+    <div style={{ fontSize: '12px', color: '#fbbf24', marginTop: '4px' }}>⚠ {hintMap[field]}</div>
+  ) : null
 
   return (
     <div>
       <h2 style={{ fontSize: '20px', fontWeight: '600', color: '#e2e8f0', marginBottom: '16px' }}>
-        プロフィール補完
+        プロフィールの確認・修正
       </h2>
 
       <div style={{
         padding: '16px', backgroundColor: '#1e40af', borderRadius: '8px',
         marginBottom: '24px', border: '1px solid #3b82f6', color: '#e0e7ff'
       }}>
-        会員種別が変更されました。追加の情報を入力してください。
+        大会申込に必要な登録情報に不備があります。下記を入力・修正してからご利用ください。
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '100%', overflow: 'hidden' }}>
@@ -164,6 +186,7 @@ export default function ProfileCompletionForm({ discordId, permissionInfo, onCom
               onChange={(e) => setFormData({ ...formData, address: e.target.value })}
               required placeholder="東京都渋谷区渋谷1-2-3" rows={3}
               style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+            {hint('address')}
           </div>
         )}
 
@@ -173,6 +196,7 @@ export default function ProfileCompletionForm({ discordId, permissionInfo, onCom
             <input type="tel" value={formData.phoneNumber}
               onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
               required placeholder="090-1234-5678" style={inputStyle} />
+            {hint('phone_number')}
           </div>
         )}
 
