@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from api.database import db
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import httpx
 import os
 import sys
@@ -86,6 +86,134 @@ async def _build_team_members(registration: dict) -> list:
             seen.add(pid)
 
     return members
+
+
+def _date_str(value) -> str:
+    """DATE/DATETIME/文字列をISO日付文字列(YYYY-MM-DD)に正規化"""
+    return str(value or '')[:10]
+
+
+async def _get_tournament_group(tournament: dict) -> tuple:
+    """同一大会グループ（同区・同名・同区分）の大会レコードと申込データを統合して取得
+
+    同じ大会が種別ごとに別レコードで登録される運用（例: 一般と35/45で締切が別）でも、
+    申込書は大会単位で1つに統合して生成する。年度違いの同名大会を誤って統合しないよう、
+    締切日（なければ開催日）が90日を超えて離れたレコードは別大会とみなす。
+
+    Returns:
+        (siblings, registrations):
+            siblings: グループに属する大会レコードのリスト（最低でも自身を含む）
+            registrations: グループ全体の申込データリスト
+                （各行に source_tournament_date = 属するレコードの開催日 を付与）
+    """
+    filters = {
+        'registrated_ward': tournament.get('registrated_ward'),
+        'tournament_name': tournament.get('tournament_name'),
+    }
+    # classification が未設定のレコードは "= NULL" で照合できないため条件から外す
+    if tournament.get('classification') is not None:
+        filters['classification'] = tournament['classification']
+
+    siblings_result = await db.execute_query(
+        'tournament_mst',
+        operation='select',
+        filters=filters,
+        json_fields=['type']
+    )
+    if siblings_result.get('error'):
+        # ここで縮退して自レコードのみで続行すると、統合されていない不完全な
+        # 申込書が「成功」として配布されてしまうため、必ずエラーで停止する
+        raise HTTPException(status_code=500, detail=siblings_result['error'])
+    siblings = siblings_result.get('data') or [tournament]
+
+    # 年度違いの同名大会を除外（基準日から90日を超えて離れたレコードは別大会）
+    base = _date_str(tournament.get('deadline_date')) or _date_str(tournament.get('tournament_date'))
+    if base:
+        def _is_near(record):
+            d = _date_str(record.get('deadline_date')) or _date_str(record.get('tournament_date'))
+            if not d:
+                return True
+            try:
+                return abs((date.fromisoformat(d) - date.fromisoformat(base)).days) <= 90
+            except ValueError:
+                return True
+        siblings = [s for s in siblings if _is_near(s)] or [tournament]
+
+    if len(siblings) > 1:
+        print(f"ℹ️ 同一大会グループを統合: {tournament.get('tournament_name')} -> "
+              f"{[s.get('tournament_id') for s in siblings]}")
+
+    registrations = []
+    seen = set()
+    for sibling in siblings:
+        reg_result = await db.execute_query(
+            'tournament_registration',
+            operation='select',
+            filters={'tournament_id': sibling['tournament_id']},
+            json_fields=['pair2']
+        )
+        if reg_result.get('error'):
+            raise HTTPException(status_code=500, detail=reg_result['error'])
+        for reg in (reg_result.get('data') or []):
+            # 兄弟レコード間で同一内容の申込が重複していても申込書には1行だけ載せる
+            key = (reg.get('discord_id'), reg.get('type'), reg.get('pair1'), str(reg.get('pair2')))
+            if key in seen:
+                continue
+            seen.add(key)
+            # 種別ごとに開催日が異なる場合の年齢計算等のため、属するレコードの開催日を保持
+            registrations.append({**reg, 'source_tournament_date': sibling.get('tournament_date')})
+
+    return siblings, registrations
+
+
+def _player_fields(player: dict) -> dict:
+    """player_mst の行から申込書生成に必要な項目を抽出"""
+    return {
+        'player_id': player.get('player_id'),
+        'player_name': player.get('player_name'),
+        'birth_date': player.get('birth_date'),
+        'sex': player.get('sex'),
+        'post_number': player.get('post_number'),
+        'address': player.get('address'),
+        'phone_number': player.get('phone_number'),
+        'jsta_number': player.get('jsta_number'),
+        'edogawa_flg': player.get('edogawa_flg', False),
+        'affiliated_club': player.get('affiliated_club', ''),
+    }
+
+
+async def _enrich_registrations(registrations: list) -> list:
+    """申込データに申込者(applicant)・ペア相手(partner)の選手情報を付与
+
+    ペア相手が player_mst に見つからない場合は partner=None のまま進める
+    （他の申込の選手情報を誤って流用しない）。
+    """
+    enriched = []
+    for reg in registrations:
+        applicant_result = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'discord_id': reg['discord_id']}
+        )
+        if applicant_result.get('error') or not applicant_result.get('data'):
+            continue
+        applicant = _player_fields(applicant_result['data'][0])
+
+        partner = None
+        if reg.get('pair1'):
+            partner_result = await db.execute_query(
+                'player_mst',
+                operation='select',
+                filters={'player_id': reg['pair1']}
+            )
+            if not partner_result.get('error'):
+                partner_data = partner_result.get('data', [])
+                if partner_data:
+                    partner = _player_fields(partner_data[0])
+
+        enriched.append({**reg, 'applicant': applicant, 'partner': partner})
+
+    return enriched
 
 
 async def _generate_sumida_text(tournament: dict, registrations: list) -> "ExcelGenerationResponse":
@@ -300,18 +428,9 @@ async def generate_excel(request: ExcelGenerationRequest):
         if not ward_id:
             raise HTTPException(status_code=400, detail="Tournament does not have registrated_ward")
 
-        # 2. 申込データを取得
-        registration_result = await db.execute_query(
-            'tournament_registration',
-            operation='select',
-            filters={'tournament_id': request.tournament_id},
-            json_fields=['pair2']
-        )
+        # 2. 申込データを取得（同一大会グループの全種別レコードを統合）
+        _, registrations = await _get_tournament_group(tournament)
 
-        if registration_result.get('error'):
-            raise HTTPException(status_code=500, detail=registration_result['error'])
-
-        registrations = registration_result.get('data', [])
         if not registrations:
             return ExcelGenerationResponse(
                 success=False,
@@ -325,71 +444,7 @@ async def generate_excel(request: ExcelGenerationRequest):
             return await _generate_sumida_text(tournament, registrations)
 
         # 3. 選手情報を取得して申込データに結合
-        enriched_registrations = []
-
-        for reg in registrations:
-            # 1行目: discord_idと一致する選手（申込者本人）
-            applicant_result = await db.execute_query(
-                'player_mst',
-                operation='select',
-                filters={'discord_id': reg['discord_id']}
-            )
-
-            if applicant_result.get('error'):
-                continue
-
-            applicant_data = applicant_result.get('data', [])
-            if not applicant_data:
-                continue
-
-            applicant_player = applicant_data[0]
-            applicant = {
-                'player_id': applicant_player.get('player_id'),
-                'player_name': applicant_player.get('player_name'),
-                'birth_date': applicant_player.get('birth_date'),
-                'sex': applicant_player.get('sex'),
-                'post_number': applicant_player.get('post_number'),
-                'address': applicant_player.get('address'),
-                'phone_number': applicant_player.get('phone_number'),
-                'jsta_number': applicant_player.get('jsta_number'),
-                'edogawa_flg': applicant_player.get('edogawa_flg', False),
-                'affiliated_club': applicant_player.get('affiliated_club', ''),
-            }
-
-            # 2行目: pair1と一致する選手（ペア相手）
-            partner = None
-            if reg.get('pair1'):
-                partner_result = await db.execute_query(
-                    'player_mst',
-                    operation='select',
-                    filters={'player_id': reg['pair1']}
-                )
-
-                if not partner_result.get('error'):
-                    partner_data = partner_result.get('data', [])
-                    if partner_data:
-                        partner_player = partner_data[0]
-                    partner = {
-                        'player_id': partner_player.get('player_id'),
-                        'player_name': partner_player.get('player_name'),
-                        'birth_date': partner_player.get('birth_date'),
-                        'sex': partner_player.get('sex'),
-                        'post_number': partner_player.get('post_number'),
-                        'address': partner_player.get('address'),
-                        'phone_number': partner_player.get('phone_number'),
-                        'jsta_number': partner_player.get('jsta_number'),
-                        'edogawa_flg': partner_player.get('edogawa_flg', False),
-                        'affiliated_club': partner_player.get('affiliated_club', ''),
-                    }
-
-            # 申込情報とapplicant/partnerを統合
-            enriched_reg = {
-                **reg,
-                'applicant': applicant,
-                'partner': partner
-            }
-
-            enriched_registrations.append(enriched_reg)
+        enriched_registrations = await _enrich_registrations(registrations)
 
         if not enriched_registrations:
             return ExcelGenerationResponse(
@@ -408,6 +463,10 @@ async def generate_excel(request: ExcelGenerationRequest):
                             f.unlink()
                         except Exception as e:
                             print(f"⚠️ 旧ファイル削除失敗: {f.name} / {e}")
+                # 旧仕様の固定名の会員登録表（大会名を含まないため上の対象外）も残さない
+                legacy_member_file = OUTPUT_DIR / "会員登録表.xlsx"
+                if legacy_member_file.exists():
+                    legacy_member_file.unlink()
         except Exception as e:
             print(f"⚠️ 旧ファイルクリーンアップ失敗: {e}")
 
@@ -657,6 +716,7 @@ async def process_tournament_deadlines():
 
         results = []
         errors = []
+        processed_groups = set()
 
         # 各大会のExcelを生成
         for tournament in tournaments:
@@ -665,15 +725,34 @@ async def process_tournament_deadlines():
             ward_id = tournament.get('registrated_ward')
 
             try:
-                # 申込データを取得
-                registration_result = await db.execute_query(
-                    'tournament_registration',
-                    operation='select',
-                    filters={'tournament_id': tournament_id},
-                    json_fields=['pair2']
-                )
+                # 申込データを取得（同一大会グループの全種別レコードを統合）
+                siblings, registrations = await _get_tournament_group(tournament)
 
-                if registration_result.get('error') or not registration_result.get('data'):
+                # 同一大会グループは1つの申込書に統合するため、
+                # 同日締切のレコードが複数あっても生成は1回だけ行う
+                group_key = frozenset(s.get('tournament_id') for s in siblings)
+                if group_key in processed_groups:
+                    results.append({
+                        "tournament_id": tournament_id,
+                        "tournament_name": tournament_name,
+                        "status": "skipped",
+                        "reason": "Same tournament group already processed"
+                    })
+                    continue
+
+                # グループ内により遅い締切がある場合は、全種別の申込が揃うその締切時に生成する
+                deadline = _date_str(tournament.get('deadline_date'))
+                latest_deadline = max(_date_str(s.get('deadline_date')) for s in siblings)
+                if deadline < latest_deadline:
+                    results.append({
+                        "tournament_id": tournament_id,
+                        "tournament_name": tournament_name,
+                        "status": "skipped",
+                        "reason": f"Deferred to group's latest deadline ({latest_deadline})"
+                    })
+                    continue
+
+                if not registrations:
                     results.append({
                         "tournament_id": tournament_id,
                         "tournament_name": tournament_name,
@@ -682,74 +761,8 @@ async def process_tournament_deadlines():
                     })
                     continue
 
-                registrations = registration_result.get('data', [])
-
                 # 選手情報を取得して申込データに結合
-                enriched_registrations = []
-                for reg in registrations:
-                    # 1行目: discord_idと一致する選手（申込者本人）
-                    applicant_result = await db.execute_query(
-                        'player_mst',
-                        operation='select',
-                        filters={'discord_id': reg['discord_id']}
-                    )
-
-                    if applicant_result.get('error'):
-                        continue
-
-                    applicant_data = applicant_result.get('data', [])
-                    if not applicant_data:
-                        continue
-
-                    applicant_player = applicant_data[0]
-
-                    # applicantオブジェクトを作成
-                    applicant = {
-                        'player_id': applicant_player.get('player_id'),
-                        'player_name': applicant_player.get('player_name'),
-                        'birth_date': applicant_player.get('birth_date'),
-                        'sex': applicant_player.get('sex'),
-                        'post_number': applicant_player.get('post_number'),
-                        'address': applicant_player.get('address'),
-                        'phone_number': applicant_player.get('phone_number'),
-                        'jsta_number': applicant_player.get('jsta_number'),
-                        'edogawa_flg': applicant_player.get('edogawa_flg', False),
-                        'affiliated_club': applicant_player.get('affiliated_club', ''),
-                    }
-
-                    # 2行目: pair1と一致する選手（ペア相手）
-                    partner = None
-                    if reg.get('pair1'):
-                        partner_result = await db.execute_query(
-                            'player_mst',
-                            operation='select',
-                            filters={'player_id': reg['pair1']}
-                        )
-
-                        if not partner_result.get('error'):
-                            partner_data = partner_result.get('data', [])
-                            if partner_data:
-                                partner_player = partner_data[0]
-                            partner = {
-                                'player_id': partner_player.get('player_id'),
-                                'player_name': partner_player.get('player_name'),
-                                'birth_date': partner_player.get('birth_date'),
-                                'sex': partner_player.get('sex'),
-                                'post_number': partner_player.get('post_number'),
-                                'address': partner_player.get('address'),
-                                'phone_number': partner_player.get('phone_number'),
-                                'jsta_number': partner_player.get('jsta_number'),
-                                'edogawa_flg': partner_player.get('edogawa_flg', False),
-                                'affiliated_club': partner_player.get('affiliated_club', ''),
-                            }
-
-                    enriched_reg = {
-                        **reg,
-                        'applicant': applicant,
-                        'partner': partner
-                    }
-
-                    enriched_registrations.append(enriched_reg)
+                enriched_registrations = await _enrich_registrations(registrations)
 
                 if not enriched_registrations:
                     results.append({
@@ -779,6 +792,9 @@ async def process_tournament_deadlines():
                     "file_urls": file_urls
                 })
 
+                # 生成に成功してから処理済み扱いにする（失敗時は同日締切の兄弟レコードで再試行できる）
+                processed_groups.add(group_key)
+
             except Exception as e:
                 errors.append({
                     "tournament_id": tournament_id,
@@ -786,9 +802,12 @@ async def process_tournament_deadlines():
                     "error": str(e)
                 })
 
+        skipped = [r for r in results if r.get("status") == "skipped"]
         return {
             "processed_count": len(tournaments),
             "success_count": len([r for r in results if r.get("status") == "success"]),
+            "skipped_count": len(skipped),
+            "deferred_count": len([r for r in skipped if str(r.get("reason", "")).startswith("Deferred")]),
             "results": results,
             "errors": errors,
             "deadline_date": tomorrow

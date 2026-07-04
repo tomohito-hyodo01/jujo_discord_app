@@ -56,10 +56,18 @@ class EdogawaExcelService(BaseExcelService):
             timestamp: タイムスタンプ
 
         Returns:
-            生成されたファイルパス
+            生成されたファイルパス（会員登録対象者がいない場合はNone）
         """
+        # edogawa_flg=False の選手のみ抽出
+        players_to_write = self._extract_unregistered_players(registrations)
+
+        # 会員登録対象者がいなければ登録表は出力しない
+        if not players_to_write:
+            return None
+
         # テンプレートをコピー
-        output_filename = "会員登録表.xlsx"
+        # ファイル名に大会名を含める（大会名ベースのクリーンアップ・一覧表示の対象にするため）
+        output_filename = f"{tournament_name}_会員登録表.xlsx"
         output_path = self._copy_template("会員登録表フォーマット.xlsx", output_filename)
 
         # Excelを開く
@@ -71,9 +79,6 @@ class EdogawaExcelService(BaseExcelService):
         fiscal_year_number = self._get_fiscal_year_number()
         new_value = current_value.replace("⚪︎", str(fiscal_year_number))
         self._set_cell_value(ws, 'A2', new_value)
-
-        # edogawa_flg=False の選手のみ抽出
-        players_to_write = self._extract_unregistered_players(registrations)
 
         # データ書き込み（6行目から）
         for idx, player in enumerate(players_to_write):

@@ -67,16 +67,20 @@ class ArakawaExcelService(BaseExcelService):
             applicant_sex = applicant.get('sex', 0) or 0
             type_str = self._format_type_sex(reg.get('type', ''), applicant_sex)
 
+            # 種別ごとに開催日が異なる大会（統合された兄弟レコード）では、
+            # その申込が属するレコードの開催日を年齢基準日にする
+            row_ref_date = self._parse_date(reg.get('source_tournament_date')) or ref_date
+
             # 上段: ペア番号 / 種別 / 申込者氏名 / 申込者年齢
             ws.cell(row_top, 1).value = i
             ws.cell(row_top, 2).value = type_str
             ws.cell(row_top, 3).value = self._normalize_name(applicant.get('player_name', ''))
-            ws.cell(row_top, 4).value = self._calc_age(applicant.get('birth_date'), ref_date)
+            ws.cell(row_top, 4).value = self._calc_age(applicant.get('birth_date'), row_ref_date)
 
             # 下段: ペア相手氏名 / ペア相手年齢
             if partner:
                 ws.cell(row_bot, 3).value = self._normalize_name(partner.get('player_name', ''))
-                ws.cell(row_bot, 4).value = self._calc_age(partner.get('birth_date'), ref_date)
+                ws.cell(row_bot, 4).value = self._calc_age(partner.get('birth_date'), row_ref_date)
 
         # テンプレートに残っている余分なペア番号(1〜11)をクリア
         used_pairs = len(sorted_regs)
