@@ -834,7 +834,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
         ctx.save(); ctx.textAlign = 'center'
         // レーザーボス（キャップの人）を画面右に描画。構え中は指先チャージのグロー。
         const boss = A.current.boss
-        const bh = heroH * 1.35, bx = W * 0.82
+        const bh = heroH * 1.15, bx = W * 0.82   // ボスは主人公・敵に近い高さに（顔優先でリアル頭身確定・大きすぎ解消）
         const tipX = bx - bh * 0.34, tipY = baseY - bh * 0.5   // 左に伸ばした腕の指先のおよその位置（ビーム原点）
         if (boss) { const bw = boss.width * (bh / boss.height); ctx.drawImage(boss, Math.round(bx - bw / 2), Math.round(baseY - bh), Math.round(bw), Math.round(bh)) }
         if (d.phase === 'armed') { ctx.save(); ctx.globalAlpha = 0.5 + 0.4 * Math.sin(st.playT * 20); ctx.fillStyle = '#fff'; ctx.shadowColor = '#f0f'; ctx.shadowBlur = heroH * 0.4; ctx.beginPath(); ctx.arc(tipX, tipY, heroH * (0.1 + 0.05 * Math.sin(st.playT * 20)), 0, Math.PI * 2); ctx.fill(); ctx.restore() }   // 構え＝指先チャージ
