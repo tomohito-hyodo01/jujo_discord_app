@@ -19,7 +19,7 @@ from api.database import db
 router = APIRouter()
 
 # 対応ゲーム（不正な値でテーブルを汚さないためのホワイトリスト）
-ALLOWED_GAMES = {"ebi_run"}
+ALLOWED_GAMES = {"ebi_run", "ebi_run_exer"}  # ebi_run_exer = エビ走の運動(エクサ)モード＝別ランキング
 
 # 記録リセットを許可するユーザー（当面は管理者 兵頭 のみ＝他者の記録は消せない）
 ADMIN_DISCORD_IDS = {"1427112485047242945"}
