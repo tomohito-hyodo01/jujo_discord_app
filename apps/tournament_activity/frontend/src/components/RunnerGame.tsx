@@ -134,6 +134,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
   const hurtIdxRef = useRef(0)
   const assetsReadyRef = useRef(false)
   const invincibleRef = useRef(false)
+  const forceDodgeRef = useRef(false)   // ⚡反応テストボタン：手動で避けろ！チャレンジを起動（管理者テスト用）
   const usedInvincibleRef = useRef(false)   // このランで一度でも無敵モードを使ったか（使ったら記録しない）
   const levelRef = useRef(0)                // 到達したレベル（1日終えるごとに+1）
   const endBossLevelRef = useRef(-1)        // レベル1・2の終盤に出す単発の敵を、どのレベルまで出したか
@@ -418,6 +419,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
 
       if (playing) {
         st.playT += dt
+        if (forceDodgeRef.current && !st.dodge) { forceDodgeRef.current = false; st.dodge = { phase: 'warn', idx: 0, n: 3, onset: 0, tNext: st.playT + 1.2, ballX: null, respT: null, spd: 0, rts: [], med: 0 }; st.obstacles = []; st.pits = []; st.enemies = []; st.bullets = []; st.coinsArr = [] }   // ⚡反応テストボタンからの手動起動（レベルアップを待たずに即開始）
         // 1日を終えた瞬間にレベルアップ＝速度が上がり、上部に「LEVEL UP！」を表示
         const lv = Math.floor(st.playT / (4 * DAY_PERIOD))
         if (lv > levelRef.current) {
@@ -899,6 +901,14 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
           onPointerDown={(e) => e.stopPropagation()}
           style={{ position: 'absolute', left: 8, bottom: 8, padding: '6px 12px', borderRadius: 12, border: 'none', fontFamily: POP_FONT, fontWeight: 800, fontSize: 13, cursor: 'pointer', color: '#fff', background: invincible ? '#16a34a' : '#64748b', boxShadow: '0 3px 0 rgba(0,0,0,0.22)', pointerEvents: 'auto' }}
         >🛡 無敵: {invincible ? 'ON' : 'OFF'}</button>
+      )}
+
+      {isAdmin && (
+        <button
+          onClick={(e) => { e.stopPropagation(); if (phaseRef.current === 'playing') forceDodgeRef.current = true }}
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{ position: 'absolute', left: 116, bottom: 8, padding: '6px 12px', borderRadius: 12, border: 'none', fontFamily: POP_FONT, fontWeight: 800, fontSize: 13, cursor: 'pointer', color: '#fff', background: '#ef4444', boxShadow: '0 3px 0 rgba(0,0,0,0.22)', pointerEvents: 'auto' }}
+        >⚡ 反応テスト</button>
       )}
 
       {isAdmin && (
