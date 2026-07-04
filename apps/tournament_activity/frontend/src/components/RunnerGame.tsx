@@ -23,7 +23,7 @@ const O_CRATE = '/game/run/obs_crate.png?v=1'
 const O_ROCK = '/game/run/obs_rock.png?v=1'
 const O_STONE = '/game/run/obs_stone.png?v=1'
 const O_BALL = '/game/run/ball_tennis.png?v=1'  // 避けろ！チャレンジの飛来ボール（リアルなテニスボール）
-const O_BOSS = '/game/run/boss_laser.png?v=3'  // 反応チャレンジのレーザーボス。boss2の顔を保持しつつGemini APIで主人公の頭身比(頭割合0.37≒主人公0.39)に再生成(v3)。シャツのマゼンタを守るためキー処理せず読む
+const O_BOSS = '/game/run/boss_laser.png?v=4'  // 反応チャレンジのレーザーボス。本人写真から特徴(細い目/大人顔/丸顔/がっちり)を明示してGemini再生成し、写真の顔とクロップ照合して採用(v4)。頭割合0.35≒主人公0.39。シャツのマゼンタを守るためキー処理せず読む
 const O_COIN = '/game/run/coin.png?v=1'  // 金貨（障害物・主人公と同じセルシェード調。flat円から差し替え）
 
 const M_PER_S = 50 / 8          // 距離カウンタの増加ペース：50メートル / 8秒（実スクロール速度とは別）
