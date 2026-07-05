@@ -560,7 +560,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
           else if (d.phase === 'armed' && st.playT >= d.tNext) { if (st.jumps > 0) { d.phase = 'foul'; d.tNext = st.playT + 0.7 } else { d.phase = 'live'; d.onset = performance.now(); d.ballX = null; d.respT = null; d.spd = 450 + Math.random() * 220 } }   // 超速レーザー発射。発射の瞬間に空中(=事前ジャンプ)ならフライング。地上なら着弾までの猶予450〜670msをランダム＝毎回スピードが変わる（速いが反応で避けられる範囲）
           else if (d.phase === 'live') {
             if (performance.now() - d.onset >= d.spd) {                // レーザー着弾＝判定（被弾しても死なない＝罰なし）
-              if (st.heroY < baseY - heroH * 0.42) { st.coins += 3; coinFxRef.current = { at: performance.now(), x: heroCenterX, y: st.heroY - heroH * 0.9, n: 3 } }   // ビームより上に跳べていれば回避成功→コイン＋頭上エフェクト
+              if (st.heroY < baseY - heroH * 0.74) { st.coins += 3; coinFxRef.current = { at: performance.now(), x: heroCenterX, y: st.heroY - heroH * 0.9, n: 3 } }   // 指先の高さの水平ビームより上に跳べていれば回避成功（2段ジャンプ推奨）→コイン＋頭上エフェクト
               d.idx += 1
               if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8 }
               else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }
@@ -849,20 +849,15 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
         } else if (d.phase === 'live') {
           const since = performance.now() - d.onset
           if (since < 90) { ctx.globalAlpha = 0.45 * (1 - since / 90); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }   // 発射フラッシュ
-          const beamY = baseY - heroH * 0.26, bt = heroH * 0.12                              // 当たり判定用の低い横ビーム（中心と半太さ）
-          const xConn = tipX - heroH * 0.15                                                   // 指先の少し左＝横ビームの起点
+          const bt = heroH * 0.07                                                             // ビーム半太さ（細め）
           const p = Math.min(1, since / 140)                                                  // 右→左へ伸びる（発射アニメ）
-          const leftX = xConn + (-heroH * 0.4 - xConn) * p                                    // 左端が指先側から画面左外へ伸びる
+          const leftX = tipX + (-heroH * 0.4 - tipX) * p                                       // 左端が指先から画面左外へ伸びる
           const hs = (since * 0.8) % 360
-          const grad = ctx.createLinearGradient(xConn, 0, leftX, 0)
+          const grad = ctx.createLinearGradient(tipX, 0, leftX, 0)
           for (let i = 0; i <= 6; i++) grad.addColorStop(i / 6, `hsl(${(hs + i * 60) % 360},100%,60%)`)
           ctx.save(); ctx.lineCap = 'round'; ctx.shadowColor = '#fff'; ctx.shadowBlur = heroH * 0.35
-          ctx.strokeStyle = grad; ctx.lineWidth = bt * 2; ctx.beginPath(); ctx.moveTo(xConn, beamY); ctx.lineTo(leftX, beamY); ctx.stroke()   // 虹ビーム本体（右→左に伸びる）
-          ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = bt * 0.7; ctx.beginPath(); ctx.moveTo(xConn, beamY); ctx.lineTo(leftX, beamY); ctx.stroke()   // 白コア
-          ctx.restore()
-          ctx.save(); ctx.lineCap = 'round'; ctx.shadowColor = '#fff'; ctx.shadowBlur = heroH * 0.3   // 指先→横ビームの発射コネクタ（斜め）
-          ctx.strokeStyle = `hsl(${hs},100%,65%)`; ctx.lineWidth = bt * 1.4; ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(xConn, beamY); ctx.stroke()
-          ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = bt * 0.5; ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(xConn, beamY); ctx.stroke()
+          ctx.strokeStyle = grad; ctx.lineWidth = bt * 2; ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(leftX, tipY); ctx.stroke()   // 虹ビーム本体（指先の高さで“水平”に右→左へ＝斜めに滑らない）
+          ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = bt * 0.7; ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(leftX, tipY); ctx.stroke()   // 白コア
           ctx.restore()
           ctx.save(); const mf = heroH * (0.13 + 0.05 * Math.abs(Math.sin(since * 0.04)))     // 指先マズルフラッシュ（脈動＋星スパイク）
           ctx.shadowColor = '#fff'; ctx.shadowBlur = heroH * 0.5; ctx.globalAlpha = 0.95; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(tipX, tipY, mf, 0, Math.PI * 2); ctx.fill()
