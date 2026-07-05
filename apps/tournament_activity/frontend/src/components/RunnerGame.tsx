@@ -849,16 +849,26 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
         } else if (d.phase === 'live') {
           const since = performance.now() - d.onset
           if (since < 90) { ctx.globalAlpha = 0.45 * (1 - since / 90); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }   // 発射フラッシュ
-          const beamY = baseY - heroH * 0.26, bt = heroH * 0.12                              // 虹レーザー：中心と半太さ
-          const grad = ctx.createLinearGradient(0, beamY - bt, 0, beamY + bt)
-          const hs = (since * 0.6) % 360
+          const beamY = baseY - heroH * 0.26, bt = heroH * 0.12                              // 当たり判定用の低い横ビーム（中心と半太さ）
+          const xConn = tipX - heroH * 0.15                                                   // 指先の少し左＝横ビームの起点
+          const p = Math.min(1, since / 140)                                                  // 右→左へ伸びる（発射アニメ）
+          const leftX = xConn + (-heroH * 0.4 - xConn) * p                                    // 左端が指先側から画面左外へ伸びる
+          const hs = (since * 0.8) % 360
+          const grad = ctx.createLinearGradient(xConn, 0, leftX, 0)
           for (let i = 0; i <= 6; i++) grad.addColorStop(i / 6, `hsl(${(hs + i * 60) % 360},100%,60%)`)
-          ctx.save(); ctx.globalAlpha = 0.9; ctx.shadowColor = '#fff'; ctx.shadowBlur = heroH * 0.35
-          ctx.fillStyle = grad; ctx.fillRect(0, beamY - bt, tipX, bt * 2)                     // 虹ビーム本体
-          ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fillRect(0, beamY - bt * 0.32, tipX, bt * 0.64)   // 白コア
+          ctx.save(); ctx.lineCap = 'round'; ctx.shadowColor = '#fff'; ctx.shadowBlur = heroH * 0.35
+          ctx.strokeStyle = grad; ctx.lineWidth = bt * 2; ctx.beginPath(); ctx.moveTo(xConn, beamY); ctx.lineTo(leftX, beamY); ctx.stroke()   // 虹ビーム本体（右→左に伸びる）
+          ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.lineWidth = bt * 0.7; ctx.beginPath(); ctx.moveTo(xConn, beamY); ctx.lineTo(leftX, beamY); ctx.stroke()   // 白コア
           ctx.restore()
-          ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(2, heroH * 0.05); ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(tipX - heroH * 0.18, beamY); ctx.stroke(); ctx.restore()   // 指先→ビーム
-          ctx.save(); ctx.globalAlpha = 0.95; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(tipX, tipY, heroH * 0.13, 0, Math.PI * 2); ctx.fill(); ctx.restore()   // 指先フラッシュ
+          ctx.save(); ctx.lineCap = 'round'; ctx.shadowColor = '#fff'; ctx.shadowBlur = heroH * 0.3   // 指先→横ビームの発射コネクタ（斜め）
+          ctx.strokeStyle = `hsl(${hs},100%,65%)`; ctx.lineWidth = bt * 1.4; ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(xConn, beamY); ctx.stroke()
+          ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = bt * 0.5; ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(xConn, beamY); ctx.stroke()
+          ctx.restore()
+          ctx.save(); const mf = heroH * (0.13 + 0.05 * Math.abs(Math.sin(since * 0.04)))     // 指先マズルフラッシュ（脈動＋星スパイク）
+          ctx.shadowColor = '#fff'; ctx.shadowBlur = heroH * 0.5; ctx.globalAlpha = 0.95; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(tipX, tipY, mf, 0, Math.PI * 2); ctx.fill()
+          ctx.strokeStyle = `hsl(${(hs + 40) % 360},100%,70%)`; ctx.lineWidth = Math.max(2, heroH * 0.03)
+          for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + since * 0.012; ctx.beginPath(); ctx.moveTo(tipX, tipY); ctx.lineTo(tipX + Math.cos(a) * mf * 2.2, tipY + Math.sin(a) * mf * 2.2); ctx.stroke() }
+          ctx.restore()
           if (d.respT != null) { ctx.fillStyle = d.respT < 300 ? '#16a34a' : '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.3)}px ${POP_FONT}`; ctx.strokeText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2); ctx.fillText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2) }
           ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 3; ctx.font = `800 ${Math.round(heroH * 0.22)}px ${POP_FONT}`; ctx.strokeText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14); ctx.fillText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14)
         } else if (d.phase === 'foul') {
