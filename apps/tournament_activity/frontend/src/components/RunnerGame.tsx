@@ -138,6 +138,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
   const invincibleRef = useRef(false)
   const forceDodgeRef = useRef(false)   // ⚡反応テストボタン：手動で避けろ！チャレンジを起動（管理者テスト用）
   const coinFxRef = useRef<{ at: number; x: number; y: number; n: number } | null>(null)   // 回避成功で頭上に舞い上がる「+コイン」エフェクト
+  const dodgeHitRef = useRef(0)   // レーザー被弾＝やられリアクションの開始時刻
   const usedInvincibleRef = useRef(false)   // このランで一度でも無敵モードを使ったか（使ったら記録しない）
   const levelRef = useRef(0)                // 到達したレベル（1日終えるごとに+1）
   const endBossLevelRef = useRef(-1)        // レベル1・2の終盤に出す単発の敵を、どのレベルまで出したか
@@ -557,10 +558,11 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
         if (st.dodge) {
           const d = st.dodge
           if (d.phase === 'warn' && st.playT >= d.tNext) { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }   // 溜め＝毎回ランダム(0.5〜2.5s)でタイミング予測不能
-          else if (d.phase === 'armed' && st.playT >= d.tNext) { if (st.jumps > 0) { d.phase = 'foul'; d.tNext = st.playT + 0.7 } else { d.phase = 'live'; d.onset = performance.now(); d.ballX = null; d.respT = null; d.spd = 450 + Math.random() * 220 } }   // 超速レーザー発射。発射の瞬間に空中(=事前ジャンプ)ならフライング。地上なら着弾までの猶予450〜670msをランダム＝毎回スピードが変わる（速いが反応で避けられる範囲）
+          else if (d.phase === 'armed' && st.playT >= d.tNext) { if (st.jumps > 0) { d.phase = 'foul'; d.tNext = st.playT + 0.7 } else { d.phase = 'live'; d.onset = performance.now(); d.ballX = null; d.respT = null; d.spd = 640 + Math.random() * 240 } }   // レーザー発射。発射の瞬間に空中(=事前ジャンプ)ならフライング。地上なら着弾までの猶予640〜880msをランダム＝少し遅めで反応すれば避けられる
           else if (d.phase === 'live') {
             if (performance.now() - d.onset >= d.spd) {                // レーザー着弾＝判定（被弾しても死なない＝罰なし）
-              if (st.heroY < baseY - heroH * 0.74) { st.coins += 3; coinFxRef.current = { at: performance.now(), x: heroCenterX, y: st.heroY - heroH * 0.9, n: 3 } }   // 指先の高さの水平ビームより上に跳べていれば回避成功（2段ジャンプ推奨）→コイン＋頭上エフェクト
+              if (st.heroY < baseY - heroH * 0.74) { st.coins += 3; coinFxRef.current = { at: performance.now(), x: heroCenterX, y: st.heroY - heroH * 0.9, n: 3 } }   // 指先の高さの水平ビームより上に跳べていれば回避成功→コイン＋頭上エフェクト
+              else { dodgeHitRef.current = performance.now(); hurtIdxRef.current = Math.floor(Math.random() * Math.max(1, A.current.hurts.length)) }   // 被弾＝やられリアクション（やられ画像＋のけぞり）
               d.idx += 1
               if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 0.9 }
               else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }
@@ -799,13 +801,15 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
         const sleepFrames = A.current.runSleep                         // 閉じ目を絵に描き込んだ寝顔フレーム
         const runSleepSpr = (sleeping && sleepFrames.length) ? sleepFrames[fi % sleepFrames.length] : undefined
         // 夜＆接地中は寝顔フレーム（閉じ目）／空中はジャンプ／それ以外は通常の走り
-        const spr = (airborne && A.current.jump) ? A.current.jump : (runSleepSpr || runSpr || A.current.jump || A.current.hurts[0])
+        const dodgeHit = dodgeHitRef.current > 0 && performance.now() - dodgeHitRef.current < 500   // レーザー被弾のやられリアクション中
+        const spr = dodgeHit ? (A.current.hurts[hurtIdxRef.current] || A.current.hurts[0] || A.current.run[0]) : ((airborne && A.current.jump) ? A.current.jump : (runSleepSpr || runSpr || A.current.jump || A.current.hurts[0]))
         const tilt = sleeping ? 0.30 + 0.04 * Math.sin(st.playT * 1.0) : 0   // 腰を支点に頭をしっかり前へ下げる（ゆっくりコクリ）
         const pvx = heroCenterX, pvy = st.heroY - heroH * 0.40
         if (spr) {
           ctx.save()
           if (sleeping) { ctx.translate(pvx, pvy); ctx.rotate(tilt); ctx.translate(-pvx, -pvy) }   // 前傾＝頭が下がる
-          drawSprite(spr, heroCenterX, st.heroY, heroH, 0)             // 走り中の上下バウンドは無し（頭が揺れない）
+          const shk = dodgeHit ? Math.sin(performance.now() * 0.05) * heroH * 0.07 : 0   // 被弾中は横にのけぞりブレ
+          drawSprite(spr, heroCenterX + shk, st.heroY, heroH, 0)       // 走り中の上下バウンドは無し
           if (sleeping) {
             // 鼻提灯（呼吸でふくらむ）。傾いた頭に追従させるため同じ変換内で描く。
             const br = 0.5 + 0.5 * Math.sin(st.playT * 1.7)
@@ -836,7 +840,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
         const boss = A.current.boss
         const bh = heroH * 1.1, bx = W * 0.82   // 頭のサイズが主人公とそろう描画倍率(R1は頭割合0.34→×1.1で頭≒主人公0.39)
         const tipX = bx - bh * 0.306, tipY = baseY - bh * 0.605   // R1スプライトの指先の実測位置（ビーム原点）。以前は少し下にズレていた
-        if (boss) { const bw = boss.width * (bh / boss.height); ctx.drawImage(boss, Math.round(bx - bw / 2), Math.round(baseY - bh), Math.round(bw), Math.round(bh)) }
+        if (boss) { const bw = boss.width * (bh / boss.height); ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(boss, Math.round(bx - bw / 2), Math.round(baseY - bh), Math.round(bw), Math.round(bh)); ctx.restore() }   // ボスは滑らかなイラスト＝スムージングON（ドット絵用のoffだとジャギって画質が悪く見える）
         if (d.phase === 'armed') { ctx.save(); ctx.globalAlpha = 0.5 + 0.4 * Math.sin(st.playT * 20); ctx.fillStyle = '#fff'; ctx.shadowColor = '#f0f'; ctx.shadowBlur = heroH * 0.4; ctx.beginPath(); ctx.arc(tipX, tipY, heroH * (0.1 + 0.05 * Math.sin(st.playT * 20)), 0, Math.PI * 2); ctx.fill(); ctx.restore() }   // 構え＝指先チャージ
         if (d.phase === 'warn') {
           ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, H * 0.30, W, H * 0.26)                       // 暗い帯（ロックマンのボス前WARNING風）
@@ -867,9 +871,8 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
           if (d.respT != null) { ctx.fillStyle = d.respT < 300 ? '#16a34a' : '#f59e0b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.3)}px ${POP_FONT}`; ctx.strokeText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2); ctx.fillText(`${d.respT}ms`, heroCenterX, st.heroY - heroH * 1.2) }
           ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 3; ctx.font = `800 ${Math.round(heroH * 0.22)}px ${POP_FONT}`; ctx.strokeText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14); ctx.fillText(`${d.idx + 1} / ${d.n}`, W / 2, H * 0.14)
         } else if (d.phase === 'foul') {
-          ctx.fillStyle = '#3b82f6'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.42)}px ${POP_FONT}`
-          ctx.strokeText('早すぎ！', W / 2, H * 0.4); ctx.fillText('早すぎ！', W / 2, H * 0.4)
-          ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.19)}px ${POP_FONT}`; ctx.fillText('レーザーが出る前に跳んだ＝無効', W / 2, H * 0.4 + heroH * 0.4)
+          ctx.fillStyle = '#3b82f6'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.34)}px ${POP_FONT}`
+          ctx.strokeText('早く飛びすぎ。無効！', W / 2, H * 0.4); ctx.fillText('早く飛びすぎ。無効！', W / 2, H * 0.4)
         } else if (d.phase === 'done') {
           // 反応の結果バナーは毎回は表示しない（コイン+エフェクトのみ）。平均反応はゲームオーバー画面で見られる。
         }
