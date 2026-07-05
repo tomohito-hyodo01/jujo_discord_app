@@ -23,7 +23,7 @@ const O_CRATE = '/game/run/obs_crate.png?v=1'
 const O_ROCK = '/game/run/obs_rock.png?v=1'
 const O_STONE = '/game/run/obs_stone.png?v=1'
 const O_BALL = '/game/run/ball_tennis.png?v=1'  // 避けろ！チャレンジの飛来ボール（リアルなテニスボール）
-const O_BOSS = '/game/run/boss_laser.png?v=5'  // 反応チャレンジのレーザーボス。本人写真を元画像に「顔は写真のまま・細い目/大人顔」で忠実タッチ生成しユーザー承認(R1採用, v5)。頭割合0.34。シャツのマゼンタを守るためキー処理せず読む
+const O_BOSS = '/game/run/boss_laser.png?v=6'  // 反応チャレンジのレーザーボス。承認R1の顔のまま高解像(1000px)で再処理し画質改善(v6)。頭割合0.34。シャツのマゼンタを守るためキー処理せず読む
 const O_COIN = '/game/run/coin.png?v=1'  // 金貨（障害物・主人公と同じセルシェード調。flat円から差し替え）
 
 const M_PER_S = 50 / 8          // 距離カウンタの増加ペース：50メートル / 8秒（実スクロール速度とは別）
@@ -854,8 +854,9 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
           const since = performance.now() - d.onset
           if (since < 90) { ctx.globalAlpha = 0.45 * (1 - since / 90); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1 }   // 発射フラッシュ
           const bt = heroH * 0.07                                                             // ビーム半太さ（細め）
-          const p = Math.min(1, since / 140)                                                  // 右→左へ伸びる（発射アニメ）
-          const leftX = tipX + (-heroH * 0.4 - tipX) * p                                       // 左端が指先から画面左外へ伸びる
+          const leftEdge = -heroH * 0.4
+          const travelT = d.spd * (tipX - leftEdge) / Math.max(1, tipX - heroCenterX)          // 主人公にちょうど d.spd で到達する速度＝ゆっくり近づく（反応で避けられる／接触で即やられ）
+          const leftX = tipX + (leftEdge - tipX) * Math.min(1.05, since / travelT)              // ビーム先端が指先から左へ進む
           const hs = (since * 0.8) % 360
           const grad = ctx.createLinearGradient(tipX, 0, leftX, 0)
           for (let i = 0; i <= 6; i++) grad.addColorStop(i / 6, `hsl(${(hs + i * 60) % 360},100%,60%)`)
