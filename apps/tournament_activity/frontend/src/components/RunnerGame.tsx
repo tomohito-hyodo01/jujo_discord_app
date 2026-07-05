@@ -562,13 +562,13 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
             if (performance.now() - d.onset >= d.spd) {                // レーザー着弾＝判定（被弾しても死なない＝罰なし）
               if (st.heroY < baseY - heroH * 0.74) { st.coins += 3; coinFxRef.current = { at: performance.now(), x: heroCenterX, y: st.heroY - heroH * 0.9, n: 3 } }   // 指先の高さの水平ビームより上に跳べていれば回避成功（2段ジャンプ推奨）→コイン＋頭上エフェクト
               d.idx += 1
-              if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8 }
+              if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 0.9 }
               else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }
             }
           }
           else if (d.phase === 'foul' && st.playT >= d.tNext) {        // フライング（発射前ジャンプ）＝その球は無効。次の球へ
             d.idx += 1; d.ballX = null; d.respT = null
-            if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 1.8 }
+            if (d.idx >= d.n) { const a = [...d.rts].sort((x, y) => x - y); d.med = a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : Math.round((a[a.length / 2 - 1] + a[a.length / 2]) / 2)) : 0; d.phase = 'done'; d.tNext = st.playT + 0.9 }
             else { d.phase = 'armed'; d.tNext = st.playT + 0.5 + Math.random() * 2.0 }
           }
           else if (d.phase === 'done' && st.playT >= d.tNext) { st.dodge = null }
@@ -871,17 +871,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
           ctx.strokeText('早すぎ！', W / 2, H * 0.4); ctx.fillText('早すぎ！', W / 2, H * 0.4)
           ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(heroH * 0.19)}px ${POP_FONT}`; ctx.fillText('レーザーが出る前に跳んだ＝無効', W / 2, H * 0.4 + heroH * 0.4)
         } else if (d.phase === 'done') {
-          ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, H)
-          if (d.med > 0) {
-            const sec = (d.med / 1000).toFixed(2)
-            const rating = d.med < 250 ? '⚡ めっちゃ速い！' : d.med < 350 ? 'はやい！' : d.med < 500 ? 'ふつう' : 'ゆっくり'
-            ctx.fillStyle = '#facc15'; ctx.strokeStyle = '#7a4a00'; ctx.lineWidth = Math.max(3, heroH * 0.06); ctx.font = `800 ${Math.round(heroH * 0.46)}px ${POP_FONT}`
-            ctx.strokeText(`反応 ${sec}秒`, W / 2, H * 0.4); ctx.fillText(`反応 ${sec}秒`, W / 2, H * 0.4)
-            ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(heroH * 0.26)}px ${POP_FONT}`; ctx.fillText(`${rating}（${d.med}ms）`, W / 2, H * 0.4 + heroH * 0.5)
-          } else {
-            ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = Math.max(3, heroH * 0.05); ctx.font = `800 ${Math.round(heroH * 0.36)}px ${POP_FONT}`
-            ctx.strokeText('計測なし', W / 2, H * 0.4); ctx.fillText('計測なし', W / 2, H * 0.4)
-          }
+          // 反応の結果バナーは毎回は表示しない（コイン+エフェクトのみ）。平均反応はゲームオーバー画面で見られる。
         }
         // 回避成功の「+コイン」エフェクト（頭上に舞い上がってフェード）
         const fx = coinFxRef.current
