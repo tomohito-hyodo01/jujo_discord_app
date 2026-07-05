@@ -23,7 +23,7 @@ const O_CRATE = '/game/run/obs_crate.png?v=1'
 const O_ROCK = '/game/run/obs_rock.png?v=1'
 const O_STONE = '/game/run/obs_stone.png?v=1'
 const O_BALL = '/game/run/ball_tennis.png?v=1'  // 避けろ！チャレンジの飛来ボール（リアルなテニスボール）
-const O_BOSS = '/game/run/boss_laser.png?v=4'  // 反応チャレンジのレーザーボス。本人写真から特徴(細い目/大人顔/丸顔/がっちり)を明示してGemini再生成し、写真の顔とクロップ照合して採用(v4)。頭割合0.35≒主人公0.39。シャツのマゼンタを守るためキー処理せず読む
+const O_BOSS = '/game/run/boss_laser.png?v=5'  // 反応チャレンジのレーザーボス。本人写真を元画像に「顔は写真のまま・細い目/大人顔」で忠実タッチ生成しユーザー承認(R1採用, v5)。頭割合0.34。シャツのマゼンタを守るためキー処理せず読む
 const O_COIN = '/game/run/coin.png?v=1'  // 金貨（障害物・主人公と同じセルシェード調。flat円から差し替え）
 
 const M_PER_S = 50 / 8          // 距離カウンタの増加ペース：50メートル / 8秒（実スクロール速度とは別）
@@ -834,7 +834,7 @@ export default function RunnerGame({ username, discordId, onExit, mode = 'normal
         ctx.save(); ctx.textAlign = 'center'
         // レーザーボス（キャップの人）を画面右に描画。構え中は指先チャージのグロー。
         const boss = A.current.boss
-        const bh = heroH, bx = W * 0.82   // ボスは主人公と同じ高さ（頭身も主人公に合わせて再構成済み＝サイズ感一致）
+        const bh = heroH * 1.1, bx = W * 0.82   // 頭のサイズが主人公とそろう描画倍率(R1は頭割合0.34→×1.1で頭≒主人公0.39)
         const tipX = bx - bh * 0.34, tipY = baseY - bh * 0.5   // 左に伸ばした腕の指先のおよその位置（ビーム原点）
         if (boss) { const bw = boss.width * (bh / boss.height); ctx.drawImage(boss, Math.round(bx - bw / 2), Math.round(baseY - bh), Math.round(bw), Math.round(bh)) }
         if (d.phase === 'armed') { ctx.save(); ctx.globalAlpha = 0.5 + 0.4 * Math.sin(st.playT * 20); ctx.fillStyle = '#fff'; ctx.shadowColor = '#f0f'; ctx.shadowBlur = heroH * 0.4; ctx.beginPath(); ctx.arc(tipX, tipY, heroH * (0.1 + 0.05 * Math.sin(st.playT * 20)), 0, Math.PI * 2); ctx.fill(); ctx.restore() }   // 構え＝指先チャージ
