@@ -417,6 +417,7 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
                     return {"success": True, "message": "締切日が昨日の大会はありません", "sent_count": 0}
 
                 results = []
+                generated_groups = set()  # このrunで申込書を生成済みの大会グループ
                 for t in tournaments:
                     tid = t['tournament_id']
                     t_name = t['tournament_name']
@@ -508,7 +509,11 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
                     content = '\n'.join(lines)
 
                     # Excel申込書を生成（対応区のみ）
+                    # 同一大会グループ（同区・同名・同区分）は申込書を1つに統合する。
+                    # グループ内に締切前の種別レコードが残っている間は生成せず、
+                    # 全種別の申込が揃う最終締切の通知時にまとめて生成・添付する。
                     attached_files = []
+                    excel_note = None
                     try:
                         # 大会情報を再取得（typeをJSONとして読みたい等の都合）
                         await cursor.execute(
@@ -526,52 +531,50 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
                                 except Exception:
                                     pass
 
-                            # enriched_registrations を組み立て
-                            enriched_regs = []
-                            for reg in registrations:
-                                applicant_row = discord_player_map.get(reg.get('discord_id'))
-                                if not applicant_row:
-                                    continue
-                                applicant = dict(applicant_row)
-                                partner = None
-                                if reg.get('pair1'):
-                                    p1 = player_id_map.get(reg['pair1'])
-                                    if p1:
-                                        partner = dict(p1)
-                                # regのpair2はJSON文字列の可能性 → デシリアライズ
-                                reg_dict = dict(reg)
-                                rp2 = reg_dict.get('pair2')
-                                if isinstance(rp2, str):
-                                    try:
-                                        reg_dict['pair2'] = json_mod.loads(rp2)
-                                    except Exception:
-                                        pass
-                                enriched_regs.append({**reg_dict, 'applicant': applicant, 'partner': partner})
+                            from api.routers.excel_generation import (
+                                _get_tournament_group,
+                                _enrich_registrations,
+                                _date_str,
+                            )
 
-                            # ExcelServiceFactoryで対応区かチェック
-                            try:
-                                from services.excel_service_factory import ExcelServiceFactory
-                                from pathlib import Path as _Path
-                                from datetime import datetime as _dt
+                            siblings, group_regs = await _get_tournament_group(tournament_row)
+                            latest_deadline = max(_date_str(s.get('deadline_date')) for s in siblings)
+                            group_key = frozenset(s.get('tournament_id') for s in siblings)
 
-                                # 同一大会名の旧ファイルを削除（自動上書き）
-                                output_dir = _Path(__file__).parent.parent.parent / 'output'
-                                if output_dir.exists():
-                                    for f in output_dir.glob('*.xlsx'):
-                                        if t_name and t_name in f.name:
-                                            try:
-                                                f.unlink()
-                                            except Exception:
-                                                pass
+                            if latest_deadline > _date_str(target):
+                                # 締切前の種別が残っている → 最終締切の通知時に統合して生成
+                                excel_note = f'申込書は最終締切({latest_deadline})の通知時に統合生成'
+                                print(f"ℹ️ {t_name}: {excel_note}")
+                            elif group_key in generated_groups:
+                                # 同日締切の兄弟レコードの通知で生成・添付済み
+                                excel_note = '申込書は同一大会の通知で添付済み'
+                            else:
+                                enriched_regs = await _enrich_registrations(group_regs)
 
-                                excel_service = ExcelServiceFactory.create(ward_id)
-                                file_paths_dict = excel_service.generate_tournament_files(tournament_row, enriched_regs)
-                                attached_files = [_Path(p) for p in file_paths_dict.values() if _Path(p).exists()]
-                            except ValueError:
-                                # 未対応区はExcel添付なしで送信
-                                pass
-                            except Exception as ex:
-                                print(f'⚠️ Excel生成失敗（テキストのみ送信）: {ex}')
+                                # ExcelServiceFactoryで対応区かチェック
+                                try:
+                                    from services.excel_service_factory import ExcelServiceFactory
+                                    from pathlib import Path as _Path
+
+                                    # 同一大会名の旧ファイルを削除（自動上書き）
+                                    output_dir = _Path(__file__).parent.parent.parent / 'output'
+                                    if output_dir.exists():
+                                        for f in output_dir.glob('*.xlsx'):
+                                            if t_name and t_name in f.name:
+                                                try:
+                                                    f.unlink()
+                                                except Exception:
+                                                    pass
+
+                                    excel_service = ExcelServiceFactory.create(ward_id)
+                                    file_paths_dict = excel_service.generate_tournament_files(tournament_row, enriched_regs)
+                                    attached_files = [_Path(p) for p in file_paths_dict.values() if _Path(p).exists()]
+                                    generated_groups.add(group_key)
+                                except ValueError:
+                                    # 未対応区はExcel添付なしで送信
+                                    pass
+                                except Exception as ex:
+                                    print(f'⚠️ Excel生成失敗（テキストのみ送信）: {ex}')
                     except Exception as ex:
                         print(f'⚠️ Excel生成準備失敗: {ex}')
 
@@ -608,7 +611,7 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
                                 else:
                                     resp = await client.post(webhook_url, json={'content': content}, timeout=10.0)
                                     if resp.status_code in [200, 204]:
-                                        results.append({'tournament': t_name, 'status': 'sent'})
+                                        results.append({'tournament': t_name, 'status': f'sent ({excel_note})' if excel_note else 'sent'})
                                     else:
                                         results.append({'tournament': t_name, 'status': f'failed: {resp.status_code} body={resp.text[:200]}'})
                         except Exception as e:
