@@ -106,6 +106,21 @@ class PDFParserService:
         else:
             raise ValueError(f"Unsupported model: {self.model}")
 
+    @staticmethod
+    def _get_claude_text(message) -> str:
+        """Claudeレスポンスからテキストブロックのみ抽出
+
+        Claude 5系は応答の先頭に thinking ブロックが入ることがあるため、
+        content[0] 決め打ちではなく type == "text" のブロックを結合する。
+        """
+        parts = [
+            block.text for block in message.content
+            if getattr(block, 'type', '') == 'text'
+        ]
+        if not parts:
+            raise ValueError("Claudeの応答にテキストが含まれていません")
+        return ''.join(parts).strip()
+
     async def _parse_excel(self, content: bytes) -> Dict[str, Any]:
         """Excelをテキスト抽出してAIで解析"""
         text = _extract_excel_text(content)
@@ -114,13 +129,13 @@ class PDFParserService:
         if self.model == "claude":
             message = self.client.messages.create(
                 model=CLAUDE_MODEL,
-                max_tokens=2048,
+                max_tokens=8192,
                 messages=[{
                     "role": "user",
                     "content": f"以下は大会要項のExcelデータです。\n\n{text}\n\n{prompt}"
                 }]
             )
-            return self._extract_json_from_response(message.content[0].text.strip())
+            return self._extract_json_from_response(self._get_claude_text(message))
         else:
             response = self.client.generate_content(
                 f"以下は大会要項のExcelデータです。\n\n{text}\n\n{prompt}"
@@ -145,13 +160,13 @@ class PDFParserService:
 
         message = self.client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=2048,
+            max_tokens=8192,
             messages=[{
                 "role": "user",
                 "content": [doc_block, {"type": "text", "text": prompt}]
             }]
         )
-        return self._extract_json_from_response(message.content[0].text.strip())
+        return self._extract_json_from_response(self._get_claude_text(message))
 
     async def _parse_with_gemini(self, content: bytes, mime: str) -> Dict[str, Any]:
         """Gemini APIを使用して解析（PDF/画像）"""
