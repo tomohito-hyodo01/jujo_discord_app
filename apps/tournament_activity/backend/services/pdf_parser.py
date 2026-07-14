@@ -31,6 +31,10 @@ EXCEL_MIMES = {
     'application/vnd.ms-excel',
 }
 
+# 使用するClaudeモデル。日付付きスナップショットIDは廃止で404になるため、
+# 常に最新スナップショットを指すエイリアスを使う
+CLAUDE_MODEL = "claude-sonnet-5"
+
 
 def _detect_mime(filename: Optional[str], content: bytes) -> str:
     """ファイル名またはマジックバイトからMIMEタイプを推定"""
@@ -109,7 +113,7 @@ class PDFParserService:
 
         if self.model == "claude":
             message = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_MODEL,
                 max_tokens=2048,
                 messages=[{
                     "role": "user",
@@ -140,7 +144,7 @@ class PDFParserService:
             }
 
         message = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=2048,
             messages=[{
                 "role": "user",
