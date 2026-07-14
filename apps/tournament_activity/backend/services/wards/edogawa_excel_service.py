@@ -21,12 +21,31 @@ TYPE_ORDER = {
     "65": 4,
 }
 
+# シングルス大会の種別名（オープン大会。会員登録表は不要で申込書テンプレートも専用）
+SINGLES_TYPE = "シングルス"
+
 
 class EdogawaExcelService(BaseExcelService):
     """江戸川区専用のExcel生成サービス"""
 
     def __init__(self):
         super().__init__(ward_id=23, ward_name="江戸川区")
+
+    def _is_singles(self, tournament: Optional[Dict] = None,
+                    registrations: Optional[List[Dict]] = None) -> bool:
+        """シングルス大会かどうかを判定
+
+        大会情報の type（JSONリスト）に "シングルス" が含まれる、
+        または申込データの種別が "シングルス" であれば真。
+        """
+        if tournament is not None:
+            t = tournament.get('type')
+            types = t if isinstance(t, list) else ([t] if t else [])
+            if SINGLES_TYPE in types:
+                return True
+        if registrations:
+            return any(r.get('type') == SINGLES_TYPE for r in registrations)
+        return False
 
     def _set_cell_value(self, ws, cell_ref, value):
         """
@@ -56,8 +75,12 @@ class EdogawaExcelService(BaseExcelService):
             timestamp: タイムスタンプ
 
         Returns:
-            生成されたファイルパス（会員登録対象者がいない場合はNone）
+            生成されたファイルパス（会員登録対象者がいない・シングルス大会の場合はNone）
         """
+        # シングルス大会はオープン大会のため会員登録表は出力しない
+        if self._is_singles(registrations=registrations):
+            return None
+
         # edogawa_flg=False の選手のみ抽出
         players_to_write = self._extract_unregistered_players(registrations)
 
@@ -135,6 +158,10 @@ class EdogawaExcelService(BaseExcelService):
         Returns:
             生成されたファイルパス
         """
+        # シングルス大会は専用テンプレート・レイアウトで生成
+        if self._is_singles(tournament=tournament, registrations=registrations):
+            return self._generate_singles_application(tournament, registrations, timestamp)
+
         # テンプレートをコピー
         output_filename = f"{tournament['tournament_name']}_申込書.xlsx"
         output_path = self._copy_template("個人戦_申込書フォーマット.xlsx", output_filename)
@@ -197,6 +224,78 @@ class EdogawaExcelService(BaseExcelService):
                 row += 1
 
             entry_no += 1
+
+        # 保存
+        wb.save(output_path)
+        wb.close()
+
+        return output_path
+
+    # テンプレートの申込欄（先頭行のみ書き込む2行結合ブロック）
+    SINGLES_TEMPLATE = "シングルス_申込書フォーマット.xlsx"
+    SINGLES_START_ROW = 10   # 最初の申込欄の先頭行
+    SINGLES_ROW_STRIDE = 2   # 1申込あたり2行（A/B列が2行結合）
+    SINGLES_MAX_ENTRIES = 13  # テンプレートの申込欄数（10,12,...,34行）
+
+    def _generate_singles_application(
+        self,
+        tournament: Dict,
+        registrations: List[Dict],
+        timestamp: str
+    ) -> Optional[Path]:
+        """
+        江戸川区シングルス大会の申込書を生成（専用テンプレート）
+
+        1申込 = 1選手（ペアなし）。テンプレートは1申込あたり2行結合ブロックのため、
+        各申込を各ブロックの先頭行に記入する。
+        """
+        # テンプレートをコピー
+        output_filename = f"{tournament['tournament_name']}_申込書.xlsx"
+        output_path = self._copy_template(self.SINGLES_TEMPLATE, output_filename)
+
+        # Excelを開く
+        wb = openpyxl.load_workbook(output_path)
+        ws = wb["Sheet1"]
+
+        # A1: 大会名 / F3: 申込日
+        self._set_cell_value(ws, 'A1', f"{tournament['tournament_name']}　申込書")
+        self._set_cell_value(ws, 'F3', self._format_application_date())
+
+        # 男子→女子の順（各性別内は申込順を維持＝安定ソート）
+        ordered = sorted(registrations, key=lambda r: (r.get('sex') or 0))
+
+        entry_no = 0
+        for reg in ordered:
+            applicant = reg.get('applicant')
+            if not applicant:
+                continue
+
+            row = self.SINGLES_START_ROW + entry_no * self.SINGLES_ROW_STRIDE
+            if entry_no >= self.SINGLES_MAX_ENTRIES:
+                print(f"⚠️ シングルス申込がテンプレート上限({self.SINGLES_MAX_ENTRIES}件)を"
+                      f"超過したため以降を省略: {len(ordered)}件")
+                break
+            entry_no += 1
+
+            # A列: NO
+            self._set_cell_value(ws, f'A{row}', entry_no)
+
+            # B列: 種別（例: シングルス男子 / シングルス女子）
+            self._set_cell_value(ws, f'B{row}', self._format_type_sex(reg.get('type', SINGLES_TYPE), reg.get('sex')))
+
+            # C列: 氏名
+            self._set_cell_value(ws, f'C{row}', applicant['player_name'])
+
+            # D列: 生年月日（YYYY/MM/DD形式の文字列で出力）
+            birth_date = applicant['birth_date']
+            if isinstance(birth_date, str):
+                birth_date = datetime.strptime(birth_date, "%Y-%m-%d").date()
+            self._set_cell_value(ws, f'D{row}', birth_date.strftime("%Y/%m/%d") if birth_date else "")
+
+            # E列: 所属名
+            self._set_cell_value(ws, f'E{row}', applicant.get('affiliated_club', ''))
+
+            # F列: 備考は空欄
 
         # 保存
         wb.save(output_path)
