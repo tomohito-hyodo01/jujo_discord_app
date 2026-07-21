@@ -15,6 +15,7 @@
         生年月日（例: 2003年10月1日）
         電話番号（ハイフン区切り）
 """
+import unicodedata
 from datetime import datetime, date
 from typing import List, Dict, Optional
 
@@ -36,10 +37,14 @@ def _strip_spaces(s: Optional[str]) -> str:
 
 
 def _katakana_to_hiragana(s: Optional[str]) -> str:
-    """カタカナをひらがなに変換（フリガナ欄がカタカナ登録でも見本に合わせる）"""
+    """カタカナをひらがなに変換（フリガナ欄がカタカナ登録でも見本に合わせる）
+
+    半角カタカナ（ｱｲｳ…）はNFKC正規化で全角に揃えてから変換する。
+    """
+    s = unicodedata.normalize("NFKC", s or "")
     return "".join(
         chr(ord(ch) - 0x60) if "ァ" <= ch <= "ヶ" else ch
-        for ch in (s or "")
+        for ch in s
     )
 
 
@@ -125,7 +130,8 @@ class SumidaTextService:
 
     def _format_phone(self, phone) -> str:
         """電話番号をハイフン区切りに整形（例: 08088162335 -> 080-8816-2335）"""
-        s = str(phone or "").strip()
+        # 全角数字・全角ハイフン等をNFKCで半角に正規化
+        s = unicodedata.normalize("NFKC", str(phone or "")).strip()
         if "-" in s:
             return s
         digits = "".join(c for c in s if c.isdigit())
