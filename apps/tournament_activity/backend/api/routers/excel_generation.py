@@ -260,11 +260,16 @@ async def _generate_sumida_text(tournament: dict, registrations: list) -> "Excel
                         detail=f"Discord Webhook error: {resp.status_code} - {resp.text}",
                     )
 
+    if tournament.get("classification") == 1:
+        summary = f"{len(texts)}チーム分の申込テキストをDiscordに送信しました（{sent}メッセージ）"
+    else:
+        summary = f"{len(enriched)}ペア分の申込テキストをDiscordに送信しました（{sent}メッセージ）"
+
     return ExcelGenerationResponse(
         success=True,
         tournament_id=tournament.get("tournament_id"),
         tournament_name=tournament_name,
-        generated_files={"sumida_text": f"{len(texts)}チーム分の申込テキストをDiscordに送信しました（{sent}メッセージ）"},
+        generated_files={"sumida_text": summary},
     )
 
 # Discord Webhook URL（環境変数から取得）
