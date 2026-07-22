@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from api.database import db
+from api.ward_webhooks import get_ward_webhook_url
 from datetime import datetime, timedelta, date
 import httpx
 import os
@@ -332,28 +333,12 @@ class ExcelGenerationResponse(BaseModel):
     error: Optional[str] = None
 
 
-# 主催区ID → 申込通知webhook環境変数（申込通知・締切通知と同じ「各区の管理者チャンネル」）
-WARD_WEBHOOK_ENV = {
-    99: 'DISCORD_WEBHOOK_URL',            # 東京都・その他広域
-    23: 'DISCORD_WEBHOOK_URL_EDOGAWA',    # 江戸川区
-    8:  'DISCORD_WEBHOOK_URL_KOTO',       # 江東区
-    2:  'DISCORD_WEBHOOK_URL_CHUO',       # 中央区
-    7:  'DISCORD_WEBHOOK_URL_SUMIDA',     # 墨田区
-    18: 'DISCORD_WEBHOOK_URL_ARAKAWA',    # 荒川区
-    21: 'DISCORD_WEBHOOK_URL_ADACHI',     # 足立区
-    5:  'DISCORD_WEBHOOK_URL_BUNKYO',     # 文京区
-    101:'DISCORD_WEBHOOK_URL_NAGAREYAMA', # 流山市
-    100:'DISCORD_WEBHOOK_URL_EDOGAWA',    # 浦安市 → 江戸川区チャンネル
-}
-
-
 async def _send_excel_to_ward_webhook(ward_id: int, tournament_name: str, file_paths: Dict[str, str]):
     """生成した申込書Excelを、主催区の管理者チャンネル（区別webhook）へ添付送信する。
     未設定の区はデフォルト(広域)webhookにフォールバック。戻り値は添付CDN URLの辞書（取得できれば）。"""
     import json as _json
 
-    env_key = WARD_WEBHOOK_ENV.get(ward_id)
-    webhook_url = (os.getenv(env_key) if env_key else None) or os.getenv('DISCORD_WEBHOOK_URL')
+    webhook_url = get_ward_webhook_url(ward_id)
     if not webhook_url:
         print(f"⚠️ 区別webhook未設定のためExcel送信スキップ (ward_id={ward_id})")
         return None

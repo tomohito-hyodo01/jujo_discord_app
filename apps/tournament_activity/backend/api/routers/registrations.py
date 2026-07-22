@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date
 from api.database import db
+from api.ward_webhooks import get_ward_webhook_url
 import httpx
 import os
 
@@ -91,20 +92,8 @@ async def create_registration(registration: RegistrationCreate):
 
                 registrated_ward = tournament['data'][0].get('registrated_ward') if tournament.get('data') else None
 
-                # Webhook送信先を主催区で振り分け
-                ward_webhooks = {
-                    99: os.getenv('DISCORD_WEBHOOK_URL'),           # 東京都・その他広域
-                    23: os.getenv('DISCORD_WEBHOOK_URL_EDOGAWA'),   # 江戸川区
-                     8: os.getenv('DISCORD_WEBHOOK_URL_KOTO'),      # 江東区
-                     2: os.getenv('DISCORD_WEBHOOK_URL_CHUO'),      # 中央区
-                     7: os.getenv('DISCORD_WEBHOOK_URL_SUMIDA'),    # 墨田区
-                    18: os.getenv('DISCORD_WEBHOOK_URL_ARAKAWA'),   # 荒川区
-                     5: os.getenv('DISCORD_WEBHOOK_URL_BUNKYO'),    # 文京区
-                   101: os.getenv('DISCORD_WEBHOOK_URL_NAGAREYAMA'),  # 流山市（千葉）
-                   100: os.getenv('DISCORD_WEBHOOK_URL_EDOGAWA'),  # 浦安市 → 江戸川区チャンネル
-                }
-                # 対応webhookが未設定の区はデフォルト(広域)チャンネルにフォールバック
-                target_webhook = ward_webhooks.get(registrated_ward) or os.getenv('DISCORD_WEBHOOK_URL')
+                # Webhook送信先を主催区で振り分け（未設定の区は広域チャンネルにフォールバック）
+                target_webhook = get_ward_webhook_url(registrated_ward)
                 if not target_webhook:
                     raise Exception(f'Discord Webhook未設定 (ward_id={registrated_ward})')
 
