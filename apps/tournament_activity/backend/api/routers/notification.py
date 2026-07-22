@@ -17,20 +17,10 @@ import aiomysql
 
 router = APIRouter()
 
+from api.ward_webhooks import get_ward_webhook_url
+
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL', '')
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN', '')
-
-# 区ごとのWebhook URL
-WARD_WEBHOOK_MAP = {
-    23: os.getenv('DISCORD_WEBHOOK_URL_EDOGAWA', ''),   # 江戸川区
-    8: os.getenv('DISCORD_WEBHOOK_URL_KOTO', ''),       # 江東区
-    2: os.getenv('DISCORD_WEBHOOK_URL_CHUO', ''),       # 中央区
-    7: os.getenv('DISCORD_WEBHOOK_URL_SUMIDA', ''),     # 墨田区
-    18: os.getenv('DISCORD_WEBHOOK_URL_ARAKAWA', ''),   # 荒川区
-    5: os.getenv('DISCORD_WEBHOOK_URL_BUNKYO', ''),     # 文京区
-    101: os.getenv('DISCORD_WEBHOOK_URL_NAGAREYAMA', ''),  # 流山市（千葉）
-    100: os.getenv('DISCORD_WEBHOOK_URL_EDOGAWA', ''),  # 浦安市 → 江戸川区チャンネル
-}
 
 
 async def send_dm(discord_id: str, content: str):
@@ -578,8 +568,8 @@ async def notify_deadline_closed(target_date: Optional[str] = None):
                     except Exception as ex:
                         print(f'⚠️ Excel生成準備失敗: {ex}')
 
-                    # 対応するWebhook URLを選択
-                    webhook_url = WARD_WEBHOOK_MAP.get(ward_id, '') or DISCORD_WEBHOOK_URL
+                    # 対応するWebhook URLを選択（未設定の区は広域チャンネルにフォールバック）
+                    webhook_url = get_ward_webhook_url(ward_id)
 
                     if webhook_url:
                         try:
