@@ -293,7 +293,15 @@ async def register_tournament(request: TournamentRegisterRequest):
             )
             message = "大会情報を更新しました"
         else:
-            # 新規登録
+            # 新規登録: 締切日が過去の大会は拒否
+            # （要項PDFの年の読み取り誤りで過去年の大会が作られると、一覧に表示されず
+            # 「登録したのにデータがない」ように見える。過去大会の更新は対象外）
+            if deadline < date.today():
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"申込締切日（{request.deadline_date}）が過去の日付です。"
+                            "要項の年の読み取り誤りの可能性があります。日付を確認して修正してください。")
+                )
             result = await db.execute_query(
                 'tournament_mst',
                 operation='insert',
