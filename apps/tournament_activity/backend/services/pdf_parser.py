@@ -9,6 +9,7 @@ Claude API または Gemini API を使用して大会要項(PDF/画像/Excel)か
 import os
 import base64
 import json
+from datetime import datetime
 from typing import Dict, Any, Literal, Optional
 import anthropic
 
@@ -178,17 +179,27 @@ class PDFParserService:
         return self._extract_json_from_response(response.text.strip())
 
     def _get_extraction_prompt(self) -> str:
-        """PDF情報抽出用のプロンプトを取得"""
-        return """このPDFは大会要項です。以下の情報を抽出してJSON形式で返してください。
+        """PDF情報抽出用のプロンプトを取得（今日の日付を埋め込んで年の推測誤りを防ぐ）"""
+        today = datetime.now()
+        prompt = """このPDFは大会要項です。以下の情報を抽出してJSON形式で返してください。
+
+今日の日付: __TODAY__
+
+**日付の年の決め方（最重要）**:
+- この要項はこれから開催される大会のものです。開催日・締切日は原則として今日（__TODAY__）以降の日付です
+- 要項に年が明記されていない場合は、その月日が今日以降になる最も近い年を採用してください
+- 和暦は西暦に変換してください（令和N年 = 西暦N+2018年。例: 令和8年 = 2026年）
+- 「令和N年度」の年度は4月始まりです（例: 令和8年度の1〜3月は西暦2027年）
+- 抽出した日付が過去の年になった場合は、年の読み取りを見直してください
 
 **重要**: 種別によって開催日が異なる場合は、開催日ごとに別のレコードとして返してください。
 その場合、JSON配列として複数のオブジェクトを返してください。
 
 例: 一般が9/13、35・45が9/6、ミックスが9/20の場合:
 [
-  {"tournament_name": "大会名", "tournament_date": "2026-09-06", "type": ["35", "45"], ...},
-  {"tournament_name": "大会名", "tournament_date": "2026-09-13", "type": ["一般"], ...},
-  {"tournament_name": "大会名", "tournament_date": "2026-09-20", "type": ["ミックス（一般）"], ...}
+  {"tournament_name": "大会名", "tournament_date": "__YEAR__-09-06", "type": ["35", "45"], ...},
+  {"tournament_name": "大会名", "tournament_date": "__YEAR__-09-13", "type": ["一般"], ...},
+  {"tournament_name": "大会名", "tournament_date": "__YEAR__-09-20", "type": ["ミックス（一般）"], ...}
 ]
 
 全種別が同じ日程の場合は、単一オブジェクトで返してください（配列不要）。
@@ -198,8 +209,8 @@ class PDFParserService:
   "tournament_id": "大会名と日付からMD5ハッシュで自動生成（例: tournament_a1b2c3d4）",
   "tournament_name": "大会名（完全な名称）",
   "registrated_ward": 主催区のID（下記参照）,
-  "deadline_date": "申込締切日（YYYY-MM-DD形式、例: 2024-03-15）",
-  "tournament_date": "大会開催日（YYYY-MM-DD形式、例: 2024-03-20）",
+  "deadline_date": "申込締切日（YYYY-MM-DD形式、例: __YEAR__-03-15）",
+  "tournament_date": "大会開催日（YYYY-MM-DD形式、例: __YEAR__-03-20）",
   "classification": 競技形式（個人戦=0, 団体戦=1）,
   "mix_flg": false,
   "type": ["一般", "35", "ミックス（一般）", "ミックス（35）"],
@@ -233,6 +244,11 @@ class PDFParserService:
 7. JSONのみを返し、説明文やマークダウンは不要です
 
 JSON:"""
+        return (
+            prompt
+            .replace("__TODAY__", today.strftime("%Y-%m-%d"))
+            .replace("__YEAR__", str(today.year))
+        )
 
     def _validate_tournament(self, tournament_data: Dict[str, Any]) -> Dict[str, Any]:
         """個別の大会データを検証・補正"""
