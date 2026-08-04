@@ -33,6 +33,16 @@ class RegistrationCreate(BaseModel):
 async def create_registration(registration: RegistrationCreate):
     """新規申込を登録"""
     try:
+        # 締切日時（deadline_date + deadline_time）を過ぎた大会は受け付けない
+        # （一覧取得と送信の間に締切をまたぐケースの最終ガード）
+        tour_check = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': registration.tournament_id}
+        )
+        if tour_check.get('data') and is_deadline_passed(tour_check['data'][0]):
+            raise HTTPException(status_code=400, detail="申込締切を過ぎているため申込できません")
+
         data = registration.model_dump()
         result = await db.execute_query(
             'tournament_registration',
@@ -185,6 +195,8 @@ async def create_registration(registration: RegistrationCreate):
             print(f'⚠️ 申込通知送信失敗（申込自体は成功）: {e}')
 
         return result.get('data', [{}])[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

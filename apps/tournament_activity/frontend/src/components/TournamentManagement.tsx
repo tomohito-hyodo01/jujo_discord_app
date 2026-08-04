@@ -94,11 +94,14 @@ export default function TournamentManagement() {
       })
       if (res.ok) {
         setMessage('更新しました')
+        // ローカル値の合成ではなくAPIが返す更新後データを反映する
+        // （サーバーが受理しなかったフィールドが「保存されたように見える」のを防ぐ）
+        const updated = await res.json()
         setTournaments(prev => prev.map(t =>
           t.tournament_id === selectedTournament.tournament_id
-            ? { ...t, ...editData, type: typeArr } : t
+            ? { ...t, ...updated } : t
         ))
-        setSelectedTournament({ ...selectedTournament, ...editData, type: typeArr })
+        setSelectedTournament({ ...selectedTournament, ...updated })
         setModalMode('detail')
       } else {
         const err = await res.json()

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import TournamentCalendar from './TournamentCalendar'
 import { filterPairCandidates } from '../utils/playerFilter'
-import { formatTournamentDeadline, isTournamentDeadlinePassed } from '../utils/deadline'
+import { deadlineTimeSuffix, isTournamentDeadlinePassed } from '../utils/deadline'
 import CommentSection from './CommentSection'
 
 interface EventListProps {
@@ -672,7 +672,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           </div>
           {urgentDeadlines.map(t => (
             <div key={t.tournament_id} style={{ fontSize: '13px', color: '#fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
-              <span>{t.tournament_name} - 締切 {formatTournamentDeadline(t)}</span>
+              <span>{t.tournament_name} - 締切 {formatDate(t.deadline_date)}{deadlineTimeSuffix(t)}</span>
               <button onClick={() => onNavigate('apply', t.tournament_id)} style={{
                 padding: '3px 10px', borderRadius: '4px', backgroundColor: '#dc2626', color: '#fff',
                 border: 'none', fontSize: '12px', cursor: 'pointer', flexShrink: 0, marginLeft: '8px',
@@ -969,7 +969,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 ].filter(Boolean).join(' / ')
                 const rows: [string, any][] = [
                   ['開催日', formatDate(t.tournament_date)],
-                  ['締切日', formatTournamentDeadline(t)],
+                  ['締切日', formatDate(t.deadline_date) + deadlineTimeSuffix(t)],
                   ['主催', wards.find((w: any) => w.ward_id === t.registrated_ward)?.ward_name || ''],
                   ['形式', t.classification === 0 ? '個人戦' : '団体戦'],
                   ['申込数', `${t.entry_count || 0}${t.max_entries != null ? ` / ${t.max_entries}` : ''}`],

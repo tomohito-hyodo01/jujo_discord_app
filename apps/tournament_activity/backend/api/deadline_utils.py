@@ -10,8 +10,9 @@
 from datetime import datetime, date, time as dtime
 from typing import Optional
 
-# 時刻未設定の大会は締切日の終日（23:59:59）まで受付
-DEFAULT_CUTOFF_TIME = dtime(23, 59, 59)
+# 時刻未設定の大会は締切日の終日まで受付
+# （dtime.max = 23:59:59.999999。旧実装の日付比較「締切日当日は終日可」と完全一致させる）
+DEFAULT_CUTOFF_TIME = dtime.max
 
 
 def get_deadline_cutoff(tournament: dict) -> Optional[datetime]:
