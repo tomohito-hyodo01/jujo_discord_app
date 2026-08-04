@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter, HTTPException
 from api.database import db
-from datetime import datetime
+from datetime import datetime, time as dtime
 
 router = APIRouter()
 
@@ -85,8 +85,8 @@ async def get_available_tournaments(discord_id: str):
                     excluded_tournament_ids.add(reg['tournament_id'])
         
         # 現在時刻
-        now = datetime.now().date()
-        
+        now = datetime.now()
+
         # フィルタリング
         available_tournaments = []
         for tournament in all_tournaments:
@@ -96,9 +96,20 @@ async def get_available_tournaments(discord_id: str):
                 deadline = datetime.fromisoformat(deadline_str.replace('Z', '')).date()
             else:
                 deadline = deadline_str
-            
-            # 条件: 締切が過ぎていない AND 除外リストに含まれていない
-            if deadline >= now and tournament['tournament_id'] not in excluded_tournament_ids:
+
+            # 締切時刻（deadline_time未設定は当日23:59:59まで受付）
+            cutoff_time = dtime(23, 59, 59)
+            time_str = tournament.get('deadline_time')
+            if time_str:
+                try:
+                    hour, minute = str(time_str)[:5].split(':')
+                    cutoff_time = dtime(int(hour), int(minute))
+                except ValueError:
+                    pass
+            cutoff = datetime.combine(deadline, cutoff_time)
+
+            # 条件: 締切日時が過ぎていない AND 除外リストに含まれていない
+            if now <= cutoff and tournament['tournament_id'] not in excluded_tournament_ids:
                 available_tournaments.append(tournament)
         
         return available_tournaments

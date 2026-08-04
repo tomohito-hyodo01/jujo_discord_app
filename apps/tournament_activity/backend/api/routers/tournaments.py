@@ -157,6 +157,7 @@ class TournamentRegisterRequest(BaseModel):
     tournament_name: str
     registrated_ward: int
     deadline_date: str  # YYYY-MM-DD
+    deadline_time: Optional[str] = None  # HH:MM（未設定=当日23:59まで）
     tournament_date: str  # YYYY-MM-DD
     classification: int  # 0=個人戦, 1=団体戦など
     mix_flg: bool
@@ -238,6 +239,15 @@ async def get_tournament(tournament_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _validate_deadline_time(value: Optional[str]) -> Optional[str]:
+    """締切時刻(HH:MM)を検証。空文字はNone(終日=当日23:59まで)に正規化"""
+    if value is None or value == '':
+        return None
+    if not re.fullmatch(r'([01][0-9]|2[0-3]):[0-5][0-9]', value):
+        raise HTTPException(status_code=400, detail="締切時刻の形式が不正です（HH:MM）")
+    return value
+
+
 @router.post("/tournaments/register")
 async def register_tournament(request: TournamentRegisterRequest):
     """大会を登録"""
@@ -271,6 +281,7 @@ async def register_tournament(request: TournamentRegisterRequest):
 
         tournament_data = request.model_dump()
         tournament_data['tournament_id'] = tournament_id
+        tournament_data['deadline_time'] = _validate_deadline_time(request.deadline_time)
 
         if existing.get('data'):
             ex = existing['data'][0]
@@ -392,6 +403,7 @@ class TournamentUpdate(BaseModel):
     tournament_name: Optional[str] = None
     registrated_ward: Optional[int] = None
     deadline_date: Optional[str] = None
+    deadline_time: Optional[str] = None  # HH:MM。空文字=クリア（終日に戻す）、None=変更しない
     tournament_date: Optional[str] = None
     classification: Optional[int] = None
     mix_flg: Optional[bool] = None
@@ -444,6 +456,10 @@ async def update_tournament(tournament_id: str, request: TournamentUpdate):
                     raise HTTPException(status_code=400, detail="締切日は開催日より前の日付を指定してください")
             except ValueError:
                 raise HTTPException(status_code=400, detail="日付の形式が不正です（YYYY-MM-DD）")
+
+        # 締切時刻の検証（空文字はNULL=終日に戻す。exclude_noneを通過するのは空文字と有効値のみ）
+        if 'deadline_time' in update_data:
+            update_data['deadline_time'] = _validate_deadline_time(update_data['deadline_time'])
 
         # typeフィールドはJSON文字列に変換
         if 'type' in update_data:
