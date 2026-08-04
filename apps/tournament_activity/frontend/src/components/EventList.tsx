@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import TournamentCalendar from './TournamentCalendar'
 import { filterPairCandidates } from '../utils/playerFilter'
+import { formatTournamentDeadline, isTournamentDeadlinePassed } from '../utils/deadline'
 import CommentSection from './CommentSection'
 
 interface EventListProps {
@@ -336,15 +337,8 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
   const formatTime = (t: string) => t?.slice(0, 5) || ''
 
-  // 大会の締切値: 締切時刻(deadline_time)があれば日付と結合して判定に使う
-  const tournamentDeadlineValue = (t: any): string | null =>
-    t?.deadline_time ? `${String(t.deadline_date).split('T')[0]}T${t.deadline_time}` : t?.deadline_date
-
-  // 大会の締切表示（時刻設定があれば時刻付き）
-  const formatTournamentDeadline = (t: any): string =>
-    formatDate(t.deadline_date) + (t.deadline_time ? ` ${t.deadline_time}` : '')
-
   // 締切判定: 日付のみ(または時刻0:00)の締切は当日終日(23:59:59)まで有効とみなす
+  // ※大会の締切判定・表示は utils/deadline.ts の共通ユーティリティを使う
   const isDeadlinePassed = (deadline?: string | null): boolean => {
     if (!deadline) return false
     let s = String(deadline).replace(' ', 'T')
@@ -647,7 +641,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   // 締切間近の大会（3日以内、受付中かつ未申込のみ）
   const urgentDeadlines = tournaments.filter(t => {
     if (registeredTournamentIds.has(t.tournament_id)) return false
-    const deadlineClosed = isDeadlinePassed(tournamentDeadlineValue(t))
+    const deadlineClosed = isTournamentDeadlinePassed(t)
     if (deadlineClosed) return false
     const days = getDaysUntil(t.deadline_date)
     return days >= 0 && days <= 3
@@ -830,7 +824,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
               })() : ev.kind === 'tournament' ? (() => {
                 const t = ev.data
                 const isRegistered = registeredTournamentIds.has(t.tournament_id)
-                const deadlineClosed = isDeadlinePassed(tournamentDeadlineValue(t))
+                const deadlineClosed = isTournamentDeadlinePassed(t)
 
                 const isFull = t.max_entries != null && (t.entry_count || 0) >= t.max_entries
                 const sexRestricted = t.sex_restriction != null && mySex != null && t.sex_restriction !== mySex
@@ -1096,7 +1090,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   >{cancellingReg ? 'キャンセル中...' : '申込をキャンセル'}</button>
                 </div>
               ) : (() => {
-                const expired = isDeadlinePassed(tournamentDeadlineValue(selectedTournament))
+                const expired = isTournamentDeadlinePassed(selectedTournament)
                 const sexBlocked = selectedTournament.sex_restriction != null && mySex != null && selectedTournament.sex_restriction !== mySex
                 if (expired) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>受付終了</div>
                 if (sexBlocked) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>{selectedTournament.sex_restriction === 0 ? '男子' : '女子'}限定の大会です</div>

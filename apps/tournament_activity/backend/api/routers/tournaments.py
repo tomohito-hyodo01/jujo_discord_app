@@ -245,6 +245,10 @@ def _validate_deadline_time(value: Optional[str]) -> Optional[str]:
         return None
     if not re.fullmatch(r'([01][0-9]|2[0-3]):[0-5][0-9]', value):
         raise HTTPException(status_code=400, detail="締切時刻の形式が不正です（HH:MM）")
+    if value == '00:00':
+        # 0時ちょうどは「終日」との区別が画面上つかず誤解を生むため受け付けない
+        raise HTTPException(status_code=400,
+                            detail="締切時刻に00:00は指定できません（終日受付の場合は未設定にしてください）")
     return value
 
 
@@ -260,6 +264,9 @@ async def register_tournament(request: TournamentRegisterRequest):
                 raise HTTPException(status_code=400, detail="締切日は開催日より前の日付を指定してください")
         except ValueError:
             raise HTTPException(status_code=400, detail="日付の形式が不正です（YYYY-MM-DD）")
+
+        # 締切時刻のバリデーション（DBアクセス前にfail-fast）
+        deadline_time = _validate_deadline_time(request.deadline_time)
 
         # tournament_idが指定されていない場合は自動生成
         if not request.tournament_id:
@@ -281,9 +288,14 @@ async def register_tournament(request: TournamentRegisterRequest):
 
         tournament_data = request.model_dump()
         tournament_data['tournament_id'] = tournament_id
-        tournament_data['deadline_time'] = _validate_deadline_time(request.deadline_time)
+        tournament_data['deadline_time'] = deadline_time
 
         if existing.get('data'):
+            # 更新時、時刻の指定が無ければ管理画面で設定済みの締切時刻を保持する
+            # （PDF再取込・再登録の経路は deadline_time を送らないため、無条件に
+            # 上書きすると設定済みの時刻が無言でNULLに戻ってしまう）
+            if deadline_time is None:
+                tournament_data.pop('deadline_time')
             ex = existing['data'][0]
             # 衝突ガード: 同一IDだが主催区が異なる = 別大会とのID衝突。
             # 上書きすると既存大会が消失するため拒否する（文京区→墨田区の上書き事故対策）。

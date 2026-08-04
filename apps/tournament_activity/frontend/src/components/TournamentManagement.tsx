@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { formatTournamentDeadline, isTournamentDeadlinePassed } from '../utils/deadline'
 
 export default function TournamentManagement() {
   const [tournaments, setTournaments] = useState<any[]>([])
@@ -50,16 +51,6 @@ export default function TournamentManagement() {
     return `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()}`
   }
 
-  // 締切表示（時刻設定があれば「YYYY/M/D HH:MM」）
-  const formatDeadline = (t: any) => formatDate(t.deadline_date) + (t.deadline_time ? ` ${t.deadline_time}` : '')
-
-  // 締切超過判定（時刻未設定は当日23:59まで受付扱い）
-  const isDeadlinePast = (t: any): boolean => {
-    if (!t.deadline_date) return false
-    const d = String(t.deadline_date).split('T')[0]
-    const dt = new Date(`${d}T${t.deadline_time || '23:59:59'}`)
-    return !isNaN(dt.getTime()) && dt < new Date()
-  }
 
   const openDetail = async (t: any) => {
     setSelectedTournament(t)
@@ -181,11 +172,11 @@ export default function TournamentManagement() {
                 <td style={{ ...cellStyle, fontWeight: '500', whiteSpace: 'normal', minWidth: '140px' }}>{t.tournament_name}</td>
                 <td style={cellStyle}>{getWardName(t.registrated_ward)}</td>
                 <td style={cellStyle}>{formatDate(t.tournament_date)}</td>
-                <td style={cellStyle}>{formatDeadline(t)}</td>
+                <td style={cellStyle}>{formatTournamentDeadline(t)}</td>
                 <td style={cellStyle}>{t.classification === 0 ? '個人戦' : '団体戦'}</td>
                 <td style={{ ...cellStyle, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                   {(() => {
-                    const isPast = isDeadlinePast(t)
+                    const isPast = isTournamentDeadlinePassed(t)
                     if (isPast) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b', whiteSpace: 'nowrap' }}>申込終了</span>
                     if (t.notified) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b' }}>通知済</span>
                     return (
@@ -231,7 +222,7 @@ export default function TournamentManagement() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>{t.tournament_name}</h3>
               {(() => {
-                const isPast = isDeadlinePast(t)
+                const isPast = isTournamentDeadlinePassed(t)
                 if (isPast) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b', whiteSpace: 'nowrap', flexShrink: 0, marginLeft: '8px' }}>申込終了</span>
                 if (t.notified) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b', flexShrink: 0, marginLeft: '8px' }}>通知済</span>
                 return (
@@ -373,7 +364,7 @@ export default function TournamentManagement() {
                       ['大会名', selectedTournament.tournament_name],
                       ['主催', getWardName(selectedTournament.registrated_ward)],
                       ['開催日', formatDate(selectedTournament.tournament_date)],
-                      ['締切', formatDeadline(selectedTournament)],
+                      ['締切', formatTournamentDeadline(selectedTournament)],
                       ['形式', selectedTournament.classification === 0 ? '個人戦' : '団体戦'],
                       ['種別', Array.isArray(selectedTournament.type) ? selectedTournament.type.join('・') : ''],
                     ].map(([label, val]) => (

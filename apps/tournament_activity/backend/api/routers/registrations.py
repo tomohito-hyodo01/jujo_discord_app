@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date
 from api.database import db
+from api.deadline_utils import is_deadline_passed
 from api.ward_webhooks import get_ward_webhook_url
 import httpx
 import os
@@ -292,11 +293,9 @@ async def update_pair(registration_id: int, request: PairUpdateRequest):
     )
     if tour_result.get('data'):
         tournament = tour_result['data'][0]
-        deadline = tournament.get('deadline_date')
-        if deadline:
-            deadline_date = deadline if isinstance(deadline, date) else date.fromisoformat(str(deadline))
-            if date.today() > deadline_date:
-                raise HTTPException(status_code=400, detail="締切日を過ぎているため変更できません")
+        # 締切日時（deadline_date + deadline_time）を過ぎたら変更不可
+        if is_deadline_passed(tournament):
+            raise HTTPException(status_code=400, detail="申込締切を過ぎているため変更できません")
 
     # ペア更新
     update_result = await db.execute_query(
@@ -340,11 +339,9 @@ async def update_team(registration_id: int, request: TeamUpdateRequest):
     )
     if tour_result.get('data'):
         tournament = tour_result['data'][0]
-        deadline = tournament.get('deadline_date')
-        if deadline:
-            deadline_date = deadline if isinstance(deadline, date) else date.fromisoformat(str(deadline))
-            if date.today() > deadline_date:
-                raise HTTPException(status_code=400, detail="締切日を過ぎているため変更できません")
+        # 締切日時（deadline_date + deadline_time）を過ぎたら変更不可
+        if is_deadline_passed(tournament):
+            raise HTTPException(status_code=400, detail="申込締切を過ぎているため変更できません")
 
     # チームメンバー更新（確定状態に正規化＝参加希望フラグを解除）
     update_result = await db.execute_query(

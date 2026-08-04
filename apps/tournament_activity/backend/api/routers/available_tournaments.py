@@ -6,7 +6,7 @@
 
 from fastapi import APIRouter, HTTPException
 from api.database import db
-from datetime import datetime, time as dtime
+from api.deadline_utils import is_deadline_passed
 
 router = APIRouter()
 
@@ -84,32 +84,11 @@ async def get_available_tournaments(discord_id: str):
                 if player_id and reg['pair2'] and player_id in reg['pair2']:
                     excluded_tournament_ids.add(reg['tournament_id'])
         
-        # 現在時刻
-        now = datetime.now()
-
         # フィルタリング
         available_tournaments = []
         for tournament in all_tournaments:
-            # 締切チェック
-            deadline_str = tournament['deadline_date']
-            if isinstance(deadline_str, str):
-                deadline = datetime.fromisoformat(deadline_str.replace('Z', '')).date()
-            else:
-                deadline = deadline_str
-
-            # 締切時刻（deadline_time未設定は当日23:59:59まで受付）
-            cutoff_time = dtime(23, 59, 59)
-            time_str = tournament.get('deadline_time')
-            if time_str:
-                try:
-                    hour, minute = str(time_str)[:5].split(':')
-                    cutoff_time = dtime(int(hour), int(minute))
-                except ValueError:
-                    pass
-            cutoff = datetime.combine(deadline, cutoff_time)
-
-            # 条件: 締切日時が過ぎていない AND 除外リストに含まれていない
-            if now <= cutoff and tournament['tournament_id'] not in excluded_tournament_ids:
+            # 条件: 締切日時（deadline_date + deadline_time）が過ぎていない AND 除外リストに含まれていない
+            if not is_deadline_passed(tournament) and tournament['tournament_id'] not in excluded_tournament_ids:
                 available_tournaments.append(tournament)
         
         return available_tournaments
