@@ -79,6 +79,10 @@ class PlayerQualificationUpdate(BaseModel):
     referee_expiry: Optional[str] = None
 
 
+class PlayerEntryRestrictionUpdate(BaseModel):
+    entry_restriction_flg: bool
+
+
 class MergeRequest(BaseModel):
     keep_id: int
     remove_id: int
@@ -542,6 +546,43 @@ async def update_player_ward_flags(player_id: int, flags: PlayerWardFlagsUpdate)
             raise HTTPException(status_code=500, detail=result['error'])
 
         return {"success": True, "message": "区登録状況を更新しました"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/players/{player_id}/entry-restriction")
+async def update_player_entry_restriction(player_id: int, body: PlayerEntryRestrictionUpdate):
+    """選手の大会参加制限フラグを更新（管理者用）
+
+    ONにすると、その選手（discord_id）は解除するまで大会申込ができなくなる。
+    """
+    try:
+        result = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'player_id': player_id}
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        if not result.get('data'):
+            raise HTTPException(status_code=404, detail="Player not found")
+
+        result = await db.execute_query(
+            'player_mst',
+            operation='update',
+            filters={'player_id': player_id},
+            data={'entry_restriction_flg': 1 if body.entry_restriction_flg else 0}
+        )
+
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+
+        state = "設定" if body.entry_restriction_flg else "解除"
+        return {"success": True, "message": f"大会参加制限を{state}しました"}
     except HTTPException:
         raise
     except Exception as e:

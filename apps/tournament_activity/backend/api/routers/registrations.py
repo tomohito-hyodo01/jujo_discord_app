@@ -43,6 +43,18 @@ async def create_registration(registration: RegistrationCreate):
         if tour_check.get('data') and is_deadline_passed(tour_check['data'][0]):
             raise HTTPException(status_code=400, detail="申込締切を過ぎているため申込できません")
 
+        # 参加制限が設定された申込者は申込不可（管理者が解除するまで）
+        applicant_check = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'discord_id': registration.discord_id}
+        )
+        if applicant_check.get('data') and applicant_check['data'][0].get('entry_restriction_flg'):
+            raise HTTPException(
+                status_code=403,
+                detail="過去に大会棄権された選手の大会参加は制限されています。"
+            )
+
         data = registration.model_dump()
         result = await db.execute_query(
             'tournament_registration',

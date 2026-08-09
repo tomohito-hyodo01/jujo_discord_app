@@ -184,6 +184,13 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
 
       // 申込者・ペア・チームメンバーの情報チェック
       const me = players.find(p => p.discord_id === formData.discordId)
+
+      // 参加制限が設定された申込者は申込不可
+      if (me?.entry_restriction_flg) {
+        alert('過去に大会棄権された選手の大会参加は制限されています。')
+        return
+      }
+
       const meIssues = (me && !isProxyRegistration) ? validatePlayerInfo(me) : []
 
       let pairIssues: string[] = []
