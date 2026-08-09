@@ -49,6 +49,9 @@ async def create_registration(registration: RegistrationCreate):
             operation='select',
             filters={'discord_id': registration.discord_id}
         )
+        # 制限判定はエンフォースメントなので、DBエラー時は素通りさせず停止する（fail-closed）
+        if applicant_check.get('error'):
+            raise HTTPException(status_code=500, detail=applicant_check['error'])
         if applicant_check.get('data') and applicant_check['data'][0].get('entry_restriction_flg'):
             raise HTTPException(
                 status_code=403,

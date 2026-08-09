@@ -345,7 +345,12 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         if (onCompletedChange) onCompletedChange(true)
       } else {
         const errorData = await response.json()
-        alert(`申込に失敗しました: ${errorData.detail || ''}`)
+        // 参加制限(403)は指定文言をそのまま表示（「申込に失敗しました:」を付けない）
+        if (response.status === 403 && errorData.detail) {
+          alert(errorData.detail)
+        } else {
+          alert(`申込に失敗しました: ${errorData.detail || ''}`)
+        }
       }
     } catch {
       alert('通信エラーが発生しました')

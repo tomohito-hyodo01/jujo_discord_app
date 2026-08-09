@@ -258,6 +258,14 @@ async def merge_players(req: MergeRequest):
                     )
                     discord_transferred = True
 
+                # 4-2. 大会参加制限の引き継ぎ（どちらかが制限中なら統合後も制限を維持）
+                # ※統合で制限が無言解除されると「解除まで継続」の前提が崩れるため
+                if remove_player.get('entry_restriction_flg') and not keep_player.get('entry_restriction_flg'):
+                    await cursor.execute(
+                        "UPDATE player_mst SET entry_restriction_flg = 1 WHERE player_id = %s",
+                        (req.keep_id,)
+                    )
+
                 # 5. 削除対象の選手を削除
                 await cursor.execute(
                     "DELETE FROM player_mst WHERE player_id = %s",

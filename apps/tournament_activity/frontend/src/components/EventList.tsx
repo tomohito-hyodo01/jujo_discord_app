@@ -641,7 +641,8 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   }, [tournaments, upcomingPractices, upcomingRefTrainings, upcomingCustomEvents, eventFilter])
 
   // 締切間近の大会（3日以内、受付中かつ未申込のみ）
-  const urgentDeadlines = tournaments.filter(t => {
+  // 参加制限中のユーザーには申込導線を出さない（押しても制限される）
+  const urgentDeadlines = myEntryRestricted ? [] : tournaments.filter(t => {
     if (registeredTournamentIds.has(t.tournament_id)) return false
     const deadlineClosed = isTournamentDeadlinePassed(t)
     if (deadlineClosed) return false
