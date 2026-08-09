@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS tournament_mst (
     type JSON NOT NULL,                  -- ['一般', '35', '45'] などの配列をJSON形式で保存
     tournament_date DATE NOT NULL,
     deadline_date DATE NOT NULL,
+    -- deadline_time 等の追加カラムは apps/tournament_activity/backend/alter_tournament_mst.sql で追加
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_tournament_ward (registrated_ward),

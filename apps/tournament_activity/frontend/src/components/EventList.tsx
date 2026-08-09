@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import TournamentCalendar from './TournamentCalendar'
 import { filterPairCandidates } from '../utils/playerFilter'
+import { deadlineTimeSuffix, isTournamentDeadlinePassed } from '../utils/deadline'
 import CommentSection from './CommentSection'
 
 interface EventListProps {
@@ -337,6 +338,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const formatTime = (t: string) => t?.slice(0, 5) || ''
 
   // 締切判定: 日付のみ(または時刻0:00)の締切は当日終日(23:59:59)まで有効とみなす
+  // ※大会の締切判定・表示は utils/deadline.ts の共通ユーティリティを使う
   const isDeadlinePassed = (deadline?: string | null): boolean => {
     if (!deadline) return false
     let s = String(deadline).replace(' ', 'T')
@@ -639,7 +641,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   // 締切間近の大会（3日以内、受付中かつ未申込のみ）
   const urgentDeadlines = tournaments.filter(t => {
     if (registeredTournamentIds.has(t.tournament_id)) return false
-    const deadlineClosed = isDeadlinePassed(t.deadline_date)
+    const deadlineClosed = isTournamentDeadlinePassed(t)
     if (deadlineClosed) return false
     const days = getDaysUntil(t.deadline_date)
     return days >= 0 && days <= 3
@@ -670,7 +672,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           </div>
           {urgentDeadlines.map(t => (
             <div key={t.tournament_id} style={{ fontSize: '13px', color: '#fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
-              <span>{t.tournament_name} - 締切 {formatDate(t.deadline_date)}</span>
+              <span>{t.tournament_name} - 締切 {formatDate(t.deadline_date)}{deadlineTimeSuffix(t)}</span>
               <button onClick={() => onNavigate('apply', t.tournament_id)} style={{
                 padding: '3px 10px', borderRadius: '4px', backgroundColor: '#dc2626', color: '#fff',
                 border: 'none', fontSize: '12px', cursor: 'pointer', flexShrink: 0, marginLeft: '8px',
@@ -822,7 +824,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
               })() : ev.kind === 'tournament' ? (() => {
                 const t = ev.data
                 const isRegistered = registeredTournamentIds.has(t.tournament_id)
-                const deadlineClosed = isDeadlinePassed(t.deadline_date)
+                const deadlineClosed = isTournamentDeadlinePassed(t)
 
                 const isFull = t.max_entries != null && (t.entry_count || 0) >= t.max_entries
                 const sexRestricted = t.sex_restriction != null && mySex != null && t.sex_restriction !== mySex
@@ -967,7 +969,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 ].filter(Boolean).join(' / ')
                 const rows: [string, any][] = [
                   ['開催日', formatDate(t.tournament_date)],
-                  ['締切日', formatDate(t.deadline_date)],
+                  ['締切日', formatDate(t.deadline_date) + deadlineTimeSuffix(t)],
                   ['主催', wards.find((w: any) => w.ward_id === t.registrated_ward)?.ward_name || ''],
                   ['形式', t.classification === 0 ? '個人戦' : '団体戦'],
                   ['申込数', `${t.entry_count || 0}${t.max_entries != null ? ` / ${t.max_entries}` : ''}`],
@@ -1088,7 +1090,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   >{cancellingReg ? 'キャンセル中...' : '申込をキャンセル'}</button>
                 </div>
               ) : (() => {
-                const expired = isDeadlinePassed(selectedTournament.deadline_date)
+                const expired = isTournamentDeadlinePassed(selectedTournament)
                 const sexBlocked = selectedTournament.sex_restriction != null && mySex != null && selectedTournament.sex_restriction !== mySex
                 if (expired) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>受付終了</div>
                 if (sexBlocked) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>{selectedTournament.sex_restriction === 0 ? '男子' : '女子'}限定の大会です</div>

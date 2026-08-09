@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { formatTournamentDeadline, isTournamentDeadlinePassed } from '../utils/deadline'
 
 export default function TournamentManagement() {
   const [tournaments, setTournaments] = useState<any[]>([])
@@ -50,6 +51,7 @@ export default function TournamentManagement() {
     return `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()}`
   }
 
+
   const openDetail = async (t: any) => {
     setSelectedTournament(t)
     setModalMode('detail')
@@ -69,6 +71,7 @@ export default function TournamentManagement() {
       tournament_name: t.tournament_name,
       registrated_ward: t.registrated_ward,
       deadline_date: t.deadline_date?.split('T')[0] || '',
+      deadline_time: t.deadline_time || '',
       tournament_date: t.tournament_date?.split('T')[0] || '',
       classification: t.classification,
       type: Array.isArray(t.type) ? [...t.type] : [],
@@ -91,11 +94,14 @@ export default function TournamentManagement() {
       })
       if (res.ok) {
         setMessage('更新しました')
+        // ローカル値の合成ではなくAPIが返す更新後データを反映する
+        // （サーバーが受理しなかったフィールドが「保存されたように見える」のを防ぐ）
+        const updated = await res.json()
         setTournaments(prev => prev.map(t =>
           t.tournament_id === selectedTournament.tournament_id
-            ? { ...t, ...editData, type: typeArr } : t
+            ? { ...t, ...updated } : t
         ))
-        setSelectedTournament({ ...selectedTournament, ...editData, type: typeArr })
+        setSelectedTournament({ ...selectedTournament, ...updated })
         setModalMode('detail')
       } else {
         const err = await res.json()
@@ -169,11 +175,11 @@ export default function TournamentManagement() {
                 <td style={{ ...cellStyle, fontWeight: '500', whiteSpace: 'normal', minWidth: '140px' }}>{t.tournament_name}</td>
                 <td style={cellStyle}>{getWardName(t.registrated_ward)}</td>
                 <td style={cellStyle}>{formatDate(t.tournament_date)}</td>
-                <td style={cellStyle}>{formatDate(t.deadline_date)}</td>
+                <td style={cellStyle}>{formatTournamentDeadline(t)}</td>
                 <td style={cellStyle}>{t.classification === 0 ? '個人戦' : '団体戦'}</td>
                 <td style={{ ...cellStyle, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                   {(() => {
-                    const isPast = t.deadline_date && new Date(t.deadline_date) < new Date(new Date().toLocaleDateString('sv-SE'))
+                    const isPast = isTournamentDeadlinePassed(t)
                     if (isPast) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b', whiteSpace: 'nowrap' }}>申込終了</span>
                     if (t.notified) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b' }}>通知済</span>
                     return (
@@ -219,7 +225,7 @@ export default function TournamentManagement() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>{t.tournament_name}</h3>
               {(() => {
-                const isPast = t.deadline_date && new Date(t.deadline_date) < new Date(new Date().toLocaleDateString('sv-SE'))
+                const isPast = isTournamentDeadlinePassed(t)
                 if (isPast) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#475569', backgroundColor: '#1e293b', whiteSpace: 'nowrap', flexShrink: 0, marginLeft: '8px' }}>申込終了</span>
                 if (t.notified) return <span style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', color: '#64748b', backgroundColor: '#1e293b', flexShrink: 0, marginLeft: '8px' }}>通知済</span>
                 return (
@@ -302,6 +308,8 @@ export default function TournamentManagement() {
                     <input type="date" value={editData.tournament_date} onChange={e => setEditData({ ...editData, tournament_date: e.target.value })} style={inputStyle} /></div>
                   <div><label style={{ fontSize: '12px', color: '#64748b' }}>締切日</label>
                     <input type="date" value={editData.deadline_date} onChange={e => setEditData({ ...editData, deadline_date: e.target.value })} style={inputStyle} /></div>
+                  <div><label style={{ fontSize: '12px', color: '#64748b' }}>締切時刻（未設定の場合は当日23:59まで受付）</label>
+                    <input type="time" value={editData.deadline_time} onChange={e => setEditData({ ...editData, deadline_time: e.target.value })} style={inputStyle} /></div>
                   <div>
                     <label style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px', display: 'block' }}>種別</label>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -359,7 +367,7 @@ export default function TournamentManagement() {
                       ['大会名', selectedTournament.tournament_name],
                       ['主催', getWardName(selectedTournament.registrated_ward)],
                       ['開催日', formatDate(selectedTournament.tournament_date)],
-                      ['締切', formatDate(selectedTournament.deadline_date)],
+                      ['締切', formatTournamentDeadline(selectedTournament)],
                       ['形式', selectedTournament.classification === 0 ? '個人戦' : '団体戦'],
                       ['種別', Array.isArray(selectedTournament.type) ? selectedTournament.type.join('・') : ''],
                     ].map(([label, val]) => (

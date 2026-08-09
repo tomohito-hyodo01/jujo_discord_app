@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date
 from api.database import db
+from api.deadline_utils import is_deadline_passed
 from api.ward_webhooks import get_ward_webhook_url
 import httpx
 import os
@@ -32,6 +33,16 @@ class RegistrationCreate(BaseModel):
 async def create_registration(registration: RegistrationCreate):
     """新規申込を登録"""
     try:
+        # 締切日時（deadline_date + deadline_time）を過ぎた大会は受け付けない
+        # （一覧取得と送信の間に締切をまたぐケースの最終ガード）
+        tour_check = await db.execute_query(
+            'tournament_mst',
+            operation='select',
+            filters={'tournament_id': registration.tournament_id}
+        )
+        if tour_check.get('data') and is_deadline_passed(tour_check['data'][0]):
+            raise HTTPException(status_code=400, detail="申込締切を過ぎているため申込できません")
+
         data = registration.model_dump()
         result = await db.execute_query(
             'tournament_registration',
@@ -184,6 +195,8 @@ async def create_registration(registration: RegistrationCreate):
             print(f'⚠️ 申込通知送信失敗（申込自体は成功）: {e}')
 
         return result.get('data', [{}])[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -292,11 +305,9 @@ async def update_pair(registration_id: int, request: PairUpdateRequest):
     )
     if tour_result.get('data'):
         tournament = tour_result['data'][0]
-        deadline = tournament.get('deadline_date')
-        if deadline:
-            deadline_date = deadline if isinstance(deadline, date) else date.fromisoformat(str(deadline))
-            if date.today() > deadline_date:
-                raise HTTPException(status_code=400, detail="締切日を過ぎているため変更できません")
+        # 締切日時（deadline_date + deadline_time）を過ぎたら変更不可
+        if is_deadline_passed(tournament):
+            raise HTTPException(status_code=400, detail="申込締切を過ぎているため変更できません")
 
     # ペア更新
     update_result = await db.execute_query(
@@ -340,11 +351,9 @@ async def update_team(registration_id: int, request: TeamUpdateRequest):
     )
     if tour_result.get('data'):
         tournament = tour_result['data'][0]
-        deadline = tournament.get('deadline_date')
-        if deadline:
-            deadline_date = deadline if isinstance(deadline, date) else date.fromisoformat(str(deadline))
-            if date.today() > deadline_date:
-                raise HTTPException(status_code=400, detail="締切日を過ぎているため変更できません")
+        # 締切日時（deadline_date + deadline_time）を過ぎたら変更不可
+        if is_deadline_passed(tournament):
+            raise HTTPException(status_code=400, detail="申込締切を過ぎているため変更できません")
 
     # チームメンバー更新（確定状態に正規化＝参加希望フラグを解除）
     update_result = await db.execute_query(

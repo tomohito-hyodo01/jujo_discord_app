@@ -1,5 +1,6 @@
 import { useState, useEffect, Fragment } from 'react'
 import { filterPairCandidates } from '../utils/playerFilter'
+import { isTournamentDeadlinePassed } from '../utils/deadline'
 
 interface MyRegistrationsProps {
   discordId: string
@@ -50,11 +51,8 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
 
   const isBeforeDeadline = (tournament: any) => {
     if (!tournament?.deadline_date) return false
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const deadline = new Date(tournament.deadline_date)
-    deadline.setHours(0, 0, 0, 0)
-    return today <= deadline
+    // 締切日時（deadline_date + deadline_time）ベースで判定（サーバー側ガードと同一規則）
+    return !isTournamentDeadlinePassed(tournament)
   }
 
   const handlePairChange = async (registrationId: number, newPairId: number) => {

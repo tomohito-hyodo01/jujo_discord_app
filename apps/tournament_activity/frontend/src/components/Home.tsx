@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { hasPermission, type UserPermissionInfo } from '../utils/permissions'
+import { deadlineTimeSuffix } from '../utils/deadline'
 import CommentSection from './CommentSection'
 
 interface HomeProps {
@@ -519,7 +520,7 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
                   <span style={{ color: '#64748b', fontWeight: '500' }}>開催日</span>
                   <span style={{ color: '#e2e8f0' }}>{formatDate(t.tournament_date)}</span>
                   <span style={{ color: '#64748b', fontWeight: '500' }}>締切日</span>
-                  <span style={{ color: '#e2e8f0' }}>{formatDate(t.deadline_date)}</span>
+                  <span style={{ color: '#e2e8f0' }}>{formatDate(t.deadline_date)}{deadlineTimeSuffix(t)}</span>
                   <span style={{ color: '#64748b', fontWeight: '500' }}>主催</span>
                   <span style={{ color: '#e2e8f0' }}>{getWardName(t.registrated_ward)}</span>
                   <span style={{ color: '#64748b', fontWeight: '500' }}>種別</span>
