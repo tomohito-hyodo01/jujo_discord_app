@@ -94,7 +94,19 @@ jobs:
               exit 1
             fi
           REMOTE
-          retry ssh $SSH_OPTS fromround@sv13283.xserver.jp 'bash -s' < /tmp/deploy_backend_remote.sh
+          # リダイレクトは関数の内側に置く。retry の外側に書くと、2回目の試行で
+          # stdin が枯渇して「空のスクリプトを流して成功」になり、再起動されないまま緑になる
+          run_backend_remote() {
+            local out
+            out=$(ssh $SSH_OPTS fromround@sv13283.xserver.jp 'bash -s' < /tmp/deploy_backend_remote.sh 2>&1) || {
+              echo "$out"
+              return 1
+            }
+            echo "$out"
+            # 成功マーカーを必須にして「実際には何も実行されず終了コード0」を検出する
+            echo "$out" | grep -q "Backend API started successfully"
+          }
+          retry run_backend_remote
 
       - name: Verify Backend
         run: |
@@ -194,4 +206,16 @@ jobs:
               exit 1
             fi
           REMOTE
-          retry ssh $SSH_OPTS fromround@sv13283.xserver.jp 'bash -s' < /tmp/deploy_bot_remote.sh
+          # リダイレクトは関数の内側に置く。retry の外側に書くと、2回目の試行で
+          # stdin が枯渇して「空のスクリプトを流して成功」になり、再起動されないまま緑になる
+          run_bot_remote() {
+            local out
+            out=$(ssh $SSH_OPTS fromround@sv13283.xserver.jp 'bash -s' < /tmp/deploy_bot_remote.sh 2>&1) || {
+              echo "$out"
+              return 1
+            }
+            echo "$out"
+            # 成功マーカーを必須にして「実際には何も実行されず終了コード0」を検出する
+            echo "$out" | grep -q "Discord Bot started successfully"
+          }
+          retry run_bot_remote
