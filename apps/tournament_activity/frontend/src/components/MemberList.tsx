@@ -19,6 +19,8 @@ export default function MemberList() {
   })
   const [savingWard, setSavingWard] = useState(false)
   const [wardSaveMessage, setWardSaveMessage] = useState('')
+  const [savingRestriction, setSavingRestriction] = useState(false)
+  const [restrictionMessage, setRestrictionMessage] = useState('')
   const [sortKey, setSortKey] = useState<string>('created_at')
   const [sortAsc, setSortAsc] = useState(true)
   const [editingField, setEditingField] = useState<string | null>(null)
@@ -375,7 +377,7 @@ export default function MemberList() {
             {filtered.map(p => (
               <tr
                 key={p.player_id}
-                onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setEditPracticeAdmin(p.practice_admin ?? 0); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage(''); setEditQuals({ skill_grade: p.skill_grade || '', skill_grade_date: p.skill_grade_date ? p.skill_grade_date.split('T')[0] : '', referee_qualification: p.referee_qualification || '', referee_date: p.referee_date ? p.referee_date.split('T')[0] : '', referee_expiry: p.referee_expiry || '' }); setQualsMessage('') }}
+                onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setEditPracticeAdmin(p.practice_admin ?? 0); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage(''); setEditQuals({ skill_grade: p.skill_grade || '', skill_grade_date: p.skill_grade_date ? p.skill_grade_date.split('T')[0] : '', referee_qualification: p.referee_qualification || '', referee_date: p.referee_date ? p.referee_date.split('T')[0] : '', referee_expiry: p.referee_expiry || '' }); setQualsMessage(''); setRestrictionMessage('') }}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#111b2e')}
                 onMouseLeave={e => (e.currentTarget.style.backgroundColor = '')}
@@ -406,7 +408,7 @@ export default function MemberList() {
         {filtered.map(p => (
           <div
             key={p.player_id}
-            onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setEditPracticeAdmin(p.practice_admin ?? 0); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage(''); setEditQuals({ skill_grade: p.skill_grade || '', skill_grade_date: p.skill_grade_date ? p.skill_grade_date.split('T')[0] : '', referee_qualification: p.referee_qualification || '', referee_date: p.referee_date ? p.referee_date.split('T')[0] : '', referee_expiry: p.referee_expiry || '' }); setQualsMessage('') }}
+            onClick={() => { setSelectedPlayer(p); setEditAdminRole(p.admin_role ?? 2); setEditMemberLevel(p.member_level ?? 2); setEditManagedWard(p.managed_ward_id ?? null); setEditPracticeAdmin(p.practice_admin ?? 0); setSaveMessage(''); setEditWardFlags({ tokyo_flg: !!p.tokyo_flg, edogawa_flg: !!p.edogawa_flg, koto_flg: !!p.koto_flg, chuo_flg: !!p.chuo_flg, sumida_flg: !!p.sumida_flg, arakawa_flg: !!p.arakawa_flg, adachi_flg: !!p.adachi_flg, itabashi_flg: !!p.itabashi_flg }); setWardSaveMessage(''); setEditQuals({ skill_grade: p.skill_grade || '', skill_grade_date: p.skill_grade_date ? p.skill_grade_date.split('T')[0] : '', referee_qualification: p.referee_qualification || '', referee_date: p.referee_date ? p.referee_date.split('T')[0] : '', referee_expiry: p.referee_expiry || '' }); setQualsMessage(''); setRestrictionMessage('') }}
             style={{
               padding: '14px 16px', backgroundColor: '#0c1220',
               borderRadius: '10px', border: '1px solid #1e293b', cursor: 'pointer',
@@ -574,6 +576,48 @@ export default function MemberList() {
                   {saveMessage}
                 </div>
               )}
+
+              <div style={{
+                marginTop: '8px', padding: '12px 0',
+                borderBottom: '1px solid #1e293b', fontSize: '13px', color: '#64748b',
+              }}>
+                大会参加制限
+              </div>
+              <div style={{ padding: '10px 0', fontSize: '13px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: savingRestriction ? 'not-allowed' : 'pointer', color: '#e2e8f0' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!selectedPlayer.entry_restriction_flg}
+                    disabled={savingRestriction}
+                    onChange={async e => {
+                      const next = e.target.checked
+                      setSavingRestriction(true); setRestrictionMessage('')
+                      try {
+                        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/players/${selectedPlayer.player_id}/entry-restriction`, {
+                          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ entry_restriction_flg: next }),
+                        })
+                        if (res.ok) {
+                          const flag = next ? 1 : 0
+                          setRestrictionMessage(next ? '大会参加を制限しました' : '制限を解除しました')
+                          setPlayers(prev => prev.map(p => p.player_id === selectedPlayer.player_id ? { ...p, entry_restriction_flg: flag } : p))
+                          setSelectedPlayer({ ...selectedPlayer, entry_restriction_flg: flag })
+                        } else {
+                          setRestrictionMessage('更新に失敗しました')
+                        }
+                      } catch { setRestrictionMessage('通信エラー') }
+                      finally { setSavingRestriction(false) }
+                    }}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  大会申込を制限する（解除するまで申込不可）
+                </label>
+                {restrictionMessage && (
+                  <div style={{ fontSize: '13px', color: restrictionMessage.includes('失敗') || restrictionMessage.includes('エラー') ? '#f87171' : '#10b981', padding: '6px 0 0' }}>
+                    {restrictionMessage}
+                  </div>
+                )}
+              </div>
 
               <div style={{
                 marginTop: '8px', padding: '12px 0',

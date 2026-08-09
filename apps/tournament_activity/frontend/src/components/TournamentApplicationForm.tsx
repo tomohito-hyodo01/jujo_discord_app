@@ -184,6 +184,13 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
 
       // 申込者・ペア・チームメンバーの情報チェック
       const me = players.find(p => p.discord_id === formData.discordId)
+
+      // 参加制限が設定された申込者は申込不可
+      if (me?.entry_restriction_flg) {
+        alert('過去に大会棄権された選手の大会参加は制限されています。')
+        return
+      }
+
       const meIssues = (me && !isProxyRegistration) ? validatePlayerInfo(me) : []
 
       let pairIssues: string[] = []
@@ -338,7 +345,12 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         if (onCompletedChange) onCompletedChange(true)
       } else {
         const errorData = await response.json()
-        alert(`申込に失敗しました: ${errorData.detail || ''}`)
+        // 参加制限(403)は指定文言をそのまま表示（「申込に失敗しました:」を付けない）
+        if (response.status === 403 && errorData.detail) {
+          alert(errorData.detail)
+        } else {
+          alert(`申込に失敗しました: ${errorData.detail || ''}`)
+        }
       }
     } catch {
       alert('通信エラーが発生しました')

@@ -30,6 +30,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const [myPracticeAdmin, setMyPracticeAdmin] = useState<number>(0)
   const [mySex, setMySex] = useState<number | null>(null)
   const [myMemberLevel, setMyMemberLevel] = useState<number | null>(null)
+  const [myEntryRestricted, setMyEntryRestricted] = useState(false)
   const [adminAddPlayerId, setAdminAddPlayerId] = useState<string>('')
   const [courtReservations, setCourtReservations] = useState<any[]>([])
   const [newReservation, setNewReservation] = useState({ start_time: '', end_time: '', reserver_name: '' })
@@ -135,6 +136,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
               if (me.practice_admin != null) setMyPracticeAdmin(me.practice_admin)
               if (me.sex != null) setMySex(me.sex)
               if (me.member_level != null) setMyMemberLevel(me.member_level)
+              setMyEntryRestricted(!!me.entry_restriction_flg)
               if (practiceData.length > 0) {
                 const joined = new Set<number>()
                 await Promise.all(practiceData.map(async (p: any) => {
@@ -639,7 +641,8 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   }, [tournaments, upcomingPractices, upcomingRefTrainings, upcomingCustomEvents, eventFilter])
 
   // 締切間近の大会（3日以内、受付中かつ未申込のみ）
-  const urgentDeadlines = tournaments.filter(t => {
+  // 参加制限中のユーザーには申込導線を出さない（押しても制限される）
+  const urgentDeadlines = myEntryRestricted ? [] : tournaments.filter(t => {
     if (registeredTournamentIds.has(t.tournament_id)) return false
     const deadlineClosed = isTournamentDeadlinePassed(t)
     if (deadlineClosed) return false
@@ -1093,6 +1096,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 const expired = isTournamentDeadlinePassed(selectedTournament)
                 const sexBlocked = selectedTournament.sex_restriction != null && mySex != null && selectedTournament.sex_restriction !== mySex
                 if (expired) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>受付終了</div>
+                if (myEntryRestricted) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#3f1d1d', textAlign: 'center', fontSize: '14px', color: '#fca5a5', border: '1px solid #7f1d1d' }}>過去に大会棄権された選手の大会参加は制限されています。</div>
                 if (sexBlocked) return <div style={{ marginTop: '16px', padding: '10px', borderRadius: '8px', backgroundColor: '#1e293b', textAlign: 'center', fontSize: '14px', color: '#64748b' }}>{selectedTournament.sex_restriction === 0 ? '男子' : '女子'}限定の大会です</div>
                 return (
                   <button onClick={() => { setSelectedTournament(null); onNavigate('apply', selectedTournament.tournament_id) }} style={{
