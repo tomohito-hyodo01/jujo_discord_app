@@ -27,8 +27,26 @@ jobs:
 
       - name: Deploy Backend to X-Server
         run: |
+          # X-Serverへの接続が一時的にタイムアウトしてデプロイが落ちることがあるため、
+          # rsync / ssh は数回リトライする
+          retry() {
+            local n=1 max=3 delay=20
+            until "$@"; do
+              if [ "$n" -ge "$max" ]; then
+                echo "❌ ${max}回試行しましたが失敗しました: $1"
+                return 1
+              fi
+              echo "⚠️ 失敗 (試行 ${n}/${max})。${delay}秒後に再試行します..."
+              n=$((n + 1))
+              sleep "$delay"
+            done
+          }
+
+          # 既定のTCPタイムアウト(2分超)を待たずに失敗させ、早くリトライへ回す
+          SSH_OPTS="-i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+
           # バックエンドコードをアップロード
-          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no" \
+          retry rsync -avz --delete -e "ssh $SSH_OPTS" \
             --exclude '__pycache__' \
             --exclude '.env' \
             --exclude 'venv' \
@@ -42,7 +60,8 @@ jobs:
             fromround@sv13283.xserver.jp:~/api.jujo-softtennis.com/backend/
 
           # 依存関係のインストールとプロセス再起動
-          ssh -i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no fromround@sv13283.xserver.jp << 'EOF'
+          cat > /tmp/deploy_backend_remote.sh << 'REMOTE'
+            set -u
             cd ~/api.jujo-softtennis.com/backend
 
             # virtualenvが無ければ作成
@@ -74,7 +93,8 @@ jobs:
               cat uvicorn.log
               exit 1
             fi
-          EOF
+          REMOTE
+          retry ssh $SSH_OPTS fromround@sv13283.xserver.jp 'bash -s' < /tmp/deploy_backend_remote.sh
 
       - name: Verify Backend
         run: |
@@ -103,20 +123,46 @@ jobs:
 
       - name: Deploy Bot to X-Server
         run: |
+          # X-Serverへの接続が一時的にタイムアウトしてデプロイが落ちることがあるため、
+          # rsync / ssh は数回リトライする
+          retry() {
+            local n=1 max=3 delay=20
+            until "$@"; do
+              if [ "$n" -ge "$max" ]; then
+                echo "❌ ${max}回試行しましたが失敗しました: $1"
+                return 1
+              fi
+              echo "⚠️ 失敗 (試行 ${n}/${max})。${delay}秒後に再試行します..."
+              n=$((n + 1))
+              sleep "$delay"
+            done
+          }
+
+          # 既定のTCPタイムアウト(2分超)を待たずに失敗させ、早くリトライへ回す
+          SSH_OPTS="-i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+
           # Botコードをアップロード
-          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no" \
+          # bot.log は --delete で消さない（障害時のログを残して原因調査できるようにする）
+          retry rsync -avz --delete -e "ssh $SSH_OPTS" \
             --exclude '__pycache__' \
             --exclude '.env' \
             --exclude 'venv' \
             --exclude '*.pyc' \
             --exclude 'fly.toml' \
             --exclude 'Dockerfile' \
+            --exclude 'bot.log' \
             apps/form_bot/ \
             fromround@sv13283.xserver.jp:~/api.jujo-softtennis.com/form_bot/
 
           # 依存関係のインストールとプロセス再起動
-          ssh -i ~/.ssh/id_rsa -p 10022 -o StrictHostKeyChecking=no fromround@sv13283.xserver.jp << 'EOF'
+          cat > /tmp/deploy_bot_remote.sh << 'REMOTE'
+            set -u
             cd ~/api.jujo-softtennis.com/form_bot
+
+            # 停止〜起動の隙間に keepalive cron が割り込んで二重起動しないようロックを置く
+            DEPLOY_LOCK="$HOME/api.jujo-softtennis.com/.bot_deploying"
+            touch "$DEPLOY_LOCK"
+            trap 'rm -f "$DEPLOY_LOCK"' EXIT
 
             # virtualenvが無ければ作成
             if [ ! -d "venv" ]; then
@@ -136,15 +182,16 @@ jobs:
               cp .env.xserver .env
             fi
 
-            # バックグラウンドで起動
-            nohup venv/bin/python bot.py > bot.log 2>&1 &
+            # バックグラウンドで起動（ログは追記。クラッシュ時の記録を残す）
+            nohup venv/bin/python bot.py >> bot.log 2>&1 &
 
             sleep 5
             if pgrep -f "python.*bot.py" > /dev/null; then
               echo "✅ Discord Bot started successfully"
             else
               echo "❌ Discord Bot failed to start"
-              cat bot.log
+              tail -50 bot.log
               exit 1
             fi
-          EOF
+          REMOTE
+          retry ssh $SSH_OPTS fromround@sv13283.xserver.jp 'bash -s' < /tmp/deploy_bot_remote.sh
