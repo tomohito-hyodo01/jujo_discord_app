@@ -774,9 +774,11 @@ async def notify_upcoming_reservations():
 # リマインドの投稿先（infoチャンネル）。環境ごとに差し替えられるよう環境変数で上書き可能
 PRACTICE_REMINDER_CHANNEL_ID = os.getenv('PRACTICE_REMINDER_CHANNEL_ID', '1427122263383216188')
 
-# 招待制の練習は参加者＝招待された人の一覧になるため、公開チャンネルへの投稿対象から外す
-# （フロントの限定公開制御 Home.tsx の canView と揃える）
-REMINDER_EXCLUDED_VISIBILITIES = {'invited'}
+# リマインドを投稿する練習の公開範囲。
+# 参加者一覧を公開チャンネルへ出すことになるため、サイト上で誰でも閲覧できる練習に限る。
+# （限定公開の練習は Home.tsx の canView で閲覧者を絞っており、
+#   invited は招待リスト、members_* は会員区分でそれぞれ非公開にしている）
+REMINDER_TARGET_VISIBILITIES = {'', 'public'}
 
 # allowed_mentions.users に指定できるIDの上限（Discord API仕様）
 _ALLOWED_MENTION_USERS_LIMIT = 100
@@ -899,12 +901,17 @@ def _build_reminder_message(practice: dict, participants: list) -> tuple:
     return '\n'.join(lines), mention_ids
 
 
-async def _post_reminder_to_channel(content: str, mention_ids: list) -> bool:
-    """リマインドをDiscordチャンネルへ投稿（全チャンク成功でTrue）"""
+async def _post_reminder_to_channel(content: str, mention_ids: list) -> tuple:
+    """リマインドをDiscordチャンネルへ投稿し、(投稿できたチャンク数, 全チャンク数) を返す
+
+    分割投稿の途中で失敗したかを呼び出し側が判別できるよう、bool ではなく件数を返す。
+    """
+    chunks = _split_for_discord(content)
+
     bot_token = os.getenv('DISCORD_BOT_TOKEN', '')
     if not bot_token or not PRACTICE_REMINDER_CHANNEL_ID:
         print('⚠️ 練習リマインド: DISCORD_BOT_TOKEN または投稿先チャンネルが未設定')
-        return False
+        return 0, len(chunks)
 
     # parse を空にしたうえで users を列挙し、意図しない @everyone / ロールメンションを防ぐ。
     # users は最大100件のため、超える場合のみ parse で許可する
@@ -916,9 +923,10 @@ async def _post_reminder_to_channel(content: str, mention_ids: list) -> bool:
     headers = {'Authorization': f'Bot {bot_token}', 'Content-Type': 'application/json'}
     url = f'https://discord.com/api/v10/channels/{PRACTICE_REMINDER_CHANNEL_ID}/messages'
 
+    posted = 0
     try:
         async with httpx.AsyncClient() as client:
-            for chunk in _split_for_discord(content):
+            for chunk in chunks:
                 payload = {'content': chunk, 'allowed_mentions': allowed_mentions}
                 res = await client.post(url, headers=headers, json=payload, timeout=10.0)
                 # 同じ日に複数の練習があると連続投稿になるため、レート制限は1度だけ待って再送する
@@ -931,81 +939,146 @@ async def _post_reminder_to_channel(content: str, mention_ids: list) -> bool:
                     res = await client.post(url, headers=headers, json=payload, timeout=10.0)
                 if res.status_code not in (200, 201):
                     print(f'⚠️ 練習リマインド送信失敗: status={res.status_code} body={res.text[:200]}')
-                    return False
-        return True
+                    return posted, len(chunks)
+                posted += 1
     except Exception as e:
         print(f'⚠️ 練習リマインド送信エラー: {e}')
+    return posted, len(chunks)
+
+
+def _reminder_stamp() -> datetime:
+    """reminder_sent_at に書き込む日時（JST・秒精度）
+
+    DATETIME列は既定で秒精度のため、マイクロ秒を落として書き込む。
+    こうしないと「自分が書いた値と一致する行だけ巻き戻す」条件が丸め誤差で外れる。
+    """
+    return datetime.now(JST).replace(tzinfo=None, microsecond=0)
+
+
+def _is_missing_reminder_column(e: Exception) -> bool:
+    """reminder_sent_at カラムが無いことによるエラーか（ALTER未適用の環境）
+
+    一時的なDBエラーまで「カラム未追加」とみなして送信を続けると二重送信になるため、
+    カラム欠落だけを見分ける。
+    """
+    message = str(e)
+    if 'reminder_sent_at' not in message:
         return False
+    code = e.args[0] if e.args else None
+    return code == 1054 or 'Unknown column' in message  # 1054 = MySQL ER_BAD_FIELD_ERROR
 
 
-async def _claim_reminder(practice_id: int) -> Optional[bool]:
+async def _claim_reminder(practice_id: int, stamp: datetime) -> Optional[bool]:
     """リマインドの送信権を獲得する（二重送信防止）
 
     戻り値: True=獲得（未送信だった）／False=既に送信済み／None=判定不能（カラム未追加）
-    ALTER 未適用の環境でも機能自体は動くよう、判定不能時は送信を止めない。
+    ALTER 未適用の環境でも機能自体は動くよう、カラム欠落のときだけ送信を止めない。
+    それ以外のDBエラーは呼び出し側で失敗として扱えるようそのまま送出する。
     """
     try:
         async with db.pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(
-                    "UPDATE practice_schedule SET reminder_sent_at = NOW() "
+                    "UPDATE practice_schedule SET reminder_sent_at = %s "
                     "WHERE id = %s AND reminder_sent_at IS NULL",
-                    (practice_id,),
+                    (stamp, practice_id),
                 )
                 return cursor.rowcount > 0
     except Exception as e:
-        print(f'⚠️ 練習リマインドの送信済み判定をスキップ（reminder_sent_at 未追加？）: {e}')
+        if not _is_missing_reminder_column(e):
+            raise
+        print(f'⚠️ 練習リマインドの送信済み判定をスキップ（reminder_sent_at 未追加）: {e}')
         return None
 
 
-async def _set_reminder_sent_at(practice_id: int, sent: bool) -> None:
-    """送信済みフラグを立てる/戻す（送信失敗時に再送できるようNULLへ巻き戻す）"""
+async def _release_reminder(practice_id: int, stamp: datetime) -> None:
+    """自分が立てた送信権だけをNULLへ戻す
+
+    無条件に NULL を書くと、並行して走った別の実行が立てた「送信済み」を
+    打ち消して三重送信になりうるため、自分が書いた値と一致する行だけを戻す。
+    """
     try:
         async with db.pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(
-                    f"UPDATE practice_schedule SET reminder_sent_at = {'NOW()' if sent else 'NULL'} "
-                    "WHERE id = %s",
-                    (practice_id,),
+                    "UPDATE practice_schedule SET reminder_sent_at = NULL "
+                    "WHERE id = %s AND reminder_sent_at = %s",
+                    (practice_id, stamp),
+                )
+                if cursor.rowcount == 0:
+                    print(f'ℹ️ 練習リマインドの送信権は別の実行に更新済みのため巻き戻しません: practice_id={practice_id}')
+    except Exception as e:
+        print(f'⚠️ 練習リマインドの送信権の巻き戻しに失敗: practice_id={practice_id} {e}')
+
+
+async def _mark_reminder_sent(practice_id: int, stamp: datetime) -> None:
+    """送信済みとして記録する（force送信で送信権を獲得していない場合に使う）"""
+    try:
+        async with db.pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    "UPDATE practice_schedule SET reminder_sent_at = %s WHERE id = %s",
+                    (stamp, practice_id),
                 )
     except Exception as e:
-        print(f'⚠️ 練習リマインドの送信済みフラグ更新に失敗: {e}')
+        print(f'⚠️ 練習リマインドの送信済み記録に失敗: practice_id={practice_id} {e}')
 
 
 async def _send_practice_reminder(practice: dict, force: bool = False) -> dict:
     """練習1件のリマインドを送信し、結果を返す"""
-    practice_id = practice['id']
+    practice_id = practice.get('id')
+    stamp = _reminder_stamp()
+    claimed = False
+    posted = 0
 
-    if not force:
-        # None（reminder_sent_at が無く判定不能）のときは送信を止めない
-        if await _claim_reminder(practice_id) is False:
-            return {'practice_id': practice_id, 'status': 'skipped', 'reason': 'already_sent'}
-
-    participants = await _fetch_participants_with_discord(practice_id)
-    if not participants:
+    try:
         if not force:
-            await _set_reminder_sent_at(practice_id, False)
-        return {'practice_id': practice_id, 'status': 'skipped', 'reason': 'no_participants'}
+            # None（reminder_sent_at が無く判定不能）のときは送信を止めない
+            claim = await _claim_reminder(practice_id, stamp)
+            if claim is False:
+                return {'practice_id': practice_id, 'status': 'skipped', 'reason': 'already_sent'}
+            claimed = claim is True
 
-    content, mention_ids = _build_reminder_message(practice, participants)
-    if not await _post_reminder_to_channel(content, mention_ids):
-        if not force:
-            await _set_reminder_sent_at(practice_id, False)
-        return {'practice_id': practice_id, 'status': 'failed', 'reason': 'discord_error'}
+        participants = await _fetch_participants_with_discord(practice_id)
+        if not participants:
+            if claimed:
+                await _release_reminder(practice_id, stamp)
+            return {'practice_id': practice_id, 'status': 'skipped', 'reason': 'no_participants'}
 
-    if force:
-        await _set_reminder_sent_at(practice_id, True)
+        content, mention_ids = _build_reminder_message(practice, participants)
+        posted, total = await _post_reminder_to_channel(content, mention_ids)
 
-    return {
-        'practice_id': practice_id,
-        'status': 'sent',
-        'participant_count': len(participants),
-        'mentioned_count': len(mention_ids),
-        # Discord未連携でメンションできなかった人。運用で連携を促すために返す
-        'unlinked_names': [
-            p.get('player_name') for p in participants if not _mentionable_discord_id(p)
-        ],
-    }
+        if posted == 0:
+            # 1通も出ていないので送信権を戻し、次回の実行で再送できるようにする
+            if claimed:
+                await _release_reminder(practice_id, stamp)
+            return {'practice_id': practice_id, 'status': 'failed', 'reason': 'discord_error'}
+
+        if force:
+            await _mark_reminder_sent(practice_id, stamp)
+
+        result = {
+            'practice_id': practice_id,
+            'status': 'sent' if posted == total else 'partially_sent',
+            'participant_count': len(participants),
+            'mentioned_count': len(mention_ids),
+            # Discord未連携でメンションできなかった人。運用で連携を促すために返す
+            'unlinked_names': [
+                p.get('player_name') for p in participants if not _mentionable_discord_id(p)
+            ],
+        }
+        if posted != total:
+            # 一部は投稿済み。送信権を戻すと再送で先頭が重複メンションになるため送信済みのままにする
+            print(f'⚠️ 練習リマインドを一部しか投稿できませんでした: practice_id={practice_id} {posted}/{total}')
+            result['reason'] = f'{posted}/{total} chunks'
+        return result
+    except Exception as e:
+        # 送信権を握ったまま落ちるとその練習は二度と通知されないため必ず戻す
+        # （1通でも投稿済みなら戻さない。戻すと再送で重複メンションになる）
+        print(f'⚠️ 練習リマインド処理エラー: practice_id={practice_id} {e}')
+        if claimed and posted == 0:
+            await _release_reminder(practice_id, stamp)
+        return {'practice_id': practice_id, 'status': 'failed', 'reason': str(e)}
 
 
 @router.post("/practice/notify-tomorrow-participants")
@@ -1028,19 +1101,29 @@ async def notify_tomorrow_participants(target_date: Optional[str] = None, force:
 
     results = []
     for practice in (result.get('data') or []):
-        if practice.get('status') == 'cancelled':
-            results.append({'practice_id': practice['id'], 'status': 'skipped', 'reason': 'cancelled'})
-            continue
-        if (practice.get('visibility') or 'public') in REMINDER_EXCLUDED_VISIBILITIES:
-            results.append({'practice_id': practice['id'], 'status': 'skipped', 'reason': 'visibility_restricted'})
-            continue
-        results.append(await _send_practice_reminder(practice, force=force))
+        # 1件の失敗で同じ日の他の練習が巻き添えにならないよう、練習ごとに握る
+        try:
+            if practice.get('status') == 'cancelled':
+                results.append({'practice_id': practice.get('id'), 'status': 'skipped', 'reason': 'cancelled'})
+                continue
+            if (practice.get('visibility') or 'public') not in REMINDER_TARGET_VISIBILITIES:
+                results.append({'practice_id': practice.get('id'), 'status': 'skipped', 'reason': 'visibility_restricted'})
+                continue
+            results.append(await _send_practice_reminder(practice, force=force))
+        except Exception as e:
+            print(f'⚠️ 練習リマインド失敗: practice_id={practice.get("id")} {e}')
+            results.append({'practice_id': practice.get('id'), 'status': 'failed', 'reason': str(e)})
 
     sent_count = sum(1 for r in results if r['status'] == 'sent')
-    print(f"📢 練習前日リマインド: target={target} sent={sent_count}/{len(results)}")
+    partial_count = sum(1 for r in results if r['status'] == 'partially_sent')
+    failed_count = sum(1 for r in results if r['status'] == 'failed')
+    print(f"📢 練習前日リマインド: target={target} sent={sent_count} partial={partial_count} "
+          f"failed={failed_count} total={len(results)}")
     return {
         "success": True,
         "target_date": target,
         "sent_count": sent_count,
+        "partial_count": partial_count,
+        "failed_count": failed_count,
         "results": results,
     }
