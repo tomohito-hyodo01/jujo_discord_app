@@ -22,6 +22,7 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
   const [showPlayerForm, setShowPlayerForm] = useState(false)
   const [newPlayerData, setNewPlayerData] = useState<any>(null)
   const [isCompleted, setIsCompleted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [completedData, setCompletedData] = useState<any>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [teamMemberIds, setTeamMemberIds] = useState<string[]>(['', '', ''])  // 最低3名（自分+3=4名）から開始
@@ -179,6 +180,10 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    // 二重送信の防止。連打すると選手登録と申込がそれぞれ2件作られてしまう
+    if (submitting) return
+    setSubmitting(true)
+
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -268,8 +273,9 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         }
         pairId = newPlayerId.toString()
         newlyRegisteredPlayerName = newPlayerData.player_name
+        // 取得失敗時に配列以外を state に入れると以後の描画が壊れるためガードする
         const playersRes = await fetch(`${apiUrl}/api/players`)
-        setPlayers(await playersRes.json())
+        if (playersRes.ok) setPlayers(await playersRes.json())
       } else if (!isTeamTournament && !isSingles && (!formData.pairId || formData.pairId === 'add_player')) {
         alert('選手情報を入力してください')
         return
@@ -361,6 +367,8 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
       }
     } catch {
       alert('通信エラーが発生しました')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -615,11 +623,13 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
           </>
         )}
 
-        <button type="submit" style={{
-          padding: '16px', borderRadius: '8px', backgroundColor: '#3b82f6',
-          color: '#fff', border: 'none', fontSize: '16px', fontWeight: '600', marginTop: '8px'
+        <button type="submit" disabled={submitting} style={{
+          padding: '16px', borderRadius: '8px',
+          backgroundColor: submitting ? '#1e3a8a' : '#3b82f6',
+          color: '#fff', border: 'none', fontSize: '16px', fontWeight: '600', marginTop: '8px',
+          cursor: submitting ? 'not-allowed' : 'pointer',
         }}>
-          申し込む
+          {submitting ? '送信中...' : '申し込む'}
         </button>
       </form>
     </div>
