@@ -282,6 +282,14 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
           alert('選手登録は完了しましたが、申込処理に進めませんでした。お手数ですが、選手を選び直して再度申し込んでください。')
           return
         }
+        // このAPIは同姓名・同生年月日の選手が既にいる場合、新規作成せず既存の選手を返す。
+        // 入力値だけでなく「実際に申込へ使う選手情報」も検証しないと、
+        // 既存ペアとして選べば弾かれるはずの不備データで申込が通ってしまう。
+        const registeredIssues = validatePlayerInfo(newPlayer)
+        if (registeredIssues.length > 0) {
+          alert(`申込に使う選手の登録情報に不備があります。\n${registeredIssues.join('、')}\n同姓同名・同じ生年月日の選手が既に登録されている可能性があります。ご本人に修正していただくか、管理者に問い合わせてください。`)
+          return
+        }
         pairId = newPlayerId.toString()
         newlyRegisteredPlayerName = newPlayerData.player_name
         // 選手一覧の更新は表示用の付随処理なので、失敗しても申込は続行する。
