@@ -367,7 +367,21 @@ async def create_player(player: PlayerCreate):
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
 
-        return result.get('data', [{}])[0]
+        # insert の戻り値は採番IDを 'id' として返すため、そのままでは 'player_id' が無い。
+        # 他の返却パス（既存選手を返す場合）と形をそろえて、作成した行を取得して返す。
+        # ※呼び出し側（大会申込時の選手登録）は player_id を使ってペアを組むため、
+        #   ここで player_id が欠けると申込側が失敗する。
+        created_id = (result.get('data') or [{}])[0].get('id')
+        if created_id:
+            created = await db.execute_query(
+                'player_mst',
+                operation='select',
+                filters={'player_id': created_id}
+            )
+            if created.get('data'):
+                return created['data'][0]
+
+        raise HTTPException(status_code=500, detail="選手の登録結果を取得できませんでした")
     except HTTPException:
         raise
     except Exception as e:

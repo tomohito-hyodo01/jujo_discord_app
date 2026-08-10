@@ -259,7 +259,14 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
           return
         }
         const newPlayer = await playerResponse.json()
-        pairId = newPlayer.player_id.toString()
+        // 新規作成時のレスポンスが player_id ではなく id を返す場合にも対応する
+        // （どちらか欠けていても申込まで完了させる。落とすと選手だけ登録されて申込が残らない）
+        const newPlayerId = newPlayer?.player_id ?? newPlayer?.id
+        if (newPlayerId == null) {
+          alert('選手登録は完了しましたが、申込処理に進めませんでした。お手数ですが、選手を選び直して再度申し込んでください。')
+          return
+        }
+        pairId = newPlayerId.toString()
         newlyRegisteredPlayerName = newPlayerData.player_name
         const playersRes = await fetch(`${apiUrl}/api/players`)
         setPlayers(await playersRes.json())
