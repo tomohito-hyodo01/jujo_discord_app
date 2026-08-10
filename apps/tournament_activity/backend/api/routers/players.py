@@ -379,11 +379,12 @@ async def create_player(player: PlayerCreate):
                 filters={'player_id': created_id}
             )
             if created.get('data'):
-                return created['data'][0]
+                # 変更前は採番IDを 'id' として返していたため、互換のため残す
+                return {'id': created_id, **created['data'][0]}
             # 再取得できなくても採番IDは確定しているので、player_id を補って返す。
             # ここでエラーにすると、登録は済んでいるのに呼び出し側が申込へ進めず、
             # 再送信しても重複エラーになって復帰できなくなる。
-            return {'player_id': created_id, **player.model_dump(exclude_none=True)}
+            return {'id': created_id, 'player_id': created_id, **player.model_dump(exclude_none=True)}
 
         raise HTTPException(status_code=500, detail="選手の登録結果を取得できませんでした")
     except HTTPException:

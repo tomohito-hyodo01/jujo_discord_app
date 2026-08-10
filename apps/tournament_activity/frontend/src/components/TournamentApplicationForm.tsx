@@ -273,9 +273,18 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         }
         pairId = newPlayerId.toString()
         newlyRegisteredPlayerName = newPlayerData.player_name
-        // 取得失敗時に配列以外を state に入れると以後の描画が壊れるためガードする
-        const playersRes = await fetch(`${apiUrl}/api/players`)
-        if (playersRes.ok) setPlayers(await playersRes.json())
+        // 選手一覧の更新は表示用の付随処理なので、失敗しても申込は続行する。
+        // ここで例外が外に出ると「選手だけ登録されて申込が作られない」状態に戻ってしまう
+        // （再送信してもJSTA番号の重複で復帰できない）。
+        try {
+          const playersRes = await fetch(`${apiUrl}/api/players`)
+          if (playersRes.ok) {
+            const refreshed = await playersRes.json()
+            if (Array.isArray(refreshed)) setPlayers(refreshed)
+          }
+        } catch {
+          // 一覧の更新失敗は申込をブロックしない
+        }
       } else if (!isTeamTournament && !isSingles && (!formData.pairId || formData.pairId === 'add_player')) {
         alert('選手情報を入力してください')
         return
