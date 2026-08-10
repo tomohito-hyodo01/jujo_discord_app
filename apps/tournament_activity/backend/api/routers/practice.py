@@ -901,6 +901,18 @@ def _build_reminder_message(practice: dict, participants: list) -> tuple:
     return '\n'.join(lines), mention_ids
 
 
+def _allowed_mentions_for(chunk: str, mention_ids: list) -> dict:
+    """そのチャンクに実際に載っている参加者だけを許可する allowed_mentions を組み立てる
+
+    parse を空にして users を列挙することで、選手名などに紛れ込んだ
+    @everyone / ロール / 他人のメンション記法が発火しないようにする。
+    users は最大100件だが、1チャンクは1900文字以内でメンション1件が約22文字を占めるため
+    自然に上限を下回る。念のため上限で切っておく。
+    """
+    users = [did for did in mention_ids if f'<@{did}>' in chunk]
+    return {'parse': [], 'users': users[:_ALLOWED_MENTION_USERS_LIMIT]}
+
+
 async def _post_reminder_to_channel(content: str, mention_ids: list) -> tuple:
     """リマインドをDiscordチャンネルへ投稿し、(投稿できたチャンク数, 全チャンク数) を返す
 
@@ -913,13 +925,6 @@ async def _post_reminder_to_channel(content: str, mention_ids: list) -> tuple:
         print('⚠️ 練習リマインド: DISCORD_BOT_TOKEN または投稿先チャンネルが未設定')
         return 0, len(chunks)
 
-    # parse を空にしたうえで users を列挙し、意図しない @everyone / ロールメンションを防ぐ。
-    # users は最大100件のため、超える場合のみ parse で許可する
-    if len(mention_ids) <= _ALLOWED_MENTION_USERS_LIMIT:
-        allowed_mentions = {'parse': [], 'users': mention_ids}
-    else:
-        allowed_mentions = {'parse': ['users']}
-
     headers = {'Authorization': f'Bot {bot_token}', 'Content-Type': 'application/json'}
     url = f'https://discord.com/api/v10/channels/{PRACTICE_REMINDER_CHANNEL_ID}/messages'
 
@@ -927,7 +932,8 @@ async def _post_reminder_to_channel(content: str, mention_ids: list) -> tuple:
     try:
         async with httpx.AsyncClient() as client:
             for chunk in chunks:
-                payload = {'content': chunk, 'allowed_mentions': allowed_mentions}
+                payload = {'content': chunk,
+                           'allowed_mentions': _allowed_mentions_for(chunk, mention_ids)}
                 res = await client.post(url, headers=headers, json=payload, timeout=10.0)
                 # 同じ日に複数の練習があると連続投稿になるため、レート制限は1度だけ待って再送する
                 if res.status_code == 429:
@@ -991,11 +997,12 @@ async def _claim_reminder(practice_id: int, stamp: datetime) -> Optional[bool]:
         return None
 
 
-async def _release_reminder(practice_id: int, stamp: datetime) -> None:
-    """自分が立てた送信権だけをNULLへ戻す
+async def _release_reminder(practice_id: int, stamp: datetime) -> bool:
+    """自分が立てた送信権だけをNULLへ戻す（戻せたらTrue）
 
     無条件に NULL を書くと、並行して走った別の実行が立てた「送信済み」を
     打ち消して三重送信になりうるため、自分が書いた値と一致する行だけを戻す。
+    戻せなかった場合は「未送信なのに送信済みとして残る」ので、呼び出し側で結果に出す。
     """
     try:
         async with db.pool.acquire() as conn:
@@ -1007,8 +1014,11 @@ async def _release_reminder(practice_id: int, stamp: datetime) -> None:
                 )
                 if cursor.rowcount == 0:
                     print(f'ℹ️ 練習リマインドの送信権は別の実行に更新済みのため巻き戻しません: practice_id={practice_id}')
+                    return False
+                return True
     except Exception as e:
         print(f'⚠️ 練習リマインドの送信権の巻き戻しに失敗: practice_id={practice_id} {e}')
+        return False
 
 
 async def _mark_reminder_sent(practice_id: int, stamp: datetime) -> None:
@@ -1050,12 +1060,18 @@ async def _send_practice_reminder(practice: dict, force: bool = False) -> dict:
 
         if posted == 0:
             # 1通も出ていないので送信権を戻し、次回の実行で再送できるようにする
-            if claimed:
-                await _release_reminder(practice_id, stamp)
-            return {'practice_id': practice_id, 'status': 'failed', 'reason': 'discord_error'}
+            reason = 'discord_error'
+            if claimed and not await _release_reminder(practice_id, stamp):
+                # 戻せないと「未送信なのに送信済み」で止まるため、気づけるよう結果に出す
+                reason = 'discord_error（送信権を戻せませんでした。force=true で再送してください）'
+            return {'practice_id': practice_id, 'status': 'failed', 'reason': reason}
 
         if force:
             await _mark_reminder_sent(practice_id, stamp)
+
+        if not mention_ids:
+            print(f'⚠️ 練習リマインド: メンションできる参加者が1人もいません（Discord未連携）: '
+                  f'practice_id={practice_id}')
 
         result = {
             'practice_id': practice_id,

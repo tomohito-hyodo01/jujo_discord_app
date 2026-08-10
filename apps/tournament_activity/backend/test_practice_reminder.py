@@ -20,6 +20,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Windowsの既定コンソール(cp932)でも絵文字を出せるようにする
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+
 # 依存が入っていない環境（ローカルWindows等）でも動かせるよう、未導入のものだけ差し替える
 for _name in ('aiomysql', 'httpx'):
     try:
@@ -210,14 +215,21 @@ check("別カラムのUnknown columnはカラム欠落ではない",
       P._is_missing_reminder_column(Exception(1054, "Unknown column 'foo'")), False)
 
 _cur = _FakeCursor(rowcount=1)
-_with_cursor(_cur, lambda: P._release_reminder(7, _stamp))
+check("巻き戻し成功", _with_cursor(_cur, lambda: P._release_reminder(7, _stamp)), True)
 check("巻き戻しは自分が書いた値の行だけ", _cur.executed[0][0],
       "UPDATE practice_schedule SET reminder_sent_at = NULL WHERE id = %s AND reminder_sent_at = %s")
 check("巻き戻しのパラメータ", _cur.executed[0][1], (7, _stamp))
 
-_cur = _FakeCursor(rowcount=0)
-_with_cursor(_cur, lambda: P._release_reminder(7, _stamp))  # 他の実行に更新済み → 何もしない
-check("巻き戻しが空振りでも例外にしない", len(_cur.executed), 1)
+_cur = _FakeCursor(rowcount=0)  # 他の実行に更新済み → 触らない
+check("巻き戻しが空振りならFalse", _with_cursor(_cur, lambda: P._release_reminder(7, _stamp)), False)
+
+_cur = _FakeCursor(error=Exception(2013, "Lost connection"))
+check("巻き戻しのDBエラーは握ってFalse",
+      _with_cursor(_cur, lambda: P._release_reminder(7, _stamp)), False)
+
+_cur = _FakeCursor(error=Exception(2013, "Lost connection"))
+_with_cursor(_cur, lambda: P._mark_reminder_sent(7, _stamp))
+check("送信済み記録のDBエラーは握る", len(_cur.executed), 1)
 
 _cur = _FakeCursor(rowcount=1)
 _with_cursor(_cur, lambda: P._mark_reminder_sent(7, _stamp))
@@ -291,20 +303,34 @@ def _post_with_fake(content, ids, statuses=None, raise_on=None):
     return res, list(_FakeClient.calls)
 
 
-_res, _calls = _post_with_fake('こんばんは', ['111111111111111111'])
+_res, _calls = _post_with_fake('・<@111111111111111111> 山田太郎', ['111111111111111111'])
 check("投稿成功(投稿数, 総数)", _res, (1, 1))
 check("投稿先URL", _calls[0]['url'],
       f"https://discord.com/api/v10/channels/{P.PRACTICE_REMINDER_CHANNEL_ID}/messages")
 check("everyone/ロールを許可しない", _calls[0]['json']['allowed_mentions']['parse'], [])
 check("指定ユーザーのみ許可", _calls[0]['json']['allowed_mentions']['users'], ['111111111111111111'])
 
-_res, _calls = _post_with_fake('a', [str(i).rjust(18, '1') for i in range(101)])
-check("100件超はparse指定へ切替", _calls[0]['json']['allowed_mentions'], {'parse': ['users']})
+_res, _calls = _post_with_fake('こんばんは', ['111111111111111111'])
+check("本文に載っていないIDは許可しない", _calls[0]['json']['allowed_mentions']['users'], [])
 
-_long_msg = "\n".join(f"・<@{str(i).rjust(18, '1')}> 選手{i}" for i in range(200))
-_res, _calls = _post_with_fake(_long_msg, [])
+# 選手名にメンション記法が紛れ込んでも、本人以外は発火しない
+_evil = "・<@111111111111111111> <@999999999999999999>さん"
+_res, _calls = _post_with_fake(_evil, ['111111111111111111'])
+check("氏名に紛れたメンションは許可しない",
+      _calls[0]['json']['allowed_mentions'], {'parse': [], 'users': ['111111111111111111']})
+
+_ids = [str(100000000000000000 + i) for i in range(200)]
+_long_msg = "\n".join(f"・<@{d}> 選手{i}" for i, d in enumerate(_ids))
+_res, _calls = _post_with_fake(_long_msg, _ids)
 check("長文は分割して複数回投稿", len(_calls) > 1, True)
 check("分割時も全チャンク成功", _res[0], _res[1])
+check("チャンクごとに載っているIDだけ許可",
+      all(c['json']['allowed_mentions']['users']
+          == [d for d in _ids if f'<@{d}>' in c['json']['content']] for c in _calls), True)
+check("usersは常に100件以下",
+      max(len(c['json']['allowed_mentions']['users']) for c in _calls) <= 100, True)
+check("全員が1度だけ許可される",
+      sorted(d for c in _calls for d in c['json']['allowed_mentions']['users']), sorted(_ids))
 
 _res, _calls = _post_with_fake(_long_msg, [], statuses=[200, 500])
 check("2通目で失敗したら投稿数1を返す", _res[0], 1)
@@ -332,12 +358,13 @@ class _Stubs:
     """practice.py のI/O関数を差し替えて分岐を検証する"""
 
     def __init__(self, claim=True, participants=None, post=(1, 1),
-                 fetch_error=None, claim_error=None):
+                 fetch_error=None, claim_error=None, release_ok=True):
         self.claim = claim
         self.participants = participants if participants is not None else _participants
         self.post = post
         self.fetch_error = fetch_error
         self.claim_error = claim_error
+        self.release_ok = release_ok
         self.released = []
         self.marked = []
         self.posted = []
@@ -360,6 +387,7 @@ class _Stubs:
 
         async def fake_release(pid, stamp):
             self.released.append(pid)
+            return self.release_ok
 
         async def fake_mark(pid, stamp):
             self.marked.append(pid)
@@ -409,6 +437,16 @@ with _Stubs(post=(0, 1)) as s:
     r = _run(P._send_practice_reminder(_practice))
     check("送信失敗のstatus", (r['status'], r['reason']), ('failed', 'discord_error'))
     check("失敗時は巻き戻して再送可能にする", s.released, [1])
+
+with _Stubs(post=(0, 1), release_ok=False) as s:
+    r = _run(P._send_practice_reminder(_practice))
+    check("巻き戻せなかったことを結果に出す", '送信権を戻せませんでした' in r['reason'], True)
+
+with _Stubs(participants=[{'player_name': '未連携さん', 'discord_id': None}]) as s:
+    r = _run(P._send_practice_reminder(_practice))
+    check("全員未連携でも投稿はする", r['status'], 'sent')
+    check("メンション数0", r['mentioned_count'], 0)
+    check("未連携者を全員返す", r['unlinked_names'], ['未連携さん'])
 
 with _Stubs(post=(1, 3)) as s:
     r = _run(P._send_practice_reminder(_practice))
