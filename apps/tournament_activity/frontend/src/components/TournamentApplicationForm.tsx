@@ -205,6 +205,14 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         if (pair) { pairIssues = validatePlayerInfo(pair); pairName = pair.player_name || '' }
       }
 
+      // その場で登録する新規選手も、既存のペアと同じ基準で検証する。
+      // ここを素通りすると番地なしの住所などで登録され、次回その選手をペアに
+      // 選んだときに申込が弾かれる（本人以外は修正できず管理者対応になる）。
+      let newPlayerIssues: string[] = []
+      if (!isTeamTournament && !isSingles && showPlayerForm && newPlayerData) {
+        newPlayerIssues = validatePlayerInfo(newPlayerData)
+      }
+
       const memberErrors: { name: string; issues: string[] }[] = []
       if (isTeamTournament && teamMode === 'build') {
         for (const memberId of teamMemberIds) {
@@ -218,7 +226,7 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
       }
 
       // エラーメッセージ組み立て
-      if (meIssues.length > 0 || pairIssues.length > 0 || memberErrors.length > 0) {
+      if (meIssues.length > 0 || pairIssues.length > 0 || memberErrors.length > 0 || newPlayerIssues.length > 0) {
         let msg = ''
         if (meIssues.length > 0 && pairIssues.length > 0) {
           msg = `申込者、ペアの${pairName}さんの情報に不備があります。\n\n【あなた】${meIssues.join('、')}\nマイページから修正してください。\n\n【${pairName}さん】${pairIssues.join('、')}\nご本人に修正していただくか、管理者に問い合わせてください。`
@@ -230,6 +238,9 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         if (memberErrors.length > 0) {
           const memberMsg = memberErrors.map(m => `【${m.name}さん】${m.issues.join('、')}`).join('\n')
           msg += (msg ? '\n\n' : '') + `チームメンバーの情報に不備があります。\n${memberMsg}\nご本人に修正していただくか、管理者に問い合わせてください。`
+        }
+        if (newPlayerIssues.length > 0) {
+          msg += (msg ? '\n\n' : '') + `新規登録する選手の情報に不備があります。\n${newPlayerIssues.join('、')}\n入力内容を修正してください。`
         }
         alert(msg)
         return
@@ -269,6 +280,14 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         const newPlayerId = newPlayer?.player_id ?? newPlayer?.id
         if (newPlayerId == null) {
           alert('選手登録は完了しましたが、申込処理に進めませんでした。お手数ですが、選手を選び直して再度申し込んでください。')
+          return
+        }
+        // このAPIは同姓名・同生年月日の選手が既にいる場合、新規作成せず既存の選手を返す。
+        // 入力値だけでなく「実際に申込へ使う選手情報」も検証しないと、
+        // 既存ペアとして選べば弾かれるはずの不備データで申込が通ってしまう。
+        const registeredIssues = validatePlayerInfo(newPlayer)
+        if (registeredIssues.length > 0) {
+          alert(`申込に使う選手の登録情報に不備があります。\n${registeredIssues.join('、')}\n同姓同名・同じ生年月日の選手が既に登録されている可能性があります。ご本人に修正していただくか、管理者に問い合わせてください。`)
           return
         }
         pairId = newPlayerId.toString()
