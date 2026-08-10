@@ -367,7 +367,26 @@ async def create_player(player: PlayerCreate):
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
 
-        return result.get('data', [{}])[0]
+        # insert の戻り値は採番IDを 'id' として返すため、そのままでは 'player_id' が無い。
+        # 他の返却パス（既存選手を返す場合）と形をそろえて、作成した行を取得して返す。
+        # ※呼び出し側（大会申込時の選手登録）は player_id を使ってペアを組むため、
+        #   ここで player_id が欠けると申込側が失敗する。
+        created_id = (result.get('data') or [{}])[0].get('id')
+        if created_id:
+            created = await db.execute_query(
+                'player_mst',
+                operation='select',
+                filters={'player_id': created_id}
+            )
+            if created.get('data'):
+                # 変更前は採番IDを 'id' として返していたため、互換のため残す
+                return {'id': created_id, **created['data'][0]}
+            # 再取得できなくても採番IDは確定しているので、player_id を補って返す。
+            # ここでエラーにすると、登録は済んでいるのに呼び出し側が申込へ進めず、
+            # 再送信しても重複エラーになって復帰できなくなる。
+            return {'id': created_id, 'player_id': created_id, **player.model_dump(exclude_none=True)}
+
+        raise HTTPException(status_code=500, detail="選手の登録結果を取得できませんでした")
     except HTTPException:
         raise
     except Exception as e:
