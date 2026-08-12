@@ -876,7 +876,7 @@ def _build_reminder_message(practice: dict, participants: list) -> tuple:
         place += f"（コート{court}）"
 
     lines = [
-        '📢 **明日は練習です**',
+        '📢 **明日の練習は下記となりますのでお間違えのないようお願いいたします。**',
         '',
         f"📅 {_format_practice_date(practice.get('practice_date'))}{time_label}",
         place,

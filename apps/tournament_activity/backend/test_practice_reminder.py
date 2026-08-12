@@ -88,6 +88,7 @@ _participants = [
     {'player_id': 3, 'player_name': '佐藤次郎', 'discord_id': None},
 ]
 _content, _ids = P._build_reminder_message(_practice, _participants)
+check("見出し", _content.startswith('📢 **明日の練習は下記となりますのでお間違えのないようお願いいたします。**'), True)
 check("メンション対象は連携済みのみ", _ids, ['111111111111111111', '222222222222222222'])
 check("TIME型を HH:MM に整形", "📅 2026/08/11(火) 19:00〜21:30" in _content, True)
 check("場所とコート", "📍 荒川河川敷コート（コート3,4）" in _content, True)
