@@ -894,10 +894,6 @@ def _build_reminder_message(practice: dict, participants: list) -> tuple:
         else:
             lines.append(f"・{name}")
 
-    lines += [
-        '',
-        '参加できなくなった方・参加登録がまだの方は、練習予定の登録内容の変更をお願いします。',
-    ]
     return '\n'.join(lines), mention_ids
 
 

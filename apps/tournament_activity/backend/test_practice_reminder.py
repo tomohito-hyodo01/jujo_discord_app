@@ -97,6 +97,7 @@ check("未連携は氏名のみ", "・佐藤次郎" in _content, True)
 check("壊れたメンションを含まない", "<@None>" in _content or "<@>" in _content, False)
 check("@everyoneを含まない", "@everyone" in _content, False)
 check("URLを含まない", "http" in _content, False)
+check("参加者一覧で終わる（案内文を付けない）", _content.endswith("・佐藤次郎"), True)
 check("引数のdictを破壊しない", _practice['start_time'], timedelta(hours=19))
 
 _c2, _ = P._build_reminder_message(
