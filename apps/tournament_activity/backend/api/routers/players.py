@@ -37,6 +37,45 @@ class PlayerCreate(BaseModel):
     created_by: Optional[str] = None  # 登録者のDiscord ID
 
 
+ADMIN_ROLE_ADMIN = 0  # admin_role: 0=管理者
+
+
+async def _assert_can_edit_player(player_id: int, actor_discord_id: Optional[str]) -> dict:
+    """選手情報を編集してよいかを確認し、対象の選手行を返す
+
+    編集できるのは「その選手を登録した本人（created_by が一致）」と管理者のみ。
+    画面側で一覧を絞るだけでは API を直接叩かれると他人の情報を変更できるため、
+    サーバー側でも同じ条件で判定する。
+    """
+    target = await db.execute_query(
+        'player_mst', operation='select', filters={'player_id': player_id}
+    )
+    if target.get('error'):
+        raise HTTPException(status_code=500, detail=target['error'])
+    rows = target.get('data') or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Player not found")
+    player_row = rows[0]
+
+    if not actor_discord_id:
+        raise HTTPException(status_code=403, detail="この選手情報を変更する権限がありません")
+
+    actor = await db.execute_query(
+        'player_mst', operation='select', filters={'discord_id': actor_discord_id}
+    )
+    # 権限判定は素通りさせず、照会に失敗したら停止する（fail-closed）
+    if actor.get('error'):
+        raise HTTPException(status_code=500, detail=actor['error'])
+    actor_rows = actor.get('data') or []
+    if actor_rows and actor_rows[0].get('admin_role') == ADMIN_ROLE_ADMIN:
+        return player_row
+
+    if player_row.get('created_by') and player_row.get('created_by') == actor_discord_id:
+        return player_row
+
+    raise HTTPException(status_code=403, detail="この選手情報を変更する権限がありません")
+
+
 class PlayerUpdate(BaseModel):
     player_name: Optional[str] = None
     player_name_kana: Optional[str] = None
@@ -445,9 +484,11 @@ async def update_player_by_discord_id(discord_id: str, player: PlayerUpdate):
 
 
 @router.put("/players/{player_id}/update")
-async def update_player_by_id(player_id: int, player: PlayerUpdate):
-    """選手IDで選手情報を更新"""
+async def update_player_by_id(player_id: int, player: PlayerUpdate, actor_discord_id: Optional[str] = None):
+    """選手IDで選手情報を更新（登録者本人または管理者のみ）"""
     try:
+        await _assert_can_edit_player(player_id, actor_discord_id)
+
         update_data = player.model_dump(exclude_none=True)
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")

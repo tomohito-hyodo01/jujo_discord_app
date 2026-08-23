@@ -62,6 +62,11 @@ export function hasPermission(info: UserPermissionInfo, permission: Permission):
   if (info.memberLevel === 2) {
     return GUEST_PERMISSIONS.includes(permission)
   }
+  // 登録選手一覧は準会員以上（正会員・準会員）。ゲスト制限より後に判定する。
+  // 一般メンバーは自分が登録した選手だけが見え、管理者は全選手が見える（画面側で絞る）
+  if (permission === 'view_member_list' && (info.memberLevel === 0 || info.memberLevel === 1)) {
+    return true
+  }
   const perms = ADMIN_ROLE_PERMISSIONS[info.adminRole] ?? ADMIN_ROLE_PERMISSIONS[2]
   return perms.includes(permission)
 }
@@ -70,5 +75,10 @@ export function getUserPermissions(info: UserPermissionInfo): Permission[] {
   if (info.memberLevel === 2) {
     return GUEST_PERMISSIONS
   }
-  return ADMIN_ROLE_PERMISSIONS[info.adminRole] ?? ADMIN_ROLE_PERMISSIONS[2]
+  const perms = [...(ADMIN_ROLE_PERMISSIONS[info.adminRole] ?? ADMIN_ROLE_PERMISSIONS[2])]
+  // 準会員以上には登録選手一覧を追加（hasPermission と条件を揃える）
+  if (!perms.includes('view_member_list') && (info.memberLevel === 0 || info.memberLevel === 1)) {
+    perms.push('view_member_list')
+  }
+  return perms
 }

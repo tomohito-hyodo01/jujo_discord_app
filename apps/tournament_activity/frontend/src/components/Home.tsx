@@ -26,7 +26,7 @@ const MENU_CARDS: MenuCard[] = [
   { id: 'admin-tournament-mgmt', label: '大会管理', description: '大会の編集・削除', permission: 'view_tournament_register' },
   { id: 'admin-practice', label: '練習日程管理', description: '練習予定の登録・削除', permission: 'view_practice_manage' },
   { id: 'admin-excel', label: '申込書出力', description: 'Excel申込書の生成', permission: 'view_excel_download' },
-  { id: 'admin-members', label: 'メンバー一覧', description: 'メンバー情報の管理', permission: 'view_member_list' },
+  { id: 'admin-members', label: '登録選手一覧', description: '登録した選手情報の管理', permission: 'view_member_list' },
   { id: 'profile-notify', label: 'プロフィール不備通知', description: '不備通知の送信', permission: 'view_app_logs' },
   { id: 'account-merge', label: 'アカウント統合', description: '重複アカウントの統合', permission: 'view_app_logs' },
   { id: 'game', label: '⚔️ ゲーム(試作)', description: 'エビ走であそぶ（試作）', permission: 'view_dashboard' },  // ハブは全員公開。RPGはGameHub内で管理者のみ
