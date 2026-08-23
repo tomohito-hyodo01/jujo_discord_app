@@ -225,8 +225,34 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         }
       }
 
+      // 東京都・広域の大会は、出場者全員に日本連盟登録番号（JSTA番号）が必要。
+      // 代理申込（団体戦のみ）では申込者本人は出場しないため対象外。
+      const jstaMissing: string[] = []
+      if (isWideArea) {
+        const participants: any[] = []
+        if (!isProxyRegistration && me) participants.push(me)
+        if (!isTeamTournament && !isSingles) {
+          if (showPlayerForm && newPlayerData) {
+            participants.push(newPlayerData)
+          } else if (formData.pairId) {
+            const pair = players.find(p => p.player_id === parseInt(formData.pairId))
+            if (pair) participants.push(pair)
+          }
+        }
+        if (isTeamTournament && teamMode === 'build') {
+          for (const memberId of teamMemberIds) {
+            if (!memberId) continue
+            const member = players.find(p => p.player_id === parseInt(memberId))
+            if (member) participants.push(member)
+          }
+        }
+        for (const participant of participants) {
+          if (!participant?.jsta_number) jstaMissing.push(participant?.player_name || '（氏名不明）')
+        }
+      }
+
       // エラーメッセージ組み立て
-      if (meIssues.length > 0 || pairIssues.length > 0 || memberErrors.length > 0 || newPlayerIssues.length > 0) {
+      if (meIssues.length > 0 || pairIssues.length > 0 || memberErrors.length > 0 || newPlayerIssues.length > 0 || jstaMissing.length > 0) {
         let msg = ''
         if (meIssues.length > 0 && pairIssues.length > 0) {
           msg = `申込者、ペアの${pairName}さんの情報に不備があります。\n\n【あなた】${meIssues.join('、')}\nマイページから修正してください。\n\n【${pairName}さん】${pairIssues.join('、')}\nご本人に修正していただくか、管理者に問い合わせてください。`
@@ -241,6 +267,9 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
         }
         if (newPlayerIssues.length > 0) {
           msg += (msg ? '\n\n' : '') + `新規登録する選手の情報に不備があります。\n${newPlayerIssues.join('、')}\n入力内容を修正してください。`
+        }
+        if (jstaMissing.length > 0) {
+          msg += (msg ? '\n\n' : '') + `東京都・広域の大会は、出場者全員の日本連盟登録番号（JSTA番号）が必要です。\n未登録: ${jstaMissing.join('、')}\nマイページから登録後、あらためてお申し込みください。`
         }
         alert(msg)
         return
@@ -337,6 +366,8 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
           pair1: memberIds[0],
           pair2: memberIds.slice(1),
           team_status: 0,
+          // 代理申込では申込者本人は出場しない（連盟番号チェックの対象から外すため送る）
+          is_proxy: isProxyRegistration,
         }
       } else {
         registrationData = {
