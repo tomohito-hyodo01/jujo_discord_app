@@ -676,7 +676,7 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
                   <button type="button" onClick={() => setShowPlayerForm(false)}
                     style={{ padding: '6px 12px', borderRadius: '6px', backgroundColor: '#475569', color: '#fff', border: 'none', fontSize: '13px', cursor: 'pointer' }}>閉じる</button>
                 </div>
-                <PlayerRegistrationFormInline discordId="" onDataChange={(data) => setNewPlayerData(data)} />
+                <PlayerRegistrationFormInline discordId="" createdBy={formData.discordId} onDataChange={(data) => setNewPlayerData(data)} />
               </div>
             )}
           </>

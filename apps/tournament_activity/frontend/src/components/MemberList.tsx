@@ -1,6 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 
-export default function MemberList() {
+interface MemberListProps {
+  // ログイン中のDiscord ID。自分が登録した選手だけを表示・編集するために使う
+  discordId: string
+  // 管理者は全選手を表示・編集できる
+  isAdmin: boolean
+}
+
+export default function MemberList({ discordId, isAdmin }: MemberListProps) {
   const [players, setPlayers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -54,6 +61,8 @@ export default function MemberList() {
 
   const filtered = useMemo(() => {
     const list = players.filter(p => {
+      // 管理者以外は、自分が登録した選手のみ
+      if (!isAdmin && p.created_by !== discordId) return false
       if (search && !p.player_name?.includes(search)) return false
       if (filterSex !== '' && p.sex !== parseInt(filterSex)) return false
       return true
@@ -76,7 +85,7 @@ export default function MemberList() {
     })
 
     return list
-  }, [players, search, filterSex, sortKey, sortAsc])
+  }, [players, search, filterSex, sortKey, sortAsc, isAdmin, discordId])
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -150,7 +159,7 @@ export default function MemberList() {
     if (!selectedPlayer) return
     setSavingField(true); setFieldMessage('')
     try {
-      const res = await fetch(`${apiUrl}/api/players/${selectedPlayer.player_id}/update`, {
+      const res = await fetch(`${apiUrl}/api/players/${selectedPlayer.player_id}/update?actor_discord_id=${encodeURIComponent(discordId)}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [field]: value }),
       })
@@ -161,7 +170,8 @@ export default function MemberList() {
         setSelectedPlayer(updated)
         setEditingField(null)
       } else {
-        setFieldMessage('更新に失敗しました')
+        const err = await res.json().catch(() => ({}))
+        setFieldMessage(res.status === 403 ? (err.detail || '変更する権限がありません') : '更新に失敗しました')
       }
     } catch { setFieldMessage('通信エラー') }
     finally { setSavingField(false) }
@@ -249,7 +259,7 @@ export default function MemberList() {
   return (
     <div>
       <h2 style={{ fontSize: '20px', fontWeight: '600', color: '#e2e8f0', marginBottom: '16px' }}>
-        メンバー一覧
+        登録選手一覧
       </h2>
 
       {/* フィルター */}
@@ -281,6 +291,8 @@ export default function MemberList() {
         <span style={{ fontSize: '12px', color: '#64748b', alignSelf: 'center' }}>
           {filtered.length}名
         </span>
+        {/* CSV取込は管理者のみ */}
+        {isAdmin && (
         <label style={{
           padding: '8px 12px', backgroundColor: '#1e3a8a', border: '1px solid #2563eb',
           borderRadius: '6px', color: '#93c5fd', fontSize: '13px', cursor: csvImporting ? 'not-allowed' : 'pointer',
@@ -313,6 +325,7 @@ export default function MemberList() {
             }}
           />
         </label>
+        )}
       </div>
 
       {csvResult && (
@@ -497,6 +510,8 @@ export default function MemberList() {
               {editableRow('電話番号', 'phone_number', selectedPlayer.phone_number || '')}
               {editableRow('所属クラブ', 'affiliated_club', selectedPlayer.affiliated_club || '')}
               {detailRow('Discord ID', selectedPlayer.discord_id)}
+              {/* 権限・区登録・資格・参加制限・削除は管理者のみ */}
+              {isAdmin && (<>
               {/* 権限編集 */}
               <div style={{ padding: '12px 0', borderBottom: '1px solid #1e293b', fontSize: '13px', color: '#64748b', marginTop: '12px' }}>
                 権限設定
@@ -804,6 +819,7 @@ export default function MemberList() {
                   このメンバーを削除
                 </button>
               </div>
+              </>)}
             </div>
           </div>
         </div>

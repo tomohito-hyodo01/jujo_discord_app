@@ -2,10 +2,12 @@ import { useState } from 'react'
 
 interface PlayerRegistrationFormInlineProps {
   discordId: string
+  // 登録者（ログイン中のDiscord ID）。登録した本人だけが後から情報を直せるようにするため保存する
+  createdBy?: string
   onDataChange: (data: any) => void
 }
 
-export default function PlayerRegistrationFormInline({ discordId, onDataChange }: PlayerRegistrationFormInlineProps) {
+export default function PlayerRegistrationFormInline({ discordId, createdBy, onDataChange }: PlayerRegistrationFormInlineProps) {
   const [formData, setFormData] = useState({
     lastName: '',
     firstName: '',
@@ -41,6 +43,7 @@ export default function PlayerRegistrationFormInline({ discordId, onDataChange }
       post_number: newData.postalCode,
       address: newData.address,
       phone_number: newData.phoneNumber,
+      created_by: createdBy || null,
     }
     
     // 必須項目が全て入力されている場合のみ親に渡す
