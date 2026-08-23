@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { UserPermissionInfo } from '../utils/permissions'
+import { getJstaNumberIssue, normalizeJstaNumber } from '../utils/jsta'
 
 interface PlayerRegistrationFormProps {
   auth: any
@@ -58,6 +59,14 @@ export default function PlayerRegistrationForm({ auth, permissionInfo, isRequire
     setMessage('')
 
     try {
+      // 連盟番号の形式チェック
+      const jstaIssue = getJstaNumberIssue(formData.jstaNumber)
+      if (jstaIssue) {
+        setMessage(`エラー: ${jstaIssue}`)
+        setLoading(false)
+        return
+      }
+
       // 住所バリデーション
       if (formData.address && !/[\d０-９]/.test(formData.address)) {
         setMessage('エラー: 住所に番地が含まれていません。正確な住所を入力してください。')
@@ -120,7 +129,7 @@ export default function PlayerRegistrationForm({ auth, permissionInfo, isRequire
         first_name: formData.firstName,
         last_name_kana: formData.lastNameKana || null,
         first_name_kana: formData.firstNameKana || null,
-        jsta_number: formData.jstaNumber ? `JSTA${formData.jstaNumber.replace(/^JSTA/i, '')}` : null,
+        jsta_number: normalizeJstaNumber(formData.jstaNumber),
         birth_date: formData.birthDate,
         sex: parseInt(formData.sex),
         post_number: formData.postalCode,

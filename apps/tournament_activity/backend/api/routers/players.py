@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional
 from api.database import db
+from api.jsta_utils import normalize_jsta_number
 import aiomysql
 import json
 import csv
@@ -35,6 +36,14 @@ class PlayerCreate(BaseModel):
     affiliated_club: Optional[str] = None  # 所属クラブ
     member_level: Optional[int] = None  # Discordロールから取得した会員レベル
     created_by: Optional[str] = None  # 登録者のDiscord ID
+
+
+def _validated_jsta_number(value):
+    """連盟番号を検証して正規化する。形式が不正なら400"""
+    try:
+        return normalize_jsta_number(value)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 ADMIN_ROLE_ADMIN = 0  # admin_role: 0=管理者
@@ -367,6 +376,9 @@ async def create_player(player: PlayerCreate):
                 # 既に登録済み → 既存データを返す（再試行対策）
                 return existing['data'][0]
 
+        # 日連登録番号の形式チェック（'-' 等が保存されないようにする）
+        player.jsta_number = _validated_jsta_number(player.jsta_number)
+
         # 日連登録番号の重複チェック
         if player.jsta_number:
             jsta_dup = await db.execute_query(
@@ -462,6 +474,10 @@ async def update_player_by_discord_id(discord_id: str, player: PlayerUpdate):
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
 
+        # 連盟番号は形式を検証して正規化する（'-' 等は未登録として扱う）
+        if 'jsta_number' in update_data:
+            update_data['jsta_number'] = _validated_jsta_number(update_data['jsta_number'])
+
         result = await db.execute_query(
             'player_mst',
             operation='update',
@@ -492,6 +508,10 @@ async def update_player_by_id(player_id: int, player: PlayerUpdate, actor_discor
         update_data = player.model_dump(exclude_none=True)
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
+
+        # 連盟番号は形式を検証して正規化する（'-' 等は未登録として扱う）
+        if 'jsta_number' in update_data:
+            update_data['jsta_number'] = _validated_jsta_number(update_data['jsta_number'])
 
         result = await db.execute_query(
             'player_mst',

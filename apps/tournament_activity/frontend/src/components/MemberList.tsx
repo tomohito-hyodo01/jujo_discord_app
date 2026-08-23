@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { getJstaNumberIssue, normalizeJstaNumber } from '../utils/jsta'
 
 interface MemberListProps {
   // ログイン中のDiscord ID。自分が登録した選手だけを表示・編集するために使う
@@ -157,6 +158,12 @@ export default function MemberList({ discordId, isAdmin }: MemberListProps) {
 
   const savePlayerField = async (field: string, value: any) => {
     if (!selectedPlayer) return
+    // 連盟番号は形式を検証してから保存する（'-' 等が入ると申込チェックをすり抜けるため）
+    if (field === 'jsta_number') {
+      const issue = getJstaNumberIssue(value)
+      if (issue) { setFieldMessage(issue); return }
+      value = normalizeJstaNumber(value)
+    }
     setSavingField(true); setFieldMessage('')
     try {
       const res = await fetch(`${apiUrl}/api/players/${selectedPlayer.player_id}/update?actor_discord_id=${encodeURIComponent(discordId)}`, {

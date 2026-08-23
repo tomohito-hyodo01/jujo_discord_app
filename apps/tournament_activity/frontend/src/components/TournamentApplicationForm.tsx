@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import PlayerRegistrationFormInline from './PlayerRegistrationFormInline'
 import CompletePage from './CompletePage'
 import { filterPairCandidates } from '../utils/playerFilter'
+import { isJstaNumberValid } from '../utils/jsta'
 
 interface TournamentApplicationFormProps {
   auth: any
@@ -247,7 +248,8 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
           }
         }
         for (const participant of participants) {
-          if (!participant?.jsta_number) jstaMissing.push(participant?.player_name || '（氏名不明）')
+          // '-' のような不正な値は未登録として扱う（形式チェック前のデータ対策）
+          if (!isJstaNumberValid(participant?.jsta_number)) jstaMissing.push(participant?.player_name || '（氏名不明）')
         }
       }
 
