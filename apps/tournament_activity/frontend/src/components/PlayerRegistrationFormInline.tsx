@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { getJstaNumberIssue, normalizeJstaNumber } from '../utils/jsta'
 
 interface PlayerRegistrationFormInlineProps {
   discordId: string
@@ -37,7 +38,7 @@ export default function PlayerRegistrationFormInline({ discordId, createdBy, onD
       first_name: newData.firstName,
       last_name_kana: newData.lastNameKana || null,
       first_name_kana: newData.firstNameKana || null,
-      jsta_number: newData.jstaNumber ? `JSTA${newData.jstaNumber.replace(/^JSTA/i, '')}` : null,
+      jsta_number: normalizeJstaNumber(newData.jstaNumber),
       birth_date: newData.birthDate,
       sex: parseInt(newData.sex),
       post_number: newData.postalCode,
@@ -47,8 +48,9 @@ export default function PlayerRegistrationFormInline({ discordId, createdBy, onD
     }
     
     // 必須項目が全て入力されている場合のみ親に渡す
-    if (newData.lastName && newData.firstName && newData.birthDate && 
-        newData.postalCode && newData.address && newData.phoneNumber) {
+    if (newData.lastName && newData.firstName && newData.birthDate &&
+        newData.postalCode && newData.address && newData.phoneNumber &&
+        !getJstaNumberIssue(newData.jstaNumber)) {
       onDataChange(playerData)
     } else {
       onDataChange(null)

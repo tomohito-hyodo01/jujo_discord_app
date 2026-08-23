@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { UserPermissionInfo } from '../utils/permissions'
 import { getProfileIssues } from '../utils/playerValidation'
+import { getJstaNumberIssue, normalizeJstaNumber } from '../utils/jsta'
 
 interface ProfileCompletionFormProps {
   discordId: string
@@ -80,10 +81,18 @@ export default function ProfileCompletionForm({ discordId, permissionInfo, onCom
         return
       }
 
+      // 連盟番号の形式チェック
+      const jstaIssue = getJstaNumberIssue(formData.jstaNumber)
+      if (jstaIssue) {
+        setMessage(`エラー: ${jstaIssue}`)
+        setSaving(false)
+        return
+      }
+
       const updateData: Record<string, any> = {}
       // 不備のある項目（未入力 or 不正な値）は上書き保存する
       if (issueFields.includes('birth_date') && formData.birthDate) updateData.birth_date = formData.birthDate
-      if (!player.jsta_number && formData.jstaNumber) updateData.jsta_number = formData.jstaNumber
+      if (!player.jsta_number && formData.jstaNumber) updateData.jsta_number = normalizeJstaNumber(formData.jstaNumber)
       if (issueFields.includes('post_number') && formData.postalCode) updateData.post_number = formData.postalCode
       if (issueFields.includes('address') && formData.address) updateData.address = formData.address
       if (issueFields.includes('phone_number') && formData.phoneNumber) updateData.phone_number = formData.phoneNumber

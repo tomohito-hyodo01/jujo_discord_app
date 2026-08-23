@@ -12,6 +12,7 @@ from typing import Optional, List
 from datetime import date
 from api.database import db
 from api.deadline_utils import is_deadline_passed
+from api.jsta_utils import is_valid_jsta_number
 from api.ward_webhooks import get_ward_webhook_url
 import httpx
 import os
@@ -49,7 +50,7 @@ async def _participants_without_jsta(registration, applicant_result) -> List[str
         if rows:
             applicant = rows[0]
             seen.add(applicant.get('player_id'))
-            if not applicant.get('jsta_number'):
+            if not is_valid_jsta_number(applicant.get('jsta_number')):
                 missing.append(applicant.get('player_name') or '申込者')
 
     member_ids = []
@@ -69,7 +70,7 @@ async def _participants_without_jsta(registration, applicant_result) -> List[str
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
         rows = result.get('data') or []
-        if rows and not rows[0].get('jsta_number'):
+        if rows and not is_valid_jsta_number(rows[0].get('jsta_number')):
             missing.append(rows[0].get('player_name') or f'選手ID {player_id}')
 
     return missing
