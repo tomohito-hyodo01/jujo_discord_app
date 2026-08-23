@@ -19,6 +19,10 @@ import os
 router = APIRouter()
 
 
+# 東京都・広域の大会。出場者全員に日本連盟登録番号が必要
+WIDE_AREA_WARD_ID = 99
+
+
 class RegistrationCreate(BaseModel):
     discord_id: str
     tournament_id: str
@@ -27,6 +31,48 @@ class RegistrationCreate(BaseModel):
     pair1: Optional[int] = None
     pair2: Optional[List[int]] = None
     team_status: int = 0  # 0=チーム確定, 1=参加希望
+    is_proxy: bool = False  # 代理申込（申込者本人は出場しない。団体戦のみ）
+
+
+async def _participants_without_jsta(registration, applicant_result) -> List[str]:
+    """出場者のうち日本連盟登録番号が未登録の選手名を返す
+
+    出場者 = 申込者本人（代理申込を除く）＋ pair1 ＋ pair2。
+    照会に失敗した場合は素通りさせず例外にする（fail-closed）。
+    """
+    missing: List[str] = []
+    seen = set()
+
+    # 申込者本人（代理申込では出場しないため対象外）
+    if not registration.is_proxy:
+        rows = applicant_result.get('data') or []
+        if rows:
+            applicant = rows[0]
+            seen.add(applicant.get('player_id'))
+            if not applicant.get('jsta_number'):
+                missing.append(applicant.get('player_name') or '申込者')
+
+    member_ids = []
+    if registration.pair1:
+        member_ids.append(registration.pair1)
+    member_ids.extend(registration.pair2 or [])
+
+    for player_id in member_ids:
+        if not player_id or player_id in seen:
+            continue
+        seen.add(player_id)
+        result = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'player_id': player_id}
+        )
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+        rows = result.get('data') or []
+        if rows and not rows[0].get('jsta_number'):
+            missing.append(rows[0].get('player_name') or f'選手ID {player_id}')
+
+    return missing
 
 
 @router.post("/registrations")
@@ -58,7 +104,22 @@ async def create_registration(registration: RegistrationCreate):
                 detail="過去に大会棄権された選手の大会参加は制限されています。"
             )
 
-        data = registration.model_dump()
+        # 東京都・広域の大会は、出場者全員に日本連盟登録番号が必要
+        tournament_row = (tour_check.get('data') or [None])[0]
+        if tournament_row and tournament_row.get('registrated_ward') == WIDE_AREA_WARD_ID:
+            missing = await _participants_without_jsta(registration, applicant_check)
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "日本連盟登録番号（JSTA番号）が未登録のため申込できません："
+                        + "、".join(missing)
+                        + "。登録後、あらためてお申し込みください。"
+                    )
+                )
+
+        # is_proxy は申込の判定にのみ使う値で tournament_registration には列が無いため除外する
+        data = registration.model_dump(exclude={'is_proxy'})
         result = await db.execute_query(
             'tournament_registration',
             operation='insert',
