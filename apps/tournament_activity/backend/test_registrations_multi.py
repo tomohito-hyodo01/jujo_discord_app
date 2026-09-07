@@ -67,9 +67,10 @@ print("\n▼ POST /registrations の複数申込チェック")
 class _FakeDb:
     """execute_query の呼び出しを記録し、必要な行だけ返す"""
 
-    def __init__(self, applicant_row, existing_registrations=()):
+    def __init__(self, applicant_row, existing_registrations=(), insert_error=None):
         self.applicant_row = applicant_row
         self.existing = list(existing_registrations)
+        self.insert_error = insert_error
         self.ops = []
 
     async def execute_query(self, table, operation='select', filters=None, data=None, columns='*', json_fields=None):
@@ -83,6 +84,8 @@ class _FakeDb:
                 and filters.get('discord_id') == '111' and filters.get('tournament_id') == 'T1':
             return {'data': list(self.existing), 'error': None}
         if operation == 'insert':
+            if self.insert_error:
+                return {'data': None, 'error': self.insert_error}
             return {'data': [{'id': 1, **(data or {})}], 'error': None}
         return {'data': [], 'error': None}
 
@@ -93,8 +96,8 @@ class _FakeDb:
         return [op for op in self.ops if op[0] == 'tournament_registration' and op[1] == 'select']
 
 
-def _call(applicant_row, is_proxy=False, existing=()):
-    fake = _FakeDb(applicant_row, existing)
+def _call(applicant_row, is_proxy=False, existing=(), insert_error=None):
+    fake = _FakeDb(applicant_row, existing, insert_error)
     orig = R.db
     R.db = fake
     try:
@@ -145,6 +148,16 @@ _status, _fake = _call(None)
 check("選手未登録の discord_id でも初回は通る（既存の挙動）", _status, 200)
 _status, _fake = _call(None, existing=_already)
 check("選手未登録の discord_id の2回目は400", _status, 400)
+
+print("\n▼ DBの一意制約違反（まったく同じ内容の二重登録）")
+_dup = "(1062, \"Duplicate entry '111-T1-一般-10' for key 'unique_registration'\")"
+_status, _fake = _call(_admin, is_proxy=True, insert_error=_dup)
+check("1062 は 400 で分かりやすいメッセージ", (_status, '既に登録されています' in getattr(_fake, 'detail', '')), (400, True))
+_status, _fake = _call(_admin, insert_error="(2013, 'Lost connection to MySQL server')")
+check("それ以外のDBエラーは 500 のまま", _status, 500)
+check("判定: 1062", R._is_duplicate_error(_dup), True)
+check("判定: メッセージのみ", R._is_duplicate_error("Duplicate entry 'x' for key 'unique_registration'"), True)
+check("判定: 別のエラー", R._is_duplicate_error("(2013, 'Lost connection')"), False)
 
 print()
 if _failures:

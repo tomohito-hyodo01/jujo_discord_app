@@ -35,6 +35,12 @@ class RegistrationCreate(BaseModel):
     is_proxy: bool = False  # 代理申込（申込者本人は出場しない。団体戦のみ）
 
 
+def _is_duplicate_error(error) -> bool:
+    """一意制約（unique_registration）違反か。MySQL 1062 = ER_DUP_ENTRY"""
+    message = str(error)
+    return '1062' in message or 'Duplicate entry' in message
+
+
 def _is_admin_row(player_row) -> bool:
     """管理者(admin_role=0)か。同じ大会への複数申込（代理申込で複数チームを作る等）は管理者のみ許可する"""
     return bool(player_row) and player_row.get('admin_role') == 0
@@ -152,6 +158,11 @@ async def create_registration(registration: RegistrationCreate):
         )
 
         if result.get('error'):
+            if _is_duplicate_error(result['error']):
+                raise HTTPException(
+                    status_code=400,
+                    detail="同じ内容の申込（同じ大会・種別・先頭メンバー）が既に登録されています。"
+                )
             raise HTTPException(status_code=500, detail=result['error'])
 
         # パターンA（チーム確定）の場合、メンバーのパターンB（参加希望）レコードを削除
