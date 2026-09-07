@@ -3,11 +3,12 @@
 # 連盟サイト（https://softtennis-tokyo.com/category/01_infomation/）に新しいお知らせが
 # 投稿されていたら Discord へ通知する。新着の判定と二重送信の防止は API 側（DB）で行う。
 #
-# 投稿は月・火・木・金の日中に集中しているため（過去10年の実績）、その曜日の 8〜22 時台に毎時実行する。
-# 水・土・日の投稿は次の実行日にまとめて通知される（取りこぼしはしない）。
+# 投稿は平日の日中に集中しているため（過去10年の実績）、平日の 8〜22 時台に毎時実行する。
+# 土・日の投稿は次の平日にまとめて通知される（取りこぼしはしない）。
+# 水曜も過去10年で11件（直近1年で3件）あるため実行対象に含める。
 #
 # cron 登録（サーバのタイムゾーンが JST の場合）:
-#   0 8-22 * * 1,2,4,5 /bin/bash $HOME/api.jujo-softtennis.com/backend/scripts/notify_site_notices.sh
+#   0 8-22 * * 1-5 /bin/bash $HOME/api.jujo-softtennis.com/backend/scripts/notify_site_notices.sh
 #
 # 事前準備:
 #   - create_site_notice_posts_table.sql を DB に適用する
