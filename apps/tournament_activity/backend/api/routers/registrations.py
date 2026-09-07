@@ -35,6 +35,11 @@ class RegistrationCreate(BaseModel):
     is_proxy: bool = False  # 代理申込（申込者本人は出場しない。団体戦のみ）
 
 
+def _can_proxy_register(applicant_row) -> bool:
+    """代理申込（申込者本人を出場メンバーに含めないチーム作成）ができるか。管理者(admin_role=0)のみ"""
+    return bool(applicant_row) and applicant_row.get('admin_role') == 0
+
+
 async def _participants_without_jsta(registration, applicant_result) -> List[str]:
     """出場者のうち日本連盟登録番号が未登録の選手名を返す
 
@@ -104,6 +109,16 @@ async def create_registration(registration: RegistrationCreate):
                 status_code=403,
                 detail="過去に大会棄権された選手の大会参加は制限されています。"
             )
+
+        # 代理申込（自分をメンバーに含めないチーム作成）は管理者のみ。
+        # 画面側でも管理者以外には出していないが、API直接呼び出しで抜けられないようここでも止める
+        if registration.is_proxy:
+            applicant_row = (applicant_check.get('data') or [None])[0]
+            if not _can_proxy_register(applicant_row):
+                raise HTTPException(
+                    status_code=403,
+                    detail="代理申込（自分をメンバーに含めない申込）は管理者のみ可能です。"
+                )
 
         # 東京都・広域の大会は、出場者全員に日本連盟登録番号が必要
         tournament_row = (tour_check.get('data') or [None])[0]
@@ -191,8 +206,8 @@ async def create_registration(registration: RegistrationCreate):
                     # 団体戦（個人参加希望）
                     content = f"🙋 **大会申込（参加希望）**\n**{tournament_name}**\n{registration.type} {sex_label}【団体】\n申込者: {applicant_name}"
                 elif classification == 1:
-                    # 団体戦（チーム確定）
-                    member_names = []
+                    # 団体戦（チーム確定）。申込者本人も出場する（代理申込を除く）
+                    member_names = [] if registration.is_proxy else [applicant_name]
                     all_ids = ([registration.pair1] if registration.pair1 else []) + (registration.pair2 or [])
                     for pid in all_ids:
                         if pid:
