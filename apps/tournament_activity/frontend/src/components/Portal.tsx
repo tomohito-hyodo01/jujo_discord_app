@@ -171,7 +171,6 @@ export default function Portal({ discordId, username, permissionInfo, needsPlaye
             initialTournamentId={selectedTournamentId}
             onCompletedChange={(completed) => setIsCompleted(completed)}
             onNavigate={navigate}
-            canProxyRegister={permissionInfo.adminRole === 0}
           />
         )
       case 'referee-training':

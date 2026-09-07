@@ -66,8 +66,10 @@ CREATE TABLE IF NOT EXISTS tournament_registration (
     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-    -- 同じユーザーが同じ大会に同じ種別で複数回申し込めないようにする
-    UNIQUE KEY unique_registration (discord_id, tournament_id, type),
+    -- まったく同じ内容（申込者・大会・種別・先頭メンバー）の二重登録を防ぐ。
+    -- 先頭メンバーが違えば同じ大会・種別に複数登録できる（管理者の代理申込で複数チームを作るため。
+    -- 一般会員の複数申込は API 側で止める）。
+    UNIQUE KEY unique_registration (discord_id, tournament_id, type, pair1),
 
     -- 外部キー制約
     FOREIGN KEY (tournament_id) REFERENCES tournament_mst(tournament_id),

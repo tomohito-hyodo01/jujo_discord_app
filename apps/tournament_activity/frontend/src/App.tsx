@@ -3,6 +3,8 @@ import DiscordLogin from './components/DiscordLogin'
 import AuthCallback from './components/AuthCallback'
 import Portal from './components/Portal'
 import GameHub from './components/GameHub'
+import GuestPlayerRegistration from './components/GuestPlayerRegistration'
+import { isGuestRegisterPath } from './utils/guestRegister'
 import type { UserPermissionInfo } from './utils/permissions'
 import { getProfileIssues } from './utils/playerValidation'
 
@@ -44,6 +46,11 @@ function App() {
   const previewMode = import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.pathname.includes('/preview/')
   if (previewMode && urlParams.get('gametest') === '1') {
     return <GameHub username="プレビュー" discordId={DEV_DISCORD_ID} onExitToPortal={() => { window.location.href = window.location.pathname }} />
+  }
+  // ログイン不要の本人登録ページ（ペアの方に自分で選手情報を登録してもらう）。
+  // Discordログインを要求しないよう、認証処理より先に判定する。
+  if (isGuestRegisterPath(window.location.pathname)) {
+    return <GuestPlayerRegistration />
   }
   const authCode = urlParams.get('code')
   const sessionId = urlParams.get('session')
