@@ -153,18 +153,9 @@ export default function GuestPlayerRegistration() {
   return (
     <div style={pageStyle}>
       <div style={cardStyle}>
-        <h1 style={{ fontSize: '22px', fontWeight: '600', color: '#f1f5f9', margin: '0 0 12px' }}>
+        <h1 style={{ fontSize: '22px', fontWeight: '600', color: '#f1f5f9', margin: '0 0 24px' }}>
           選手情報の登録
         </h1>
-        <div style={{
-          padding: '14px 16px', backgroundColor: '#1e3a8a', borderRadius: '8px',
-          marginBottom: '24px', border: '1px solid #3b82f6', color: '#e0e7ff', fontSize: '14px', lineHeight: '1.7',
-        }}>
-          大会申込でペア選手として選んでもらうための情報を登録します。Discordアカウントは不要です。<br />
-          登録後、申込者の方にあなたの名前をペア選手として選んでもらってください。<br />
-          <span style={{ color: '#bfdbfe' }}>すべての項目が必須です。</span>
-        </div>
-
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '100%', overflow: 'hidden' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             <div>
