@@ -3,6 +3,8 @@ import TournamentCalendar from './TournamentCalendar'
 import { filterPairCandidates } from '../utils/playerFilter'
 import { deadlineTimeSuffix, isTournamentDeadlinePassed } from '../utils/deadline'
 import CommentSection from './CommentSection'
+import PlayerSelect from './PlayerSelect'
+import PlayerMultiSelect from './PlayerMultiSelect'
 
 interface EventListProps {
   discordId: string
@@ -31,7 +33,9 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const [mySex, setMySex] = useState<number | null>(null)
   const [myMemberLevel, setMyMemberLevel] = useState<number | null>(null)
   const [myEntryRestricted, setMyEntryRestricted] = useState(false)
-  const [adminAddPlayerId, setAdminAddPlayerId] = useState<string>('')
+  // 練習詳細とイベント詳細で選択が混ざらないよう別々に持つ
+  const [practiceAddPlayerId, setPracticeAddPlayerId] = useState<string>('')
+  const [eventAddPlayerId, setEventAddPlayerId] = useState<string>('')
   const [courtReservations, setCourtReservations] = useState<any[]>([])
   const [newReservation, setNewReservation] = useState({ start_time: '', end_time: '', reserver_name: '' })
   const [editingReservationId, setEditingReservationId] = useState<number | null>(null)
@@ -42,6 +46,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const [tournamentReg, setTournamentReg] = useState<any>(null)
   const [players, setPlayers] = useState<any[]>([])
   const [editingPair, setEditingPair] = useState(false)
+  const [regPairDraft, setRegPairDraft] = useState('')
   const [updatingPair, setUpdatingPair] = useState(false)
   const [courtInput, setCourtInput] = useState('')
   const [savingCourt, setSavingCourt] = useState(false)
@@ -369,6 +374,15 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     } catch { setTournamentRegs([]) }
     finally { setTournamentRegsLoading(false) }
   }
+  // ペア候補（性別・年齢・区の条件で絞る）
+  const getTournamentPairCandidates = (reg: any, tournament: any) => {
+    const me = players.find(pl => pl.discord_id === discordId)
+    return filterPairCandidates(
+      players, discordId, me?.sex ?? null,
+      reg.type, tournament?.tournament_date, tournament?.registrated_ward,
+    )
+  }
+
   const handleRegPairChange = async (registrationId: number, newPairId: number) => {
     setUpdatingPair(true)
     try {
@@ -491,7 +505,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
       if (res.ok) {
         const pRes = await fetch(`${apiUrlRef}/api/practice/${practiceId}/participants`)
         if (pRes.ok) setPracticeParticipants(await pRes.json())
-        setAdminAddPlayerId('')
+        setPracticeAddPlayerId('')
         const practRes = await fetch(`${apiUrlRef}/api/practice`)
         if (practRes.ok) setPractices(await practRes.json())
       } else {
@@ -1051,29 +1065,24 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   {selectedTournament?.classification !== 1 && tournamentReg.is_applicant !== false && (
                     editingPair ? (
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                        <select
-                          defaultValue={tournamentReg.pair1}
-                          onChange={e => handleRegPairChange(tournamentReg.registration_id, parseInt(e.target.value))}
+                        <PlayerSelect
+                          containerStyle={{ flex: 1, minWidth: 0 }}
+                          players={getTournamentPairCandidates(tournamentReg, selectedTournament)}
+                          allPlayers={players}
+                          value={regPairDraft}
+                          onChange={v => { setRegPairDraft(v); if (v && v !== String(tournamentReg.pair1)) handleRegPairChange(tournamentReg.registration_id, parseInt(v)) }}
                           disabled={updatingPair}
-                          style={{ flex: 1, padding: '8px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #334155', fontSize: '13px' }}
-                        >
-                          {(() => {
-                            const me = players.find(pl => pl.discord_id === discordId)
-                            return filterPairCandidates(
-                              players, discordId, me?.sex ?? null,
-                              tournamentReg.type, selectedTournament?.tournament_date, selectedTournament?.registrated_ward
-                            ).map(p => (
-                              <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                            ))
-                          })()}
-                        </select>
+                          allowClear={false}
+                          ariaLabel="ペア選手"
+                          style={{ padding: '8px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #334155', fontSize: '13px' }}
+                        />
                         <button onClick={() => setEditingPair(false)} style={{
                           padding: '8px 12px', borderRadius: '6px', backgroundColor: 'transparent',
                           color: '#94a3b8', border: '1px solid #334155', fontSize: '13px', cursor: 'pointer',
                         }}>戻る</button>
                       </div>
                     ) : (
-                      <button onClick={() => setEditingPair(true)} style={{
+                      <button onClick={() => { setRegPairDraft(String(tournamentReg.pair1 ?? '')); setEditingPair(true) }} style={{
                         width: '100%', padding: '10px', borderRadius: '6px', marginBottom: '8px',
                         backgroundColor: '#1e3a8a', color: '#93c5fd', border: '1px solid #2563eb',
                         fontSize: '14px', cursor: 'pointer',
@@ -1377,22 +1386,22 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 {/* 管理者用: 参加者追加 */}
                 {myAdminRole === 0 && (
                   <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <select value={adminAddPlayerId} onChange={e => setAdminAddPlayerId(e.target.value)} style={{
-                      flex: 1, padding: '8px 10px', borderRadius: '6px', backgroundColor: '#0c1220',
-                      color: '#e2e8f0', border: '1px solid #334155', fontSize: '13px',
-                    }}>
-                      <option value="">選手を追加...</option>
-                      {players
-                        .filter((p: any) => !practiceParticipants.some((pt: any) => pt.player_id === p.player_id))
-                        .sort((a: any, b: any) => (a.player_name_kana || '').localeCompare(b.player_name_kana || ''))
-                        .map((p: any) => <option key={p.player_id} value={p.player_id}>{p.player_name}</option>)
-                      }
-                    </select>
-                    <button onClick={() => { if (adminAddPlayerId) handleAdminAddParticipant(selectedPractice.id, parseInt(adminAddPlayerId)) }}
-                      disabled={!adminAddPlayerId} style={{
+                    <PlayerSelect
+                      containerStyle={{ flex: 1, minWidth: 0 }}
+                      players={players.filter((p: any) => !practiceParticipants.some((pt: any) => pt.player_id === p.player_id))}
+                      allPlayers={players}
+                      value={practiceAddPlayerId}
+                      onChange={setPracticeAddPlayerId}
+                      placeholder="選手名で検索して追加"
+                      emptyMessage="追加できる選手がいません"
+                      ariaLabel="参加者に追加する選手"
+                      style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #334155', fontSize: '13px' }}
+                    />
+                    <button onClick={() => { if (practiceAddPlayerId) handleAdminAddParticipant(selectedPractice.id, parseInt(practiceAddPlayerId)) }}
+                      disabled={!practiceAddPlayerId} style={{
                         padding: '8px 14px', borderRadius: '6px', backgroundColor: '#1e3a8a',
                         color: '#93c5fd', border: '1px solid #2563eb', fontSize: '13px',
-                        cursor: adminAddPlayerId ? 'pointer' : 'not-allowed', opacity: adminAddPlayerId ? 1 : 0.5,
+                        cursor: practiceAddPlayerId ? 'pointer' : 'not-allowed', opacity: practiceAddPlayerId ? 1 : 0.5,
                       }}>追加</button>
                   </div>
                 )}
@@ -1579,29 +1588,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
               {newEvent.visibility === 'invited' && (
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>招待メンバー({newEventInvitedIds.length}名)</label>
-                  <div style={{
-                    maxHeight: '200px', overflowY: 'auto', padding: '8px',
-                    backgroundColor: '#0c1220', borderRadius: '6px', border: '1px solid #1e293b',
-                    display: 'flex', flexDirection: 'column', gap: '4px',
-                  }}>
-                    {players.map(p => {
-                      const checked = newEventInvitedIds.includes(p.player_id)
-                      return (
-                        <label key={p.player_id} style={{
-                          display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 6px',
-                          borderRadius: '4px', cursor: 'pointer', fontSize: '13px', color: '#e2e8f0',
-                          backgroundColor: checked ? '#1e3a8a' : 'transparent',
-                        }}>
-                          <input type="checkbox" checked={checked}
-                            onChange={() => setNewEventInvitedIds(prev =>
-                              checked ? prev.filter(id => id !== p.player_id) : [...prev, p.player_id]
-                            )}
-                            style={{ cursor: 'pointer' }} />
-                          {p.player_name}
-                        </label>
-                      )
-                    })}
-                  </div>
+                  <PlayerMultiSelect players={players} selectedIds={newEventInvitedIds} onChange={setNewEventInvitedIds} maxHeight="200px" />
                 </div>
               )}
               <button onClick={handleCreateEvent} disabled={creatingEvent} style={{
@@ -1669,15 +1656,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   {editEventForm.visibility === 'invited' && (
                     <div>
                       <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>招待メンバー({editEventInvitedIds.length}名)</label>
-                      <div style={{ maxHeight: '150px', overflowY: 'auto', padding: '6px', backgroundColor: '#0c1220', borderRadius: '6px', border: '1px solid #1e293b', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                        {players.map(p => (
-                          <label key={p.player_id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 4px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', color: '#e2e8f0', backgroundColor: editEventInvitedIds.includes(p.player_id) ? '#1e3a8a' : 'transparent' }}>
-                            <input type="checkbox" checked={editEventInvitedIds.includes(p.player_id)}
-                              onChange={() => setEditEventInvitedIds(prev => prev.includes(p.player_id) ? prev.filter(id => id !== p.player_id) : [...prev, p.player_id])} style={{ cursor: 'pointer' }} />
-                            {p.player_name}
-                          </label>
-                        ))}
-                      </div>
+                      <PlayerMultiSelect players={players} selectedIds={editEventInvitedIds} onChange={setEditEventInvitedIds} maxHeight="150px" />
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -1742,33 +1721,36 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                     {/* 管理者用: 参加者追加 */}
                     {myAdminRole <= 1 && (
                       <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
-                        <select value={adminAddPlayerId} onChange={e => setAdminAddPlayerId(e.target.value)} style={{
-                          flex: 1, padding: '8px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '13px', boxSizing: 'border-box' as const,
-                        }}>
-                          <option value="">メンバーを追加...</option>
-                          {players.filter(p => !eventParticipants.some(pt => pt.player_id === p.player_id)).map(p => (
-                            <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                          ))}
-                        </select>
+                        <PlayerSelect
+                          containerStyle={{ flex: 1, minWidth: 0 }}
+                          players={players.filter(p => !eventParticipants.some(pt => pt.player_id === p.player_id))}
+                          allPlayers={players}
+                          value={eventAddPlayerId}
+                          onChange={setEventAddPlayerId}
+                          placeholder="メンバー名で検索して追加"
+                          emptyMessage="追加できるメンバーがいません"
+                          ariaLabel="追加するメンバー"
+                          style={{ padding: '8px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '13px' }}
+                        />
                         <button onClick={async () => {
-                          if (!adminAddPlayerId) return
+                          if (!eventAddPlayerId) return
                           try {
                             const res = await fetch(`${apiUrlRef}/api/events/${selectedEvent.id}/join`, {
                               method: 'POST', headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ player_id: parseInt(adminAddPlayerId), actor_discord_id: discordId }),
+                              body: JSON.stringify({ player_id: parseInt(eventAddPlayerId), actor_discord_id: discordId }),
                             })
                             if (res.ok) {
                               const ptRes = await fetch(`${apiUrlRef}/api/events/${selectedEvent.id}/participants`)
                               if (ptRes.ok) setEventParticipants(await ptRes.json())
-                              setAdminAddPlayerId('')
+                              setEventAddPlayerId('')
                               const evRes = await fetch(`${apiUrlRef}/api/events`)
                               if (evRes.ok) setCustomEvents(await evRes.json())
                             }
                           } catch { alert('通信エラー') }
-                        }} disabled={!adminAddPlayerId} style={{
+                        }} disabled={!eventAddPlayerId} style={{
                           padding: '8px 14px', borderRadius: '6px', backgroundColor: '#1e3a8a', color: '#93c5fd',
                           border: '1px solid #2563eb', fontSize: '13px',
-                          cursor: adminAddPlayerId ? 'pointer' : 'not-allowed', opacity: adminAddPlayerId ? 1 : 0.5,
+                          cursor: eventAddPlayerId ? 'pointer' : 'not-allowed', opacity: eventAddPlayerId ? 1 : 0.5,
                         }}>追加</button>
                       </div>
                     )}

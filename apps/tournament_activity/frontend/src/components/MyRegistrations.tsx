@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from 'react'
+import PlayerSelect from './PlayerSelect'
 import { filterPairCandidates } from '../utils/playerFilter'
 import { isTournamentDeadlinePassed } from '../utils/deadline'
 
@@ -15,8 +16,16 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
   const [cancellingId, setCancellingId] = useState<number | null>(null)
   const [editingPairId, setEditingPairId] = useState<number | null>(null)
   const [updatingPairId, setUpdatingPairId] = useState<number | null>(null)
+  // ペア変更は制御コンポーネント（PlayerSelect）なのでドラフト値を持つ
+  const [pairDraft, setPairDraft] = useState('')
   const [editingTeamMembers, setEditingTeamMembers] = useState<string[]>([])
   const [savingTeamId, setSavingTeamId] = useState<number | null>(null)
+
+  // ペア変更の開始時に現在のペアをドラフトへ入れる
+  const startPairEdit = (reg: any) => {
+    setEditingPairId(reg.registration_id)
+    setPairDraft(String(reg.pair1 ?? ''))
+  }
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -125,6 +134,15 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
     return base.filter(p => !selectedIds.includes(String(p.player_id)))
   }
 
+  // 個人戦のペア候補（PC・スマホで共通）
+  const getPairCandidates = (reg: any, tournament: any) => {
+    const me = players.find(pl => pl.discord_id === discordId)
+    return filterPairCandidates(
+      players, discordId, me?.sex ?? null,
+      reg.type, tournament?.tournament_date, tournament?.registrated_ward,
+    )
+  }
+
   const handleTeamSave = async (registrationId: number) => {
     const filledMembers = editingTeamMembers.filter(id => id !== '')
     if (filledMembers.length < 3) {
@@ -178,24 +196,19 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
               <span style={{ fontSize: '12px', color: '#64748b', minWidth: '24px' }}>
                 {index + 1}.
               </span>
-              <select
+              <PlayerSelect
+                containerStyle={{ flex: 1, minWidth: 0 }}
+                players={getTeamEditCandidates(reg, index)}
+                allPlayers={players}
                 value={memberId}
-                onChange={(e) => {
-                  const newIds = [...editingTeamMembers]
-                  newIds[index] = e.target.value
-                  setEditingTeamMembers(newIds)
-                }}
+                onChange={v => setEditingTeamMembers(prev => prev.map((id, i) => (i === index ? v : id)))}
+                ariaLabel={`メンバー ${index + 1}`}
                 style={{
-                  flex: 1, padding: '8px 12px', borderRadius: '6px',
+                  padding: '8px 12px', borderRadius: '6px',
                   backgroundColor: '#0c1220', color: '#e2e8f0',
                   border: '1px solid #334155', fontSize: '13px',
                 }}
-              >
-                <option value="">選択してください</option>
-                {getTeamEditCandidates(reg, index).map(p => (
-                  <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                ))}
-              </select>
+              />
               {editingTeamMembers.length > minMembers && (
                 <button
                   onClick={() => setEditingTeamMembers(prev => prev.filter((_, i) => i !== index))}
@@ -343,27 +356,24 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
           <td style={{ ...cellStyle, whiteSpace: 'normal' as const, maxWidth: '200px' }}>
             {isEditingThis && !isTeam ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <select
-                  defaultValue={reg.pair1}
-                  onChange={(e) => handlePairChange(reg.registration_id, parseInt(e.target.value))}
+                <PlayerSelect
+                  containerStyle={{ flex: 1, minWidth: 0 }}
+                  players={getPairCandidates(reg, tournament)}
+                  allPlayers={players}
+                  value={pairDraft}
+                  onChange={v => {
+                    setPairDraft(v)
+                    if (v && v !== String(reg.pair1)) handlePairChange(reg.registration_id, parseInt(v))
+                  }}
                   disabled={updatingPairId === reg.registration_id}
+                  allowClear={false}
+                  ariaLabel="ペア選手"
                   style={{
                     padding: '4px 8px', borderRadius: '5px',
                     backgroundColor: '#0f172a', color: '#e2e8f0',
                     border: '1px solid #334155', fontSize: '12px',
-                    maxWidth: '120px',
                   }}
-                >
-                  {(() => {
-                    const me = players.find(pl => pl.discord_id === discordId)
-                    return filterPairCandidates(
-                      players, discordId, me?.sex ?? null,
-                      reg.type, tournament?.tournament_date, tournament?.registrated_ward
-                    ).map(p => (
-                      <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                    ))
-                  })()}
-                </select>
+                />
                 <button
                   onClick={() => setEditingPairId(null)}
                   style={{
@@ -386,7 +396,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
               <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                 {canEdit && !isEditingThis && !(isTeam && isJoinOnly) && (
                   <button
-                    onClick={() => isTeam ? startTeamEdit(reg) : setEditingPairId(reg.registration_id)}
+                    onClick={() => isTeam ? startTeamEdit(reg) : startPairEdit(reg)}
                     style={{
                       padding: '4px 10px', borderRadius: '5px',
                       backgroundColor: 'transparent', color: '#60a5fa',
@@ -465,7 +475,7 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
             <div style={{ display: 'flex', gap: '6px', marginLeft: '8px', flexShrink: 0 }}>
               {canEdit && !isEditingThis && !(isTeam && isJoinOnly) && (
                 <button
-                  onClick={() => isTeam ? startTeamEdit(reg) : setEditingPairId(reg.registration_id)}
+                  onClick={() => isTeam ? startTeamEdit(reg) : startPairEdit(reg)}
                   style={{
                     padding: '4px 10px', borderRadius: '5px',
                     backgroundColor: 'transparent', color: '#60a5fa',
@@ -491,26 +501,24 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
         </div>
         {isEditingThis && !isTeam && (
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <select
-              defaultValue={reg.pair1}
-              onChange={(e) => handlePairChange(reg.registration_id, parseInt(e.target.value))}
+            <PlayerSelect
+              containerStyle={{ flex: 1, minWidth: 0 }}
+              players={getPairCandidates(reg, tournament)}
+              allPlayers={players}
+              value={pairDraft}
+              onChange={v => {
+                setPairDraft(v)
+                if (v && v !== String(reg.pair1)) handlePairChange(reg.registration_id, parseInt(v))
+              }}
               disabled={updatingPairId === reg.registration_id}
+              allowClear={false}
+              ariaLabel="ペア選手"
               style={{
-                padding: '6px 10px', borderRadius: '6px', flex: 1,
+                padding: '6px 10px', borderRadius: '6px',
                 backgroundColor: '#0f172a', color: '#e2e8f0',
                 border: '1px solid #334155', fontSize: '13px',
               }}
-            >
-              {(() => {
-                const me = players.find(pl => pl.discord_id === discordId)
-                return filterPairCandidates(
-                  players, discordId, me?.sex ?? null,
-                  reg.type, tournament?.tournament_date, tournament?.registrated_ward
-                ).map(p => (
-                  <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                ))
-              })()}
-            </select>
+            />
             <button
               onClick={() => setEditingPairId(null)}
               style={{
