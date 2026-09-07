@@ -10,10 +10,9 @@ interface TournamentApplicationFormProps {
   initialTournamentId?: string
   onCompletedChange?: (isCompleted: boolean) => void
   onNavigate?: (page: string) => void
-  canProxyRegister?: boolean  // 代理申込（自分をメンバーに含めないチーム作成）を許可するか。管理者のみ true
 }
 
-export default function TournamentApplicationForm({ auth, wardId, initialTournamentId, onCompletedChange, onNavigate, canProxyRegister = false }: TournamentApplicationFormProps) {
+export default function TournamentApplicationForm({ auth, wardId, initialTournamentId, onCompletedChange, onNavigate }: TournamentApplicationFormProps) {
   const [allTournaments, setAllTournaments] = useState<any[]>([])
   const [tournaments, setTournaments] = useState<any[]>([])
   const [allWards, setAllWards] = useState<any[]>([])
@@ -158,11 +157,6 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
       setFormData({ ...formData, discordId: auth.user.id })
     }
   }, [auth.user.id])
-
-  // 代理申込は管理者のみ。権限が無い状態では常にオフにしておく（API側でも403で止める）
-  useEffect(() => {
-    if (!canProxyRegister && isProxyRegistration) setIsProxyRegistration(false)
-  }, [canProxyRegister])
 
   const validatePlayerInfo = (player: any): string[] => {
     const issues: string[] = []
@@ -594,14 +588,12 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
                 : `申込者（自分）を含む${isWideArea ? '4名以上' : `${minTeamMembers + 1}〜${maxTeamMembers + 1}名`}でチームを構成します（自分以外を選択）`
               }
             </div>
-            {canProxyRegister && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', fontSize: '13px', color: '#94a3b8', cursor: 'pointer' }}>
-                <input type="checkbox" checked={isProxyRegistration}
-                  onChange={e => { setIsProxyRegistration(e.target.checked); setTeamMemberIds(['', '', '']) }}
-                  style={{ cursor: 'pointer' }} />
-                代理申込（自分はメンバーに含まない）※管理者のみ
-              </label>
-            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', fontSize: '13px', color: '#94a3b8', cursor: 'pointer' }}>
+              <input type="checkbox" checked={isProxyRegistration}
+                onChange={e => { setIsProxyRegistration(e.target.checked); setTeamMemberIds(['', '', '']) }}
+                style={{ cursor: 'pointer' }} />
+              代理申込（自分はメンバーに含まない）
+            </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {teamMemberIds.map((memberId, index) => (
                 <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

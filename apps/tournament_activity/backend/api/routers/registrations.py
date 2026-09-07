@@ -35,9 +35,54 @@ class RegistrationCreate(BaseModel):
     is_proxy: bool = False  # 代理申込（申込者本人は出場しない。団体戦のみ）
 
 
-def _can_proxy_register(applicant_row) -> bool:
-    """代理申込（申込者本人を出場メンバーに含めないチーム作成）ができるか。管理者(admin_role=0)のみ"""
-    return bool(applicant_row) and applicant_row.get('admin_role') == 0
+def _is_duplicate_error(error) -> bool:
+    """一意制約（unique_registration）違反か。MySQL 1062 = ER_DUP_ENTRY"""
+    message = str(error)
+    return '1062' in message or 'Duplicate entry' in message
+
+
+async def _members_already_registered(registration, applicant_row) -> List[str]:
+    """今回の出場者のうち、同じ大会・種別の既存の申込に既に入っている選手名を返す
+
+    出場者 = 申込者本人（代理申込を除く）＋ pair1 ＋ pair2。
+    既存の申込側は pair1 ＋ pair2 を見る（申込者本人が出場したかは記録が無いため判定しない）。
+    照会に失敗した場合は素通りさせず例外にする（fail-closed）。
+    """
+    new_ids = {pid for pid in [registration.pair1] + (registration.pair2 or []) if pid}
+    if not registration.is_proxy and applicant_row and applicant_row.get('player_id'):
+        new_ids.add(applicant_row['player_id'])
+    if not new_ids:
+        return []
+
+    existing = await db.execute_query(
+        'tournament_registration',
+        operation='select',
+        filters={'tournament_id': registration.tournament_id, 'type': registration.type},
+        columns='pair1, pair2',
+        json_fields=['pair2']
+    )
+    if existing.get('error'):
+        raise HTTPException(status_code=500, detail=existing['error'])
+
+    taken = set()
+    for reg in existing.get('data') or []:
+        if reg.get('pair1'):
+            taken.add(reg['pair1'])
+        taken.update(pid for pid in (reg.get('pair2') or []) if pid)
+
+    names = []
+    for player_id in sorted(new_ids & taken):
+        result = await db.execute_query('player_mst', operation='select', filters={'player_id': player_id})
+        if result.get('error'):
+            raise HTTPException(status_code=500, detail=result['error'])
+        rows = result.get('data') or []
+        names.append(rows[0].get('player_name') if rows else f'選手ID {player_id}')
+    return names
+
+
+def _is_admin_row(player_row) -> bool:
+    """管理者(admin_role=0)か。同じ大会への複数申込（代理申込で複数チームを作る等）は管理者のみ許可する"""
+    return bool(player_row) and player_row.get('admin_role') == 0
 
 
 async def _participants_without_jsta(registration, applicant_result) -> List[str]:
@@ -110,14 +155,36 @@ async def create_registration(registration: RegistrationCreate):
                 detail="過去に大会棄権された選手の大会参加は制限されています。"
             )
 
-        # 代理申込（自分をメンバーに含めないチーム作成）は管理者のみ。
-        # 画面側でも管理者以外には出していないが、API直接呼び出しで抜けられないようここでも止める
-        if registration.is_proxy:
-            applicant_row = (applicant_check.get('data') or [None])[0]
-            if not _can_proxy_register(applicant_row):
+        # 同じ大会への複数申込（代理申込で複数チームを作る等）は管理者のみ。
+        # 一般会員は申込可能な大会一覧からも外れる（available_tournaments）が、
+        # 画面を経由しない呼び出しでも二重登録にならないようここでも止める
+        applicant_row = (applicant_check.get('data') or [None])[0]
+        if not _is_admin_row(applicant_row):
+            existing = await db.execute_query(
+                'tournament_registration',
+                operation='select',
+                filters={'discord_id': registration.discord_id, 'tournament_id': registration.tournament_id},
+                columns='registration_id'
+            )
+            if existing.get('error'):
+                raise HTTPException(status_code=500, detail=existing['error'])
+            if existing.get('data'):
                 raise HTTPException(
-                    status_code=403,
-                    detail="代理申込（自分をメンバーに含めない申込）は管理者のみ可能です。"
+                    status_code=400,
+                    detail="この大会には既に申込済みです。同じ大会への複数の申込は管理者のみ可能です。"
+                )
+
+        # 同じ大会・種別の別の申込に既に入っている選手は、重ねて出場登録できない
+        # （参加希望は出場者が未定なので対象外）
+        if registration.team_status == 0:
+            already = await _members_already_registered(registration, applicant_row)
+            if already:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "次の選手はこの大会・種別で既に別の申込に登録されています："
+                        + "、".join(already)
+                    )
                 )
 
         # 東京都・広域の大会は、出場者全員に日本連盟登録番号が必要
@@ -143,6 +210,11 @@ async def create_registration(registration: RegistrationCreate):
         )
 
         if result.get('error'):
+            if _is_duplicate_error(result['error']):
+                raise HTTPException(
+                    status_code=400,
+                    detail="同じ内容の申込（同じ大会・種別・先頭メンバー）が既に登録されています。"
+                )
             raise HTTPException(status_code=500, detail=result['error'])
 
         # パターンA（チーム確定）の場合、メンバーのパターンB（参加希望）レコードを削除
