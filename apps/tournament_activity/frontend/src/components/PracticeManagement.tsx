@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import PlayerMultiSelect from './PlayerMultiSelect'
 
 interface PracticeManagementProps {
   discordId: string
@@ -663,32 +664,17 @@ export default function PracticeManagement({ discordId }: PracticeManagementProp
               {editVisibility === 'invited' && (
                 <div>
                   <label style={labelStyle}>招待メンバー（{editInvitedIds.length}名選択中）</label>
-                  <div style={{
-                    maxHeight: '200px', overflowY: 'auto', padding: '8px',
-                    backgroundColor: '#0c1220', borderRadius: '6px', border: '1px solid #1e293b',
-                    display: 'flex', flexDirection: 'column', gap: '4px',
-                  }}>
-                    {allPlayers.map(p => {
-                      const checked = editInvitedIds.includes(p.player_id)
-                      return (
-                        <label key={p.player_id} style={{
-                          display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 6px',
-                          borderRadius: '4px', cursor: 'pointer', fontSize: '13px', color: '#e2e8f0',
-                          backgroundColor: checked ? '#1e3a8a' : 'transparent',
-                        }}>
-                          <input type="checkbox" checked={checked}
-                            onChange={() => {
-                              setEditInvitedIds(prev =>
-                                checked ? prev.filter(id => id !== p.player_id) : [...prev, p.player_id]
-                              )
-                            }}
-                            style={{ cursor: 'pointer' }} />
-                          {p.player_name}
-                          <span style={{ fontSize: '11px', color: '#64748b' }}>{p.sex === 0 ? '男' : '女'}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
+                  <PlayerMultiSelect
+                    players={allPlayers}
+                    selectedIds={editInvitedIds}
+                    onChange={setEditInvitedIds}
+                    maxHeight="200px"
+                    renderMeta={p => (
+                      <span style={{ fontSize: '11px', color: '#64748b', flexShrink: 0 }}>
+                        {[p.sex === 0 ? '男' : '女', p.player_name_kana, p.affiliated_club].filter(Boolean).join(' ・ ')}
+                      </span>
+                    )}
+                  />
                 </div>
               )}
               <div style={{ display: 'flex', gap: '10px' }}>

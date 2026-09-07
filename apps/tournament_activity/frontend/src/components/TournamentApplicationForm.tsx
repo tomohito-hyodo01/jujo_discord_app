@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import PlayerRegistrationFormInline from './PlayerRegistrationFormInline'
 import CompletePage from './CompletePage'
+import PlayerSelect from './PlayerSelect'
 import { filterPairCandidates } from '../utils/playerFilter'
 import { isJstaNumberValid } from '../utils/jsta'
 
@@ -607,21 +608,16 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
                 <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ ...labelStyle, fontSize: '13px', marginBottom: '4px' }}>メンバー {index + 1}</label>
-                    <select
+                    <PlayerSelect
+                      players={getTeamCandidates(index)}
+                      allPlayers={players}
                       value={memberId}
-                      onChange={(e) => {
-                        const newIds = [...teamMemberIds]
-                        newIds[index] = e.target.value
-                        setTeamMemberIds(newIds)
-                      }}
+                      onChange={v => setTeamMemberIds(prev => prev.map((id, i) => (i === index ? v : id)))}
                       disabled={!formData.type}
-                      style={{ ...inputStyle, opacity: !formData.type ? 0.5 : 1, cursor: !formData.type ? 'not-allowed' : 'pointer' }}
-                    >
-                      <option value="">選択してください</option>
-                      {getTeamCandidates(index).map(p => (
-                        <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                      ))}
-                    </select>
+                      placeholder={!formData.type ? '先に種別を選択してください' : '名前・カナ・所属で検索'}
+                      ariaLabel={`メンバー ${index + 1}`}
+                      style={{ ...inputStyle, opacity: !formData.type ? 0.5 : 1 }}
+                    />
                   </div>
                   {teamMemberIds.length > minTeamMembers && (
                     <button type="button" onClick={() => {
@@ -663,22 +659,22 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
           <>
             <div>
               <label style={labelStyle}>ペア選手 *</label>
-              <select
-                value={formData.pairId || (showPlayerForm ? 'add_player' : '')}
-                onChange={(e) => {
-                  const value = e.target.value
-                  if (value === 'add_player') { setShowPlayerForm(true); setFormData({ ...formData, pairId: 'add_player' }) }
-                  else { setFormData({ ...formData, pairId: value }); setShowPlayerForm(false); setNewPlayerData(null) }
-                }}
-                required={!showPlayerForm} disabled={!formData.type}
-                style={{ ...inputStyle, opacity: !formData.type ? 0.5 : 1, cursor: !formData.type ? 'not-allowed' : 'pointer' }}
-              >
-                <option value="">{!formData.type ? '先に種別を選択してください' : '選択してください'}</option>
-                {getFilteredPlayers().map(p => (
-                  <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                ))}
-                <option value="add_player">+ 選手追加</option>
-              </select>
+              <PlayerSelect
+                players={getFilteredPlayers()}
+                allPlayers={players}
+                value={showPlayerForm ? '' : formData.pairId}
+                onChange={v => { setFormData(prev => ({ ...prev, pairId: v })); setShowPlayerForm(false); setNewPlayerData(null) }}
+                required={!showPlayerForm}
+                requiredMessage="ペア選手を選択してください"
+                disabled={!formData.type}
+                placeholder={!formData.type ? '先に種別を選択してください' : showPlayerForm ? '新規選手を入力中' : '名前・カナ・所属で検索'}
+                ariaLabel="ペア選手"
+                actionLabel="＋ 選手追加"
+                // 新規選手フォームは開くたびに空で再マウントされるので、
+                // 前回入力した内容が親に残らないよう必ず捨てる
+                onAction={() => { setShowPlayerForm(true); setFormData(prev => ({ ...prev, pairId: '' })); setNewPlayerData(null) }}
+                style={{ ...inputStyle, opacity: !formData.type ? 0.5 : 1 }}
+              />
             </div>
             {showPlayerForm && (
               <div style={{ padding: '24px', backgroundColor: '#0c1220', borderRadius: '12px', border: '1px solid #1e293b' }}>
