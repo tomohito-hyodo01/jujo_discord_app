@@ -67,10 +67,11 @@ print("\n▼ POST /registrations の複数申込チェック")
 class _FakeDb:
     """execute_query の呼び出しを記録し、必要な行だけ返す"""
 
-    def __init__(self, applicant_row, existing_registrations=(), insert_error=None):
+    def __init__(self, applicant_row, existing_registrations=(), insert_error=None, tournament_regs=()):
         self.applicant_row = applicant_row
         self.existing = list(existing_registrations)
         self.insert_error = insert_error
+        self.tournament_regs = list(tournament_regs)   # 同じ大会・種別の既存申込（pair1/pair2）
         self.ops = []
 
     async def execute_query(self, table, operation='select', filters=None, data=None, columns='*', json_fields=None):
@@ -83,6 +84,13 @@ class _FakeDb:
         if table == 'tournament_registration' and operation == 'select' and filters \
                 and filters.get('discord_id') == '111' and filters.get('tournament_id') == 'T1':
             return {'data': list(self.existing), 'error': None}
+        if table == 'tournament_registration' and operation == 'select' and filters \
+                and 'type' in filters and filters.get('tournament_id') == 'T1':
+            return {'data': list(self.tournament_regs), 'error': None}
+        if table == 'player_mst' and operation == 'select' and filters and 'player_id' in filters:
+            names = {10: '山田', 11: '鈴木', 12: '佐藤', 13: '田中', 1: '兵頭', 2: '一般会員'}
+            pid = filters['player_id']
+            return {'data': [{'player_id': pid, 'player_name': names[pid]}] if pid in names else [], 'error': None}
         if operation == 'insert':
             if self.insert_error:
                 return {'data': None, 'error': self.insert_error}
@@ -93,16 +101,17 @@ class _FakeDb:
         return [op for op in self.ops if op[1] == 'insert' and op[0] == 'tournament_registration']
 
     def dup_checks(self):
-        return [op for op in self.ops if op[0] == 'tournament_registration' and op[1] == 'select']
+        return [op for op in self.ops if op[0] == 'tournament_registration' and op[1] == 'select'
+                and 'discord_id' in (op[2] or {})]
 
 
-def _call(applicant_row, is_proxy=False, existing=(), insert_error=None):
-    fake = _FakeDb(applicant_row, existing, insert_error)
+def _call(applicant_row, is_proxy=False, existing=(), insert_error=None, tournament_regs=(), team_status=0):
+    fake = _FakeDb(applicant_row, existing, insert_error, tournament_regs)
     orig = R.db
     R.db = fake
     try:
         reg = R.RegistrationCreate(discord_id='111', tournament_id='T1', type='一般', sex=0,
-                                   pair1=10, pair2=[11, 12, 13], team_status=0, is_proxy=is_proxy)
+                                   pair1=10, pair2=[11, 12, 13], team_status=team_status, is_proxy=is_proxy)
         try:
             asyncio.run(R.create_registration(reg))
             status = 200
@@ -158,6 +167,24 @@ check("それ以外のDBエラーは 500 のまま", _status, 500)
 check("判定: 1062", R._is_duplicate_error(_dup), True)
 check("判定: メッセージのみ", R._is_duplicate_error("Duplicate entry 'x' for key 'unique_registration'"), True)
 check("判定: 別のエラー", R._is_duplicate_error("(2013, 'Lost connection')"), False)
+
+print("")
+print("▼ 同じ大会・種別で既に別の申込に入っている選手")
+_other_team = [{'pair1': 20, 'pair2': [21, 12, 22]}]   # 佐藤(12) が別チームに入っている
+_status, _fake = _call(_admin, is_proxy=True, tournament_regs=_other_team)
+check("既に別チームにいる選手を含むと400", _status, 400)
+check("誰が重複しているかを名前で返す", '佐藤' in getattr(_fake, 'detail', ''), True)
+check("登録は行わない", _fake.inserted(), [])
+_status, _fake = _call(_admin, is_proxy=True, tournament_regs=[{'pair1': 20, 'pair2': [21, 22]}])
+check("重複が無ければ通る", _status, 200)
+_status, _fake = _call(_admin, is_proxy=True, tournament_regs=[{'pair1': 12, 'pair2': None}])
+check("既存申込の pair1 とも突き合わせる", _status, 400)
+_status, _fake = _call(_admin, is_proxy=False, tournament_regs=[{'pair1': 20, 'pair2': [1]}])
+check("代理申込でなければ申込者本人(player_id=1)も重複判定に含める", _status, 400)
+_status, _fake = _call(_admin, is_proxy=True, tournament_regs=[{'pair1': 20, 'pair2': [1]}])
+check("代理申込なら申込者本人は出場しないので重複にならない", _status, 200)
+_status, _fake = _call(_admin, tournament_regs=_other_team, team_status=1)
+check("参加希望(team_status=1)は出場者未定なので対象外", _status, 200)
 
 print()
 if _failures:
