@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import PlayerRegistrationFormInline from './PlayerRegistrationFormInline'
 import CompletePage from './CompletePage'
+import PlayerSelect from './PlayerSelect'
 import { filterPairCandidates } from '../utils/playerFilter'
 import { isJstaNumberValid } from '../utils/jsta'
 import { getGuestRegisterUrl } from '../utils/guestRegister'
@@ -600,21 +601,16 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
                 <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ ...labelStyle, fontSize: '13px', marginBottom: '4px' }}>メンバー {index + 1}</label>
-                    <select
+                    <PlayerSelect
+                      players={getTeamCandidates(index)}
                       value={memberId}
-                      onChange={(e) => {
+                      onChange={(v) => {
                         const newIds = [...teamMemberIds]
-                        newIds[index] = e.target.value
+                        newIds[index] = v
                         setTeamMemberIds(newIds)
                       }}
                       disabled={!formData.type}
-                      style={{ ...inputStyle, opacity: !formData.type ? 0.5 : 1, cursor: !formData.type ? 'not-allowed' : 'pointer' }}
-                    >
-                      <option value="">選択してください</option>
-                      {getTeamCandidates(index).map(p => (
-                        <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                      ))}
-                    </select>
+                    />
                   </div>
                   {teamMemberIds.length > minTeamMembers && (
                     <button type="button" onClick={() => {
@@ -656,22 +652,17 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
           <>
             <div>
               <label style={labelStyle}>ペア選手 *</label>
-              <select
+              <PlayerSelect
+                players={getFilteredPlayers()}
                 value={formData.pairId || (showPlayerForm ? 'add_player' : '')}
-                onChange={(e) => {
-                  const value = e.target.value
+                onChange={(value) => {
                   if (value === 'add_player') { setShowPlayerForm(true); setFormData({ ...formData, pairId: 'add_player' }) }
                   else { setFormData({ ...formData, pairId: value }); setShowPlayerForm(false); setNewPlayerData(null) }
                 }}
-                required={!showPlayerForm} disabled={!formData.type}
-                style={{ ...inputStyle, opacity: !formData.type ? 0.5 : 1, cursor: !formData.type ? 'not-allowed' : 'pointer' }}
-              >
-                <option value="">{!formData.type ? '先に種別を選択してください' : '選択してください'}</option>
-                {getFilteredPlayers().map(p => (
-                  <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                ))}
-                <option value="add_player">+ 選手追加</option>
-              </select>
+                placeholder={!formData.type ? '先に種別を選択してください' : '選択してください'}
+                disabled={!formData.type}
+                extraOptions={[{ value: 'add_player', label: '+ 選手追加' }]}
+              />
               {/* ペア本人に登録してもらう場合の共有URL（ログイン不要ページ） */}
               <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px', lineHeight: '1.7' }}>
                 ペアの方に自分で登録してもらう場合は、このURLを共有してください（ログイン不要）:<br />

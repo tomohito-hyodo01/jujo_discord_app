@@ -3,6 +3,7 @@ import TournamentCalendar from './TournamentCalendar'
 import { filterPairCandidates } from '../utils/playerFilter'
 import { deadlineTimeSuffix, isTournamentDeadlinePassed } from '../utils/deadline'
 import CommentSection from './CommentSection'
+import PlayerSelect from './PlayerSelect'
 
 interface EventListProps {
   discordId: string
@@ -1051,22 +1052,20 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   {selectedTournament?.classification !== 1 && tournamentReg.is_applicant !== false && (
                     editingPair ? (
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                        <select
-                          defaultValue={tournamentReg.pair1}
-                          onChange={e => handleRegPairChange(tournamentReg.registration_id, parseInt(e.target.value))}
-                          disabled={updatingPair}
-                          style={{ flex: 1, padding: '8px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #334155', fontSize: '13px' }}
-                        >
-                          {(() => {
+                        <PlayerSelect
+                          players={(() => {
                             const me = players.find(pl => pl.discord_id === discordId)
                             return filterPairCandidates(
                               players, discordId, me?.sex ?? null,
                               tournamentReg.type, selectedTournament?.tournament_date, selectedTournament?.registrated_ward
-                            ).map(p => (
-                              <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                            ))
+                            )
                           })()}
-                        </select>
+                          value={String(tournamentReg.pair1 ?? '')}
+                          onChange={v => { if (v) handleRegPairChange(tournamentReg.registration_id, parseInt(v)) }}
+                          disabled={updatingPair}
+                          compact
+                          style={{ flex: 1 }}
+                        />
                         <button onClick={() => setEditingPair(false)} style={{
                           padding: '8px 12px', borderRadius: '6px', backgroundColor: 'transparent',
                           color: '#94a3b8', border: '1px solid #334155', fontSize: '13px', cursor: 'pointer',

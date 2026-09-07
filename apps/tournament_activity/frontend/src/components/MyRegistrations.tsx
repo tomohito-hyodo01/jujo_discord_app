@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment } from 'react'
 import { filterPairCandidates } from '../utils/playerFilter'
 import { isTournamentDeadlinePassed } from '../utils/deadline'
+import PlayerSelect from './PlayerSelect'
 
 interface MyRegistrationsProps {
   discordId: string
@@ -178,24 +179,17 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
               <span style={{ fontSize: '12px', color: '#64748b', minWidth: '24px' }}>
                 {index + 1}.
               </span>
-              <select
+              <PlayerSelect
+                players={getTeamEditCandidates(reg, index)}
                 value={memberId}
-                onChange={(e) => {
+                onChange={(v) => {
                   const newIds = [...editingTeamMembers]
-                  newIds[index] = e.target.value
+                  newIds[index] = v
                   setEditingTeamMembers(newIds)
                 }}
-                style={{
-                  flex: 1, padding: '8px 12px', borderRadius: '6px',
-                  backgroundColor: '#0c1220', color: '#e2e8f0',
-                  border: '1px solid #334155', fontSize: '13px',
-                }}
-              >
-                <option value="">選択してください</option>
-                {getTeamEditCandidates(reg, index).map(p => (
-                  <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                ))}
-              </select>
+                compact
+                style={{ flex: 1 }}
+              />
               {editingTeamMembers.length > minMembers && (
                 <button
                   onClick={() => setEditingTeamMembers(prev => prev.filter((_, i) => i !== index))}
@@ -343,27 +337,20 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
           <td style={{ ...cellStyle, whiteSpace: 'normal' as const, maxWidth: '200px' }}>
             {isEditingThis && !isTeam ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <select
-                  defaultValue={reg.pair1}
-                  onChange={(e) => handlePairChange(reg.registration_id, parseInt(e.target.value))}
-                  disabled={updatingPairId === reg.registration_id}
-                  style={{
-                    padding: '4px 8px', borderRadius: '5px',
-                    backgroundColor: '#0f172a', color: '#e2e8f0',
-                    border: '1px solid #334155', fontSize: '12px',
-                    maxWidth: '120px',
-                  }}
-                >
-                  {(() => {
+                <PlayerSelect
+                  players={(() => {
                     const me = players.find(pl => pl.discord_id === discordId)
                     return filterPairCandidates(
                       players, discordId, me?.sex ?? null,
                       reg.type, tournament?.tournament_date, tournament?.registrated_ward
-                    ).map(p => (
-                      <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                    ))
+                    )
                   })()}
-                </select>
+                  value={String(reg.pair1 ?? '')}
+                  onChange={(v) => { if (v) handlePairChange(reg.registration_id, parseInt(v)) }}
+                  disabled={updatingPairId === reg.registration_id}
+                  compact
+                  style={{ minWidth: '160px' }}
+                />
                 <button
                   onClick={() => setEditingPairId(null)}
                   style={{
@@ -491,26 +478,20 @@ export default function MyRegistrations({ discordId, onNavigate }: MyRegistratio
         </div>
         {isEditingThis && !isTeam && (
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <select
-              defaultValue={reg.pair1}
-              onChange={(e) => handlePairChange(reg.registration_id, parseInt(e.target.value))}
-              disabled={updatingPairId === reg.registration_id}
-              style={{
-                padding: '6px 10px', borderRadius: '6px', flex: 1,
-                backgroundColor: '#0f172a', color: '#e2e8f0',
-                border: '1px solid #334155', fontSize: '13px',
-              }}
-            >
-              {(() => {
+            <PlayerSelect
+              players={(() => {
                 const me = players.find(pl => pl.discord_id === discordId)
                 return filterPairCandidates(
                   players, discordId, me?.sex ?? null,
                   reg.type, tournament?.tournament_date, tournament?.registrated_ward
-                ).map(p => (
-                  <option key={p.player_id} value={p.player_id}>{p.player_name}</option>
-                ))
+                )
               })()}
-            </select>
+              value={String(reg.pair1 ?? '')}
+              onChange={(v) => { if (v) handlePairChange(reg.registration_id, parseInt(v)) }}
+              disabled={updatingPairId === reg.registration_id}
+              compact
+              style={{ flex: 1 }}
+            />
             <button
               onClick={() => setEditingPairId(null)}
               style={{
