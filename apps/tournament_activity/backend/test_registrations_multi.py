@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-代理申込（自分をメンバーに含めないチーム作成）の管理者限定チェックの動作確認
+同じ大会への複数申込（管理者のみ）と代理申込（誰でも可）の動作確認
 
 DBにもDiscordにも接続せず、POST /api/registrations が
-・管理者以外の代理申込を 403 で止めて登録しないこと
-・管理者の代理申込と、通常の申込はこれまでどおり登録されること
+・一般会員の「同じ大会への2回目の申込」を 400 で止めて登録しないこと
+・管理者は同じ大会に何度でも申し込めること（代理申込で複数チームを作る）
+・代理申込（自分をメンバーに含めない）は誰でも使えること
 を検証する。
 
 実行:
     cd apps/tournament_activity/backend
-    python test_registrations_proxy.py
+    python test_registrations_multi.py
 """
 
 import asyncio
@@ -50,24 +51,25 @@ def check(label, actual, expected):
 
 
 # ===== 判定関数 =====
-print("\n▼ 代理申込の可否判定（_can_proxy_register）")
-check("管理者(admin_role=0)は可", R._can_proxy_register({'admin_role': 0}), True)
-check("大会申込管理者(1)は不可", R._can_proxy_register({'admin_role': 1}), False)
-check("一般(2)は不可", R._can_proxy_register({'admin_role': 2}), False)
-check("admin_role未設定は不可", R._can_proxy_register({}), False)
-check("選手未登録(None)は不可", R._can_proxy_register(None), False)
-check("文字列の'0'は不可（型を厳密に見る）", R._can_proxy_register({'admin_role': '0'}), False)
+print("\n▼ 管理者判定（_is_admin_row）")
+check("管理者(admin_role=0)", R._is_admin_row({'admin_role': 0}), True)
+check("大会申込管理者(1)は管理者ではない", R._is_admin_row({'admin_role': 1}), False)
+check("一般(2)", R._is_admin_row({'admin_role': 2}), False)
+check("admin_role未設定", R._is_admin_row({}), False)
+check("選手未登録(None)", R._is_admin_row(None), False)
+check("文字列の'0'は不可（型を厳密に見る）", R._is_admin_row({'admin_role': '0'}), False)
 
 
 # ===== エンドポイント（DBを差し替え） =====
-print("\n▼ POST /registrations の代理申込チェック")
+print("\n▼ POST /registrations の複数申込チェック")
 
 
 class _FakeDb:
     """execute_query の呼び出しを記録し、必要な行だけ返す"""
 
-    def __init__(self, applicant_row):
+    def __init__(self, applicant_row, existing_registrations=()):
         self.applicant_row = applicant_row
+        self.existing = list(existing_registrations)
         self.ops = []
 
     async def execute_query(self, table, operation='select', filters=None, data=None, columns='*', json_fields=None):
@@ -77,6 +79,9 @@ class _FakeDb:
                               'registrated_ward': 7, 'deadline_date': None}], 'error': None}
         if table == 'player_mst' and operation == 'select' and filters and 'discord_id' in filters:
             return {'data': [self.applicant_row] if self.applicant_row else [], 'error': None}
+        if table == 'tournament_registration' and operation == 'select' and filters \
+                and filters.get('discord_id') == '111' and filters.get('tournament_id') == 'T1':
+            return {'data': list(self.existing), 'error': None}
         if operation == 'insert':
             return {'data': [{'id': 1, **(data or {})}], 'error': None}
         return {'data': [], 'error': None}
@@ -84,9 +89,12 @@ class _FakeDb:
     def inserted(self):
         return [op for op in self.ops if op[1] == 'insert' and op[0] == 'tournament_registration']
 
+    def dup_checks(self):
+        return [op for op in self.ops if op[0] == 'tournament_registration' and op[1] == 'select']
 
-def _call(applicant_row, is_proxy):
-    fake = _FakeDb(applicant_row)
+
+def _call(applicant_row, is_proxy=False, existing=()):
+    fake = _FakeDb(applicant_row, existing)
     orig = R.db
     R.db = fake
     try:
@@ -105,23 +113,38 @@ def _call(applicant_row, is_proxy):
 
 _admin = {'player_id': 1, 'player_name': '兵頭', 'discord_id': '111', 'admin_role': 0}
 _member = {'player_id': 2, 'player_name': '一般会員', 'discord_id': '111', 'admin_role': 2}
+_already = [{'registration_id': 99}]
 
-_status, _fake = _call(_member, is_proxy=True)
-check("一般会員の代理申込は403", _status, 403)
-check("403の理由", '管理者のみ' in getattr(_fake, 'detail', ''), True)
+_status, _fake = _call(_member)
+check("一般会員の初回申込は通る", _status, 200)
+check("登録される", len(_fake.inserted()), 1)
+check("既存の申込を確認している", len(_fake.dup_checks()) >= 1, True)
+
+_status, _fake = _call(_member, existing=_already)
+check("一般会員の同じ大会への2回目は400", _status, 400)
+check("400の理由", '管理者のみ' in getattr(_fake, 'detail', ''), True)
 check("登録は行わない", _fake.inserted(), [])
 
-_status, _fake = _call(_admin, is_proxy=True)
-check("管理者の代理申込は通る", _status, 200)
+_status, _fake = _call(_member, is_proxy=True)
+check("一般会員でも代理申込（自分を含めない）は通る", _status, 200)
 check("登録される", len(_fake.inserted()), 1)
 check("is_proxy はDBに書かない（列が無い）", 'is_proxy' in _fake.inserted()[0][3], False)
 
-_status, _fake = _call(_member, is_proxy=False)
-check("一般会員の通常のチーム作成はこれまでどおり通る", _status, 200)
-check("登録される", len(_fake.inserted()), 1)
+_status, _fake = _call(_member, is_proxy=True, existing=_already)
+check("一般会員の代理申込でも2回目は400", _status, 400)
 
-_status, _fake = _call(None, is_proxy=True)
-check("選手未登録の代理申込は403", _status, 403)
+_status, _fake = _call(_admin, is_proxy=True, existing=_already)
+check("管理者は同じ大会に2回目の代理申込ができる", _status, 200)
+check("登録される", len(_fake.inserted()), 1)
+check("管理者は既存の申込を確認しない（何チームでも可）", _fake.dup_checks(), [])
+
+_status, _fake = _call({**_member, 'admin_role': 1}, existing=_already)
+check("大会申込管理者(admin_role=1)は一般会員と同じく400", _status, 400)
+
+_status, _fake = _call(None)
+check("選手未登録の discord_id でも初回は通る（既存の挙動）", _status, 200)
+_status, _fake = _call(None, existing=_already)
+check("選手未登録の discord_id の2回目は400", _status, 400)
 
 print()
 if _failures:
