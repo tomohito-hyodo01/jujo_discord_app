@@ -35,9 +35,9 @@ class RegistrationCreate(BaseModel):
     is_proxy: bool = False  # 代理申込（申込者本人は出場しない。団体戦のみ）
 
 
-def _can_proxy_register(applicant_row) -> bool:
-    """代理申込（申込者本人を出場メンバーに含めないチーム作成）ができるか。管理者(admin_role=0)のみ"""
-    return bool(applicant_row) and applicant_row.get('admin_role') == 0
+def _is_admin_row(player_row) -> bool:
+    """管理者(admin_role=0)か。同じ大会への複数申込（代理申込で複数チームを作る等）は管理者のみ許可する"""
+    return bool(player_row) and player_row.get('admin_role') == 0
 
 
 async def _participants_without_jsta(registration, applicant_result) -> List[str]:
@@ -110,14 +110,23 @@ async def create_registration(registration: RegistrationCreate):
                 detail="過去に大会棄権された選手の大会参加は制限されています。"
             )
 
-        # 代理申込（自分をメンバーに含めないチーム作成）は管理者のみ。
-        # 画面側でも管理者以外には出していないが、API直接呼び出しで抜けられないようここでも止める
-        if registration.is_proxy:
-            applicant_row = (applicant_check.get('data') or [None])[0]
-            if not _can_proxy_register(applicant_row):
+        # 同じ大会への複数申込（代理申込で複数チームを作る等）は管理者のみ。
+        # 一般会員は申込可能な大会一覧からも外れる（available_tournaments）が、
+        # 画面を経由しない呼び出しでも二重登録にならないようここでも止める
+        applicant_row = (applicant_check.get('data') or [None])[0]
+        if not _is_admin_row(applicant_row):
+            existing = await db.execute_query(
+                'tournament_registration',
+                operation='select',
+                filters={'discord_id': registration.discord_id, 'tournament_id': registration.tournament_id},
+                columns='registration_id'
+            )
+            if existing.get('error'):
+                raise HTTPException(status_code=500, detail=existing['error'])
+            if existing.get('data'):
                 raise HTTPException(
-                    status_code=403,
-                    detail="代理申込（自分をメンバーに含めない申込）は管理者のみ可能です。"
+                    status_code=400,
+                    detail="この大会には既に申込済みです。同じ大会への複数の申込は管理者のみ可能です。"
                 )
 
         # 東京都・広域の大会は、出場者全員に日本連盟登録番号が必要
