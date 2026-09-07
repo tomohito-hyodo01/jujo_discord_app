@@ -361,83 +361,195 @@ async def get_player(player_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _register_player(player: PlayerCreate) -> tuple[dict, bool]:
+    """選手を登録し、(選手行, 新規作成したか) を返す
+
+    同じ Discord ID / 連盟番号 / 氏名＋生年月日の選手がいれば新規作成せず既存行を返す。
+    POST /players（ログイン後の登録・申込時のペア追加）と
+    POST /players/self-register（ログイン不要の本人登録）で同じ判定を使う。
+    """
+    # discord_idが指定されている場合、重複チェック
+    if player.discord_id:
+        existing = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'discord_id': player.discord_id}
+        )
+        if existing.get('data'):
+            # 既に登録済み → 既存データを返す（再試行対策）
+            return existing['data'][0], False
+
+    # 日連登録番号の形式チェック（'-' 等が保存されないようにする）
+    player.jsta_number = _validated_jsta_number(player.jsta_number)
+
+    # 日連登録番号の重複チェック
+    if player.jsta_number:
+        jsta_dup = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'jsta_number': player.jsta_number}
+        )
+        if jsta_dup.get('data'):
+            raise HTTPException(status_code=409, detail="すでに該当の番号の選手は登録されています")
+
+    # 同姓名＋同生年月日の重複チェック
+    if player.player_name and player.birth_date:
+        dup = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'player_name': player.player_name, 'birth_date': player.birth_date}
+        )
+        if dup.get('data'):
+            existing_player = dup['data'][0]
+            # discord_idがなければ紐付けて返す
+            if not existing_player.get('discord_id') and player.discord_id:
+                await db.execute_query(
+                    'player_mst',
+                    operation='update',
+                    filters={'player_id': existing_player['player_id']},
+                    data={'discord_id': player.discord_id}
+                )
+                existing_player['discord_id'] = player.discord_id
+            return existing_player, False
+
+    result = await db.execute_query(
+        'player_mst',
+        operation='insert',
+        data=player.model_dump(exclude_none=True)
+    )
+
+    if result.get('error'):
+        raise HTTPException(status_code=500, detail=result['error'])
+
+    # insert の戻り値は採番IDを 'id' として返すため、そのままでは 'player_id' が無い。
+    # 他の返却パス（既存選手を返す場合）と形をそろえて、作成した行を取得して返す。
+    # ※呼び出し側（大会申込時の選手登録）は player_id を使ってペアを組むため、
+    #   ここで player_id が欠けると申込側が失敗する。
+    created_id = (result.get('data') or [{}])[0].get('id')
+    if created_id:
+        created = await db.execute_query(
+            'player_mst',
+            operation='select',
+            filters={'player_id': created_id}
+        )
+        if created.get('data'):
+            # 変更前は採番IDを 'id' として返していたため、互換のため残す
+            return {'id': created_id, **created['data'][0]}, True
+        # 再取得できなくても採番IDは確定しているので、player_id を補って返す。
+        # ここでエラーにすると、登録は済んでいるのに呼び出し側が申込へ進めず、
+        # 再送信しても重複エラーになって復帰できなくなる。
+        return {'id': created_id, 'player_id': created_id, **player.model_dump(exclude_none=True)}, True
+
+    raise HTTPException(status_code=500, detail="選手の登録結果を取得できませんでした")
+
+
 @router.post("/players")
 async def create_player(player: PlayerCreate):
     """新規選手を登録"""
     try:
-        # discord_idが指定されている場合、重複チェック
-        if player.discord_id:
-            existing = await db.execute_query(
-                'player_mst',
-                operation='select',
-                filters={'discord_id': player.discord_id}
-            )
-            if existing.get('data'):
-                # 既に登録済み → 既存データを返す（再試行対策）
-                return existing['data'][0]
+        row, _created = await _register_player(player)
+        return row
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        # 日連登録番号の形式チェック（'-' 等が保存されないようにする）
-        player.jsta_number = _validated_jsta_number(player.jsta_number)
 
-        # 日連登録番号の重複チェック
-        if player.jsta_number:
-            jsta_dup = await db.execute_query(
-                'player_mst',
-                operation='select',
-                filters={'jsta_number': player.jsta_number}
-            )
-            if jsta_dup.get('data'):
-                raise HTTPException(status_code=409, detail="すでに該当の番号の選手は登録されています")
+class PlayerSelfRegister(BaseModel):
+    """ログイン不要ページ（/guest-register）からの本人登録
 
-        # 同姓名＋同生年月日の重複チェック
-        if player.player_name and player.birth_date:
-            dup = await db.execute_query(
-                'player_mst',
-                operation='select',
-                filters={'player_name': player.player_name, 'birth_date': player.birth_date}
-            )
-            if dup.get('data'):
-                existing_player = dup['data'][0]
-                # discord_idがなければ紐付けて返す
-                if not existing_player.get('discord_id') and player.discord_id:
-                    await db.execute_query(
-                        'player_mst',
-                        operation='update',
-                        filters={'player_id': existing_player['player_id']},
-                        data={'discord_id': player.discord_id}
-                    )
-                    existing_player['discord_id'] = player.discord_id
-                return existing_player
+    大会申込でペアとして選ばれたときに情報不備で弾かれないよう、全項目を必須にする。
+    Discord ID は受け取らない（本人が後からDiscordでログインすると、氏名＋生年月日の
+    一致で既存の選手行に紐付く）。
+    """
+    last_name: str
+    first_name: str
+    last_name_kana: str
+    first_name_kana: str
+    jsta_number: str
+    birth_date: str
+    sex: int
+    post_number: str
+    address: str
+    phone_number: str
+    affiliated_club: str
 
-        result = await db.execute_query(
-            'player_mst',
-            operation='insert',
-            data=player.model_dump(exclude_none=True)
+
+# 本人登録の必須項目と、未入力エラーに表示するラベル
+SELF_REGISTER_FIELD_LABELS = {
+    'last_name': '姓',
+    'first_name': '名',
+    'last_name_kana': 'セイ',
+    'first_name_kana': 'メイ',
+    'jsta_number': '日本連盟登録番号',
+    'birth_date': '生年月日',
+    'post_number': '郵便番号',
+    'address': '住所',
+    'phone_number': '電話番号',
+    'affiliated_club': '所属クラブ',
+}
+
+
+def _self_register_missing_fields(body: PlayerSelfRegister) -> list[str]:
+    """空欄（空白だけの入力を含む）の必須項目のラベルを返す"""
+    values = body.model_dump()
+    return [
+        label for field, label in SELF_REGISTER_FIELD_LABELS.items()
+        if not str(values.get(field) or '').strip()
+    ]
+
+
+@router.post("/players/self-register")
+async def self_register_player(body: PlayerSelfRegister):
+    """ログイン不要ページからの本人登録
+
+    ペアの情報を申込者が代わりに入力する手間を省くため、ペア本人が自分の選手情報を
+    登録できるようにする。Discord ID なしで player_mst に登録され、申込画面のペア候補に
+    そのまま出てくる（申込時の「＋ 選手追加」と同じ形のレコード）。
+
+    誰でも呼べるエンドポイントなので、既存選手と重複したときも既存行の住所・電話番号
+    などは返さず、選手IDと氏名だけを返す。
+    """
+    try:
+        missing = _self_register_missing_fields(body)
+        if missing:
+            raise HTTPException(status_code=400, detail=f"必須項目が未入力です: {'、'.join(missing)}")
+        if body.sex not in (0, 1):
+            raise HTTPException(status_code=400, detail="性別の値が不正です")
+
+        # 連盟番号は選手登録ページと同じ形式チェック（JSTA＋数字8桁）。
+        # normalize は数字なし（'-' など）を None にするため、ここでは必須として弾く
+        jsta_number = _validated_jsta_number(body.jsta_number)
+        if not jsta_number:
+            raise HTTPException(status_code=400, detail="日本連盟登録番号を入力してください")
+
+        last_name = body.last_name.strip()
+        first_name = body.first_name.strip()
+        last_name_kana = body.last_name_kana.strip()
+        first_name_kana = body.first_name_kana.strip()
+        player = PlayerCreate(
+            discord_id=None,
+            player_name=f"{last_name} {first_name}",
+            player_name_kana=f"{last_name_kana} {first_name_kana}",
+            last_name=last_name,
+            first_name=first_name,
+            last_name_kana=last_name_kana,
+            first_name_kana=first_name_kana,
+            jsta_number=jsta_number,
+            post_number=body.post_number.strip(),
+            address=body.address.strip(),
+            phone_number=body.phone_number.strip(),
+            birth_date=body.birth_date.strip(),
+            sex=body.sex,
+            affiliated_club=body.affiliated_club.strip(),
+            created_by=None,
         )
-
-        if result.get('error'):
-            raise HTTPException(status_code=500, detail=result['error'])
-
-        # insert の戻り値は採番IDを 'id' として返すため、そのままでは 'player_id' が無い。
-        # 他の返却パス（既存選手を返す場合）と形をそろえて、作成した行を取得して返す。
-        # ※呼び出し側（大会申込時の選手登録）は player_id を使ってペアを組むため、
-        #   ここで player_id が欠けると申込側が失敗する。
-        created_id = (result.get('data') or [{}])[0].get('id')
-        if created_id:
-            created = await db.execute_query(
-                'player_mst',
-                operation='select',
-                filters={'player_id': created_id}
-            )
-            if created.get('data'):
-                # 変更前は採番IDを 'id' として返していたため、互換のため残す
-                return {'id': created_id, **created['data'][0]}
-            # 再取得できなくても採番IDは確定しているので、player_id を補って返す。
-            # ここでエラーにすると、登録は済んでいるのに呼び出し側が申込へ進めず、
-            # 再送信しても重複エラーになって復帰できなくなる。
-            return {'id': created_id, 'player_id': created_id, **player.model_dump(exclude_none=True)}
-
-        raise HTTPException(status_code=500, detail="選手の登録結果を取得できませんでした")
+        row, created = await _register_player(player)
+        return {
+            'player_id': row.get('player_id'),
+            'player_name': row.get('player_name'),
+            'created': created,
+        }
     except HTTPException:
         raise
     except Exception as e:

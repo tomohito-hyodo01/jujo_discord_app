@@ -3,6 +3,7 @@ import PlayerRegistrationFormInline from './PlayerRegistrationFormInline'
 import CompletePage from './CompletePage'
 import { filterPairCandidates } from '../utils/playerFilter'
 import { isJstaNumberValid } from '../utils/jsta'
+import { getGuestRegisterUrl } from '../utils/guestRegister'
 
 interface TournamentApplicationFormProps {
   auth: any
@@ -671,6 +672,11 @@ export default function TournamentApplicationForm({ auth, wardId, initialTournam
                 ))}
                 <option value="add_player">+ 選手追加</option>
               </select>
+              {/* ペア本人に登録してもらう場合の共有URL（ログイン不要ページ） */}
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px', lineHeight: '1.7' }}>
+                ペアの方に自分で登録してもらう場合は、このURLを共有してください（ログイン不要）:<br />
+                <a href={getGuestRegisterUrl()} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', wordBreak: 'break-all' }}>{getGuestRegisterUrl()}</a>
+              </div>
             </div>
             {showPlayerForm && (
               <div style={{ padding: '24px', backgroundColor: '#0c1220', borderRadius: '12px', border: '1px solid #1e293b' }}>
