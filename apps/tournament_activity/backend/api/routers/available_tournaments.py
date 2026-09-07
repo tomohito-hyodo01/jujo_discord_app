@@ -20,6 +20,9 @@ async def get_available_tournaments(discord_id: str):
     1. deadline_dateが過ぎていない
     2. そのdiscord_idがまだ申し込んでいない
     3. そのdiscord_idのplayer_idがpair1やpair2として登録されていない
+
+    管理者(admin_role=0)は 2・3 を適用しない。代理申込で同じ大会に
+    複数のチームを作れるようにするため（申込状況に関わらず締切前の大会をすべて返す）。
     
     Args:
         discord_id: Discord User ID
@@ -28,21 +31,23 @@ async def get_available_tournaments(discord_id: str):
         申込可能な大会のリスト
     """
     try:
-        # discord_idからplayer_idを取得
+        # discord_idからplayer_idと権限を取得
         player_result = await db.execute_query(
             'player_mst',
             operation='select',
             filters={'discord_id': discord_id},
-            columns='player_id'
+            columns='player_id, admin_role'
         )
 
         if player_result.get('error'):
             raise HTTPException(status_code=500, detail=player_result['error'])
 
         player_id = None
+        is_admin = False
         player_data = player_result.get('data', [])
         if player_data:
             player_id = player_data[0]['player_id']
+            is_admin = player_data[0].get('admin_role') == 0
 
         # 全大会を取得
         tournaments_result = await db.execute_query(
@@ -68,9 +73,10 @@ async def get_available_tournaments(discord_id: str):
             raise HTTPException(status_code=500, detail=all_registrations_result['error'])
         
         # 除外すべき大会IDを収集
+        # 管理者は代理申込で同じ大会に複数チームを作るため、自分の申込状況では除外しない
         excluded_tournament_ids = set()
         all_registrations = all_registrations_result.get('data', [])
-        if all_registrations:
+        if all_registrations and not is_admin:
             for reg in all_registrations:
                 # 条件1: 自分が申し込んだ大会
                 if reg['discord_id'] == discord_id:
