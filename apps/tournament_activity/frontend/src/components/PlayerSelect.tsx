@@ -163,7 +163,13 @@ export default function PlayerSelect({
     const vW = vv ? vv.width : window.innerWidth
     const vH = vv ? vv.height : window.innerHeight
 
-    if (r.bottom <= vTop || r.top >= vTop + vH) { setOpen(false); return }
+    // 閉じる判定は「レイアウトビューポートの外に出たか」で行う。
+    // visualViewport はソフトキーボードの表示で高さが半分近くまで縮み、さらに iOS が
+    // フォーカス中の入力欄を見せるためページを自動スクロールするため、これを閉じる判定に
+    // 使うと「タップしたのに候補が出ない」が発生する（キーボードが開く途中の1フレームで
+    // 入力欄が縮んだ可視領域の外に出た瞬間に閉じてしまう）。
+    // visualViewport は下のクランプ計算にだけ使う。
+    if (r.bottom <= 0 || r.top >= window.innerHeight) { setOpen(false); return }
 
     const below = vTop + vH - r.bottom - GAP - EDGE
     const above = r.top - vTop - GAP - EDGE
@@ -177,7 +183,13 @@ export default function PlayerSelect({
       Math.max(r.left, vLeft + EDGE),
       Math.max(vLeft + EDGE, vLeft + vW - width - EDGE),
     )
-    const top = toBottom ? r.bottom + GAP : r.top - GAP - maxHeight
+    // left と同様に visualViewport の内側へ収める。入力欄がキーボードの裏に隠れていても
+    // パネルだけは画面内に残るので、候補が見えないまま操作不能になることがない。
+    const rawTop = toBottom ? r.bottom + GAP : r.top - GAP - maxHeight
+    const top = Math.min(
+      Math.max(rawTop, vTop + EDGE),
+      Math.max(vTop + EDGE, vTop + vH - maxHeight - EDGE),
+    )
 
     setPos(prev => (
       prev && prev.top === top && prev.left === left && prev.width === width && prev.maxHeight === maxHeight
