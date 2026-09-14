@@ -29,12 +29,8 @@ from services.wards.bunkyo_text_service import BunkyoTextService
 router = APIRouter()
 
 # テキスト申込書で運用する区（Excelではなくテキストを生成してDiscordへ送信）
-# 区を追加するときはここにサービスクラスを足すだけでよい。
-# Excelで運用する区は ExcelServiceFactory 側に登録する。
-WARD_TEXT_SERVICES = {
-    7: SumidaTextService,   # 墨田区
-    5: BunkyoTextService,   # 文京区
-}
+SUMIDA_WARD_ID = 7
+BUNKYO_WARD_ID = 5
 
 
 def _split_for_discord(content: str, limit: int = 1900) -> list:
@@ -223,13 +219,8 @@ async def _enrich_registrations(registrations: list) -> list:
     return enriched
 
 
-async def _generate_ward_text(ward_id: int, tournament: dict, registrations: list) -> "ExcelGenerationResponse":
-    """テキスト申込書で運用する区: 申込書テキストを生成してDiscordチャンネルへ送信
-
-    対象区と出力形式は WARD_TEXT_SERVICES のサービスクラスが決める。
-    """
-    service = WARD_TEXT_SERVICES[ward_id]()
-    ward_name = getattr(service, "ward_name", f"区ID {ward_id}")
+async def _generate_sumida_text(tournament: dict, registrations: list) -> "ExcelGenerationResponse":
+    """墨田区: 申込書テキストを生成してDiscordチャンネルへ送信"""
     tournament_name = tournament.get("tournament_name")
 
     enriched = []
@@ -246,17 +237,17 @@ async def _generate_ward_text(ward_id: int, tournament: dict, registrations: lis
             error="No valid player data found for registrations",
         )
 
+    service = SumidaTextService()
     texts = service.build_texts(tournament, enriched)
 
-    # 主催区のWebhookへ送信（申込通知と同じチャンネル）。区別が未設定なら広域チャンネルに
-    # フォールバックする。区→環境変数の対応は api.ward_webhooks に一元化されている。
-    webhook_url = get_ward_webhook_url(ward_id)
+    # 墨田区のWebhookへ送信（申込通知と同じチャンネル）。未設定時はデフォルトWebhookにフォールバック
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL_SUMIDA") or os.getenv("DISCORD_WEBHOOK_URL")
     if not webhook_url:
         return ExcelGenerationResponse(
             success=False,
             tournament_id=tournament.get("tournament_id"),
             tournament_name=tournament_name,
-            error=f"{ward_name}のDiscord Webhookが設定されていません（DISCORD_WEBHOOK_URL も未設定）",
+            error="墨田区のDiscord Webhook（DISCORD_WEBHOOK_URL_SUMIDA）が設定されていません",
         )
 
     sent = 0
@@ -272,7 +263,66 @@ async def _generate_ward_text(ward_id: int, tournament: dict, registrations: lis
                         detail=f"Discord Webhook error: {resp.status_code} - {resp.text}",
                     )
 
-    # 件数は申込レコード数から数える（ブロック数はヘッダーの有無で区ごとに変わるため）
+    if tournament.get("classification") == 1:
+        summary = f"{len(texts)}チーム分の申込テキストをDiscordに送信しました（{sent}メッセージ）"
+    else:
+        summary = f"{len(enriched)}ペア分の申込テキストをDiscordに送信しました（{sent}メッセージ）"
+
+    return ExcelGenerationResponse(
+        success=True,
+        tournament_id=tournament.get("tournament_id"),
+        tournament_name=tournament_name,
+        generated_files={"sumida_text": summary},
+    )
+
+
+async def _generate_bunkyo_text(tournament: dict, registrations: list) -> "ExcelGenerationResponse":
+    """文京区: 申込書テキストを生成してDiscordチャンネルへ送信
+
+    墨田区の処理には手を入れないため、共通化せず独立した関数にしている。
+    """
+    tournament_name = tournament.get("tournament_name")
+
+    enriched = []
+    for reg in registrations:
+        members = await _build_team_members(reg)
+        if members:
+            enriched.append({**reg, "members": members})
+
+    if not enriched:
+        return ExcelGenerationResponse(
+            success=False,
+            tournament_id=tournament.get("tournament_id"),
+            tournament_name=tournament_name,
+            error="No valid player data found for registrations",
+        )
+
+    service = BunkyoTextService()
+    texts = service.build_texts(tournament, enriched)
+
+    # 文京区のWebhookへ送信（申込通知と同じチャンネル）。未設定時はデフォルトWebhookにフォールバック
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL_BUNKYO") or os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        return ExcelGenerationResponse(
+            success=False,
+            tournament_id=tournament.get("tournament_id"),
+            tournament_name=tournament_name,
+            error="文京区のDiscord Webhook（DISCORD_WEBHOOK_URL_BUNKYO）が設定されていません",
+        )
+
+    sent = 0
+    async with httpx.AsyncClient() as client:
+        for text in texts:
+            for chunk in _split_for_discord(text):
+                resp = await client.post(webhook_url, json={"content": chunk}, timeout=10.0)
+                if resp.status_code in (200, 204):
+                    sent += 1
+                else:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Discord Webhook error: {resp.status_code} - {resp.text}",
+                    )
+
     unit = "チーム" if tournament.get("classification") == 1 else "ペア"
     summary = f"{len(enriched)}{unit}分の申込テキストをDiscordに送信しました（{sent}メッセージ）"
 
@@ -280,7 +330,7 @@ async def _generate_ward_text(ward_id: int, tournament: dict, registrations: lis
         success=True,
         tournament_id=tournament.get("tournament_id"),
         tournament_name=tournament_name,
-        generated_files={"ward_text": summary},
+        generated_files={"bunkyo_text": summary},
     )
 
 # Discord Webhook URL（環境変数から取得）
@@ -439,9 +489,13 @@ async def generate_excel(request: ExcelGenerationRequest):
                 error="No registrations found for this tournament"
             )
 
-        # 墨田区・文京区はExcelではなくテキスト申込書を生成してDiscordへ送信
-        if ward_id in WARD_TEXT_SERVICES:
-            return await _generate_ward_text(ward_id, tournament, registrations)
+        # 墨田区はExcelではなくテキスト申込書を生成してDiscordへ送信
+        if ward_id == SUMIDA_WARD_ID:
+            return await _generate_sumida_text(tournament, registrations)
+
+        # 文京区も同様にテキスト申込書を生成してDiscordへ送信
+        if ward_id == BUNKYO_WARD_ID:
+            return await _generate_bunkyo_text(tournament, registrations)
 
         # 3. 選手情報を取得して申込データに結合
         enriched_registrations = await _enrich_registrations(registrations)
@@ -761,12 +815,10 @@ async def process_tournament_deadlines():
                     })
                     continue
 
-                # 墨田区・文京区はExcelではなくテキスト申込書を生成してDiscordへ送信する。
-                # 手動生成（generate_tournament_excel）と同じ分岐をここにも置く。
-                # 置かないと ExcelServiceFactory.create() が
-                # 「Ward ID N is not supported yet」で例外になる。
-                if ward_id in WARD_TEXT_SERVICES:
-                    text_response = await _generate_ward_text(ward_id, tournament, registrations)
+                # 文京区はExcelではなくテキスト申込書を生成して送信する
+                # （墨田区はここでは扱わない。従来どおりの挙動を維持する）
+                if ward_id == BUNKYO_WARD_ID:
+                    text_response = await _generate_bunkyo_text(tournament, registrations)
                     if text_response.success:
                         results.append({
                             "tournament_id": tournament_id,
@@ -774,7 +826,6 @@ async def process_tournament_deadlines():
                             "status": "success",
                             "file_urls": text_response.generated_files or {},
                         })
-                        # 成功してから処理済みにする（失敗時は兄弟レコードで再試行できる）
                         processed_groups.add(group_key)
                     else:
                         results.append({
