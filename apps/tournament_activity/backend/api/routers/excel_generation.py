@@ -761,6 +761,30 @@ async def process_tournament_deadlines():
                     })
                     continue
 
+                # 墨田区・文京区はExcelではなくテキスト申込書を生成してDiscordへ送信する。
+                # 手動生成（generate_tournament_excel）と同じ分岐をここにも置く。
+                # 置かないと ExcelServiceFactory.create() が
+                # 「Ward ID N is not supported yet」で例外になる。
+                if ward_id in WARD_TEXT_SERVICES:
+                    text_response = await _generate_ward_text(ward_id, tournament, registrations)
+                    if text_response.success:
+                        results.append({
+                            "tournament_id": tournament_id,
+                            "tournament_name": tournament_name,
+                            "status": "success",
+                            "file_urls": text_response.generated_files or {},
+                        })
+                        # 成功してから処理済みにする（失敗時は兄弟レコードで再試行できる）
+                        processed_groups.add(group_key)
+                    else:
+                        results.append({
+                            "tournament_id": tournament_id,
+                            "tournament_name": tournament_name,
+                            "status": "skipped",
+                            "reason": text_response.error or "Text application form not generated",
+                        })
+                    continue
+
                 # 選手情報を取得して申込データに結合
                 enriched_registrations = await _enrich_registrations(registrations)
 
