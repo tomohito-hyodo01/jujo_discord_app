@@ -121,8 +121,7 @@ class BunkyoTextService:
         """
         全申込分のテキストブロックをリストで生成
 
-        先頭に大会名のヘッダーブロックを1つ置き、以降を申込様式どおりの
-        「■種別」ブロックにする（Discordへ送るときにどの大会か分かるようにするため）。
+        出力は「■種別」ブロックだけにする。大会名などのヘッダーは付けない。
 
         Args:
             tournament: 大会情報（tournament_mst）
@@ -131,7 +130,7 @@ class BunkyoTextService:
         Returns:
             テキストブロックのリスト（Discordメッセージ単位）
         """
-        texts: List[str] = [f"【文京区 申込書】{tournament.get('tournament_name', '')}".rstrip()]
+        texts: List[str] = []
 
         if tournament.get("classification") == 1:
             # 団体戦: 1申込=1チームなので、チームごとにブロックを作る
