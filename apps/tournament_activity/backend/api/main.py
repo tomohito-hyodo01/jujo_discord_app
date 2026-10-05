@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from api.routers import players, tournaments, registrations, auth, session, available_tournaments, notification, oauth2, excel_generation, practice, app_logs, referee_training, events, sheets_import, comments, audit, game_scores, site_notices
+from api.routers import players, tournaments, registrations, auth, session, available_tournaments, notification, oauth2, excel_generation, practice, app_logs, referee_training, events, sheets_import, comments, audit, game_scores, site_notices, court_registration_expiry
 
 app = FastAPI(title="Tournament Activity API")
 
@@ -129,6 +129,7 @@ app.include_router(comments.router, prefix="/api", tags=["comments"])
 app.include_router(audit.router, prefix="/api", tags=["audit"])
 app.include_router(game_scores.router, prefix="/api", tags=["game_scores"])
 app.include_router(site_notices.router, prefix="/api", tags=["site_notices"])
+app.include_router(court_registration_expiry.router, prefix="/api", tags=["court_registration_expiry"])
 
 
 @app.get("/")
