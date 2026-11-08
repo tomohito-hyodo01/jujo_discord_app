@@ -111,6 +111,9 @@ interface EventPollModalProps {
   onChanged: () => Promise<void> | void
   /** 日程を決めたあと（作られたイベントのIDと、自分が参加者に入ったか） */
   onDecided: (eventId: number, iJoined: boolean) => void
+  /** Discord への通知（管理者のときだけ渡す） */
+  onNotify?: () => void
+  notified?: boolean
 }
 
 const infoRow = (label: string, value: string) => (
@@ -130,7 +133,7 @@ const choiceStyle = (selected: boolean, kind: 'yes' | 'no') => ({
 
 const cellBorder = { borderBottom: '1px solid #1e293b' }
 
-export function EventPollModal({ poll, myPlayerId, discordId, onClose, onChanged, onDecided }: EventPollModalProps) {
+export function EventPollModal({ poll, myPlayerId, discordId, onClose, onChanged, onDecided, onNotify, notified }: EventPollModalProps) {
   const [view, setView] = useState<'answer' | 'results'>('answer')
   const [draft, setDraft] = useState<Record<string, number>>({})
   const [saving, setSaving] = useState(false)
@@ -237,7 +240,17 @@ export function EventPollModal({ poll, myPlayerId, discordId, onClose, onChanged
             <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#f1f5f9', margin: 0 }}>{poll.title}</h3>
             <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 500, backgroundColor: '#2e1065', color: '#c4b5fd', border: '1px solid #6d28d9', flexShrink: 0 }}>日程アンケート</span>
           </div>
-          <button onClick={onClose} aria-label="閉じる" style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', backgroundColor: 'transparent', color: '#94a3b8', border: '1px solid #334155', cursor: 'pointer', flexShrink: 0 }}>✕</button>
+          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+            {onNotify && isOpen && (
+              <button onClick={onNotify} style={{
+                padding: '4px 10px', borderRadius: '5px', fontSize: '12px', cursor: 'pointer',
+                backgroundColor: notified ? '#1e293b' : '#0e4429',
+                color: notified ? '#94a3b8' : '#6ee7b7',
+                border: `1px solid ${notified ? '#334155' : '#16a34a'}`,
+              }}>{notified ? '通知済' : '通知'}</button>
+            )}
+            <button onClick={onClose} aria-label="閉じる" style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', backgroundColor: 'transparent', color: '#94a3b8', border: '1px solid #334155', cursor: 'pointer' }}>✕</button>
+          </div>
         </div>
 
         <div style={{ padding: '20px' }}>
