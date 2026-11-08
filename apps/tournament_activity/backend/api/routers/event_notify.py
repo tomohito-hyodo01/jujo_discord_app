@@ -5,8 +5,8 @@
 
 イベント詳細・日程アンケート画面の「通知」ボタンから呼ばれる（管理者のみ）。
 
-- 全体公開: 大会の登録通知と同じチャンネル（DISCORD_WEBHOOK_URL_TOURNAMENT_NOTIFY）に @everyone で投稿
-- メンバー限定: 招待メンバーへの DM か、チャンネルへの全体通知を選ぶ
+- 全員公開: 大会の登録通知と同じチャンネル（DISCORD_WEBHOOK_URL_TOURNAMENT_NOTIFY）に @everyone で投稿
+- 公開範囲を絞ったもの（会員区分・個人）: 対象の人全員への DM か、チャンネルへの全体通知を選ぶ
 
 送った記録は event_notifications に残し、画面の「通知済」表示に使う。
 同じものをもう一度送ることもできる（内容を変えたとき用）。
@@ -22,6 +22,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from api.audience import is_restricted, parse_levels
 from api.database import db
 from api.routers.events import _fix_time_fields
 
@@ -118,9 +119,9 @@ def _time_range(row: dict) -> Optional[str]:
 
 
 def build_event_message(event: dict, dm: bool) -> str:
-    """イベントのお知らせ。チャンネルは @everyone 付き、DM はメンバー限定の案内"""
+    """イベントのお知らせ。チャンネルは @everyone 付き、DM は公開範囲を絞ったものの案内"""
     lines = [] if dm else ['@everyone']
-    lines.append('📢 **イベントのお知らせ（メンバー限定）**' if dm else '📢 **イベントのお知らせ**')
+    lines.append('📢 **イベントのお知らせ（対象者限定）**' if dm else '📢 **イベントのお知らせ**')
     lines.append('')
     lines.append(f"**{event.get('title', '')}**")
     lines.append(f"- 日付: {_fmt_date(event.get('event_date'))}")
@@ -143,7 +144,7 @@ def build_event_message(event: dict, dm: bool) -> str:
 def build_poll_message(poll: dict, option_dates: list, dm: bool) -> str:
     """日程アンケートの回答のお願い"""
     lines = [] if dm else ['@everyone']
-    lines.append('📢 **日程アンケートのお願い（メンバー限定）**' if dm else '📢 **日程アンケートのお願い**')
+    lines.append('📢 **日程アンケートのお願い（対象者限定）**' if dm else '📢 **日程アンケートのお願い**')
     lines.append('')
     lines.append(f"**{poll.get('title', '')}**")
     lines.append(f"- 候補日: {'・'.join(_fmt_short_date(d) for d in option_dates)}")
@@ -229,21 +230,38 @@ async def _is_admin(discord_id: Optional[str]) -> bool:
     return role is not None and role <= 1
 
 
-async def _invited_discord_ids(invitation_table: str, key: str, target_id: int) -> tuple:
-    """招待メンバーの Discord ID（重複なし）と、ID が未登録の人数"""
-    sql = (f"SELECT p.discord_id FROM {invitation_table} i "
-           f"LEFT JOIN player_mst p ON p.player_id = i.player_id WHERE i.{key} = %s")
+async def _audience_discord_ids(visibility: Optional[str], invitation_table: str, key: str, target_id: int) -> tuple:
+    """DM の宛先（重複なし）と、個人で選んだのに Discord ID が未登録の人数
+
+    宛先 = 選んだ会員区分の人（player_mst.member_level）＋ 個人で選んだ人（招待テーブル）。
+    会員区分の人は Discord ID がある人だけを数える（代理登録の選手などは対象外）。
+    """
+    levels = [lv for lv in parse_levels(visibility)]
+    ids, missing = [], 0
     async with db.pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cursor:
-            await cursor.execute(sql, (target_id,))
-            rows = await cursor.fetchall()
-    ids, missing = [], 0
-    for r in rows:
-        did = (r.get('discord_id') or '').strip()
-        if not did:
-            missing += 1
-        elif did not in ids:
-            ids.append(did)
+            if levels:
+                placeholders = ', '.join(['%s'] * len(levels))
+                await cursor.execute(
+                    f"SELECT discord_id FROM player_mst WHERE member_level IN ({placeholders}) "
+                    f"AND discord_id IS NOT NULL AND discord_id <> '' ORDER BY player_id",
+                    levels,
+                )
+                for r in await cursor.fetchall():
+                    did = (r.get('discord_id') or '').strip()
+                    if did and did not in ids:
+                        ids.append(did)
+            await cursor.execute(
+                f"SELECT p.discord_id FROM {invitation_table} i "
+                f"LEFT JOIN player_mst p ON p.player_id = i.player_id WHERE i.{key} = %s",
+                (target_id,),
+            )
+            for r in await cursor.fetchall():
+                did = (r.get('discord_id') or '').strip()
+                if not did:
+                    missing += 1
+                elif did not in ids:
+                    ids.append(did)
     return ids, missing
 
 
@@ -267,16 +285,16 @@ def _now_jst() -> datetime:
 async def _notify(target_type: str, target_id: int, visibility: Optional[str], body: NotifyRequest,
                   build, invitation_table: str, invitation_key: str) -> dict:
     method = body.method
-    if method == METHOD_DM and visibility != 'invited':
-        raise HTTPException(status_code=400, detail='全体公開はチャンネルへの通知だけです')
+    if method == METHOD_DM and not is_restricted(visibility):
+        raise HTTPException(status_code=400, detail='全員公開はチャンネルへの通知だけです')
 
     if method == METHOD_CHANNEL:
         await _post_channel(build(False))
         sent, failed = 1, 0
     else:
-        ids, missing = await _invited_discord_ids(invitation_table, invitation_key, target_id)
+        ids, missing = await _audience_discord_ids(visibility, invitation_table, invitation_key, target_id)
         if not ids and not missing:
-            raise HTTPException(status_code=400, detail='招待メンバーがいません')
+            raise HTTPException(status_code=400, detail='送る相手がいません')
         sent, failed = await _send_dms(ids, build(True)) if ids else (0, 0)
         failed += missing
 

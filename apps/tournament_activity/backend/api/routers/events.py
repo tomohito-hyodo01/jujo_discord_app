@@ -10,9 +10,18 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from datetime import timedelta
+from api.audience import is_restricted, normalize_visibility
 from api.database import db
 
 router = APIRouter()
+
+
+def _visibility_or_400(value: Optional[str]) -> str:
+    """公開範囲を保存する形にそろえる（全員=public / 個人だけ=invited / 会員区分=members:0,1 など）"""
+    normalized = normalize_visibility(value)
+    if normalized is None:
+        raise HTTPException(status_code=400, detail="公開範囲の指定が正しくありません")
+    return normalized
 
 
 def _fix_time_fields(row: dict) -> dict:
@@ -97,8 +106,8 @@ async def get_events():
                     names.append(p_result['data'][0]['player_name'])
             event['participant_names'] = names
 
-            # 招待者リスト
-            if event.get('visibility') == 'invited':
+            # 個人で選んだ人（メンバー限定・会員区分＋個人のとき）
+            if is_restricted(event.get('visibility')):
                 inv_result = await db.execute_query(
                     'event_invitations', operation='select',
                     filters={'event_id': event['id']}
@@ -119,10 +128,13 @@ async def create_event(event: EventCreate):
     """イベントを作成"""
     try:
         data = event.model_dump(exclude_none=True)
+        data['visibility'] = _visibility_or_400(event.visibility)
         result = await db.execute_query('events', operation='insert', data=data)
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
         return result.get('data', [{}])[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -137,6 +149,8 @@ async def update_event(event_id: int, event: EventUpdate):
             if v is None:
                 continue
             update_data[k] = v
+        if 'visibility' in update_data:
+            update_data['visibility'] = _visibility_or_400(update_data['visibility'])
         if not update_data:
             return {"success": True, "message": "変更なし"}
 
@@ -147,6 +161,8 @@ async def update_event(event_id: int, event: EventUpdate):
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
         return {"success": True, "message": "イベントを更新しました"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

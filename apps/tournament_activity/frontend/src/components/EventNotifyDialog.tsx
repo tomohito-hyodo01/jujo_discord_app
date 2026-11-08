@@ -1,10 +1,11 @@
 import { useState } from 'react'
+import { isRestricted } from '../utils/audience'
 
 /**
  * イベント・日程アンケートを Discord に通知するダイアログ（管理者のみ）
  *
- * - 全体公開: 大会の通知と同じチャンネルに @everyone で投稿
- * - メンバー限定: 招待メンバーへの DM（初期）か、チャンネルへの全体通知を選ぶ
+ * - 全員公開: 大会の通知と同じチャンネルに @everyone で投稿
+ * - 見せる範囲を絞ったもの（会員区分・個人）: 対象の人全員への DM（初期）か、チャンネルへの全体通知を選ぶ
  */
 
 export type NotifyMethod = 'channel' | 'dm'
@@ -19,7 +20,7 @@ const formatNotifiedAt = (value: string) => {
 
 /** 前回の通知の説明（例: 11/8(日) 10:00・招待メンバーに DM 8人） */
 export const describeNotification = (n: any) => {
-  const how = n.method === 'dm' ? `招待メンバーに DM ${n.sent_count}人` : 'チャンネルに全体通知'
+  const how = n.method === 'dm' ? `DM ${n.sent_count}人` : 'チャンネルに全体通知'
   return `${formatNotifiedAt(n.notified_at)}・${how}`
 }
 
@@ -27,6 +28,8 @@ interface EventNotifyDialogProps {
   kind: 'event' | 'poll'
   title: string
   visibility: string
+  /** 見える人の説明（例: 正会員 ＋ 個人2名） */
+  audience: string
   last: any | null
   onSend: (method: NotifyMethod) => Promise<{ ok: boolean; message: string }>
   onClose: () => void
@@ -39,9 +42,9 @@ const optionStyle = (selected: boolean) => ({
   display: 'flex', flexDirection: 'column' as const, gap: '4px',
 })
 
-export default function EventNotifyDialog({ kind, title, visibility, last, onSend, onClose }: EventNotifyDialogProps) {
-  const invited = visibility === 'invited'
-  const [method, setMethod] = useState<NotifyMethod>(invited ? 'dm' : 'channel')
+export default function EventNotifyDialog({ kind, title, visibility, audience, last, onSend, onClose }: EventNotifyDialogProps) {
+  const restricted = isRestricted(visibility)
+  const [method, setMethod] = useState<NotifyMethod>(restricted ? 'dm' : 'channel')
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
 
@@ -82,18 +85,18 @@ export default function EventNotifyDialog({ kind, title, visibility, last, onSen
             </div>
           )}
 
-          {invited ? (
+          {restricted ? (
             <div role="radiogroup" aria-label="送り方" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <button type="button" role="radio" aria-checked={method === 'dm'} onClick={() => setMethod('dm')} disabled={sending || done} style={optionStyle(method === 'dm')}>
-                <span style={{ fontSize: '14px', fontWeight: 600, color: '#f1f5f9' }}>招待メンバーに DM</span>
-                <span style={{ fontSize: '12px', color: '#94a3b8' }}>招待メンバー一人ひとりに届きます</span>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#f1f5f9' }}>対象の人に DM</span>
+                <span style={{ fontSize: '12px', color: '#94a3b8' }}>{audience}の一人ひとりに届きます</span>
               </button>
               <button type="button" role="radio" aria-checked={method === 'channel'} onClick={() => setMethod('channel')} disabled={sending || done} style={optionStyle(method === 'channel')}>
                 <span style={{ fontSize: '14px', fontWeight: 600, color: '#f1f5f9' }}>チャンネルに全体通知</span>
                 <span style={{ fontSize: '12px', color: '#94a3b8' }}>大会の通知と同じチャンネルに @everyone で投稿します</span>
               </button>
               {method === 'channel' && (
-                <p style={{ margin: 0, fontSize: '12px', color: '#fdba74' }}>メンバー限定ですが、チャンネルの全員に見えます</p>
+                <p style={{ margin: 0, fontSize: '12px', color: '#fdba74' }}>見せる範囲を絞っていますが、チャンネルの全員に見えます</p>
               )}
             </div>
           ) : (
