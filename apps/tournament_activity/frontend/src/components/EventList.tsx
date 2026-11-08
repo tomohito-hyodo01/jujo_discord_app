@@ -5,6 +5,7 @@ import { deadlineTimeSuffix, isTournamentDeadlinePassed } from '../utils/deadlin
 import CommentSection from './CommentSection'
 import PlayerSelect from './PlayerSelect'
 import PlayerMultiSelect from './PlayerMultiSelect'
+import { EventPollSection, EventPollModal } from './EventDatePoll'
 
 interface EventListProps {
   discordId: string
@@ -72,6 +73,11 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const [editEventForm, setEditEventForm] = useState({ title: '', event_date: '', start_time: '', end_time: '', location: '', deadline_date: '', max_participants: '', visibility: 'public' })
   const [editEventInvitedIds, setEditEventInvitedIds] = useState<number[]>([])
   const [savingEvent, setSavingEvent] = useState(false)
+  // 日程アンケート
+  const [eventPolls, setEventPolls] = useState<any[]>([])
+  const [selectedPollId, setSelectedPollId] = useState<number | null>(null)
+  const [createMode, setCreateMode] = useState<'date' | 'poll'>('date')
+  const [newPollDates, setNewPollDates] = useState<string[]>(['', ''])
 
   useEffect(() => {
     const loadData = async () => {
@@ -169,6 +175,10 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 }))
                 setJoinedEventIds(evJoined)
               }
+
+              // 日程アンケート
+              const pollRes = await fetch(`${apiUrl}/api/event-polls`)
+              if (pollRes.ok) setEventPolls(await pollRes.json())
             }
           }
         }
@@ -255,6 +265,66 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
       } else { alert('イベント作成に失敗しました') }
     } catch { alert('通信エラー') }
     finally { setCreatingEvent(false) }
+  }
+
+  // 日程アンケート
+  const reloadEventPolls = async () => {
+    try {
+      const res = await fetch(`${apiUrlRef}/api/event-polls`)
+      if (res.ok) setEventPolls(await res.json())
+    } catch {}
+  }
+
+  const handleCreatePoll = async () => {
+    const dates = Array.from(new Set(newPollDates.filter(d => d)))
+    if (!newEvent.title) { alert('タイトルは必須です'); return }
+    if (dates.length < 2) { alert('候補日を2日以上入れてください'); return }
+    setCreatingEvent(true)
+    try {
+      const res = await fetch(`${apiUrlRef}/api/event-polls`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newEvent.title,
+          option_dates: dates,
+          start_time: newEvent.start_time || null,
+          end_time: newEvent.end_time || null,
+          location: newEvent.location || null,
+          deadline_date: newEvent.deadline_date || null,
+          max_participants: newEvent.max_participants ? parseInt(newEvent.max_participants) : null,
+          visibility: newEvent.visibility,
+          created_by: discordId,
+          invited_player_ids: newEvent.visibility === 'invited' ? newEventInvitedIds : [],
+        }),
+      })
+      if (res.ok) {
+        setShowCreateEvent(false)
+        setNewEvent({ title: '', event_date: '', start_time: '', end_time: '', location: '', deadline_date: '', max_participants: '', visibility: 'public' })
+        setNewEventInvitedIds([])
+        setNewPollDates(['', ''])
+        setCreateMode('date')
+        await reloadEventPolls()
+      } else {
+        const err = await res.json().catch(() => null)
+        alert(err?.detail || 'アンケート作成に失敗しました')
+      }
+    } catch { alert('通信エラー') }
+    finally { setCreatingEvent(false) }
+  }
+
+  // 日程が決まったら、できたイベントの詳細を開く
+  const handlePollDecided = async (eventId: number, iJoined: boolean) => {
+    setSelectedPollId(null)
+    await reloadEventPolls()
+    try {
+      const evRes = await fetch(`${apiUrlRef}/api/events`)
+      if (evRes.ok) {
+        const evData = await evRes.json()
+        setCustomEvents(evData)
+        if (iJoined) setJoinedEventIds(prev => new Set(prev).add(eventId))
+        const created = evData.find((e: any) => e.id === eventId)
+        if (created) openEventDetail(created)
+      }
+    } catch {}
   }
 
   const openEditEvent = () => {
@@ -611,6 +681,18 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     () => customEvents.filter(canViewByVisibility),
     [customEvents, myPlayerId, myMemberLevel]
   )
+  // 日程アンケート: 受付中のものだけ一覧の上に出す（日程が決まるまでカレンダーやイベント一覧には出さない）
+  // 作成者は招待メンバーに自分を入れていなくても見える（日程を決められなくなるため）
+  const openEventPolls = useMemo(
+    () => eventPolls.filter(p => p.status === 'open' && (p.created_by === discordId || canViewByVisibility(p))),
+    [eventPolls, myPlayerId, myMemberLevel, discordId]
+  )
+  const selectedPoll = eventPolls.find(p => p.id === selectedPollId) || null
+  // 決定済みアンケートから作られたイベント（詳細に「日程アンケートで決まりました」と出す）
+  const pollDecidedEventIds = useMemo(
+    () => new Set(eventPolls.filter(p => p.status === 'decided' && p.decided_event_id).map(p => p.decided_event_id)),
+    [eventPolls]
+  )
 
   // 大会と練習を統合して日付順にソート
   const upcomingPractices = useMemo(() => {
@@ -738,6 +820,11 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
         />
       ) : (
       <>
+        {/* 日程アンケート（受付中） */}
+        {!guestMode && (
+          <EventPollSection polls={openEventPolls} myPlayerId={myPlayerId} onOpen={p => setSelectedPollId(p.id)} />
+        )}
+
         {/* フィルター */}
         {!guestMode && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1506,7 +1593,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
       )}
 
       {/* フローティング追加ボタン */}
-      {!guestMode && myAdminRole <= 1 && !showCreateEvent && !selectedEvent && !selectedPractice && !selectedTournament && (
+      {!guestMode && myAdminRole <= 1 && !showCreateEvent && !selectedEvent && !selectedPractice && !selectedTournament && !selectedPoll && (
         <button onClick={() => setShowCreateEvent(true)} style={{
           position: 'fixed', bottom: '24px', right: '24px', zIndex: 100,
           width: '56px', height: '56px', borderRadius: '50%',
@@ -1543,11 +1630,48 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 <input type="text" value={newEvent.title} onChange={e => setNewEvent({ ...newEvent, title: e.target.value })}
                   placeholder="例: 春の合宿" required style={{ width: '100%', padding: '10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }} />
               </div>
+              {/* 日程の決め方: 開催日を決めて作る / 候補日ごとに ○× で答えてもらう */}
               <div>
-                <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>開催日 *</label>
-                <input type="date" value={newEvent.event_date} onChange={e => setNewEvent({ ...newEvent, event_date: e.target.value })}
-                  required style={{ width: '100%', padding: '10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }} />
+                <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>日程の決め方</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', borderRadius: '6px', border: '1px solid #334155', overflow: 'hidden' }}>
+                  {([['date', '開催日を決める'], ['poll', '日程アンケート']] as const).map(([mode, label]) => (
+                    <button key={mode} type="button" aria-pressed={createMode === mode} onClick={() => setCreateMode(mode)} style={{
+                      height: '44px', fontSize: '13px', border: 'none', cursor: 'pointer',
+                      fontWeight: createMode === mode ? 600 : 400,
+                      backgroundColor: createMode === mode ? '#1e3a8a' : '#0f172a',
+                      color: createMode === mode ? '#bfdbfe' : '#94a3b8',
+                    }}>{label}</button>
+                  ))}
+                </div>
               </div>
+              {createMode === 'date' ? (
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>開催日 *</label>
+                  <input type="date" value={newEvent.event_date} onChange={e => setNewEvent({ ...newEvent, event_date: e.target.value })}
+                    required style={{ width: '100%', padding: '10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }} />
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>候補日 *（2日以上）</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {newPollDates.map((d, i) => (
+                      <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input type="date" aria-label={`候補日${i + 1}`} value={d}
+                          onChange={e => setNewPollDates(prev => prev.map((x, j) => j === i ? e.target.value : x))}
+                          style={{ flex: 1, minWidth: 0, height: '44px', padding: '0 10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }} />
+                        <button type="button" aria-label={`候補日${i + 1}を削除`} disabled={newPollDates.length <= 2}
+                          onClick={() => setNewPollDates(prev => prev.filter((_, j) => j !== i))}
+                          style={{ width: '44px', height: '44px', flexShrink: 0, borderRadius: '6px', backgroundColor: 'transparent', color: '#94a3b8', border: '1px solid #334155', fontSize: '14px', cursor: newPollDates.length <= 2 ? 'not-allowed' : 'pointer', opacity: newPollDates.length <= 2 ? 0.4 : 1 }}>✕</button>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setNewPollDates(prev => [...prev, ''])} style={{
+                      height: '44px', borderRadius: '6px', backgroundColor: 'transparent', color: '#93c5fd',
+                      border: '1px dashed #334155', fontSize: '13px', cursor: 'pointer',
+                    }}>＋ 候補日を追加</button>
+                  </div>
+                  <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#94a3b8' }}>メンバーは候補日ごとに ○ か × で答えます</p>
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>開始</label>
@@ -1566,7 +1690,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   placeholder="例: 舎人公園" style={{ width: '100%', padding: '10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>参加締切</label>
+                <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>{createMode === 'poll' ? '回答締切' : '参加締切'}</label>
                 <input type="datetime-local" value={newEvent.deadline_date} onChange={e => setNewEvent({ ...newEvent, deadline_date: e.target.value })}
                   style={{ width: '100%', padding: '10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }} />
               </div>
@@ -1591,13 +1715,25 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   <PlayerMultiSelect players={players} selectedIds={newEventInvitedIds} onChange={setNewEventInvitedIds} maxHeight="200px" />
                 </div>
               )}
-              <button onClick={handleCreateEvent} disabled={creatingEvent} style={{
+              <button onClick={createMode === 'poll' ? handleCreatePoll : handleCreateEvent} disabled={creatingEvent} style={{
                 padding: '12px', borderRadius: '6px', backgroundColor: '#3b82f6', color: '#fff',
                 border: 'none', fontSize: '14px', fontWeight: '600', cursor: creatingEvent ? 'not-allowed' : 'pointer',
-              }}>{creatingEvent ? '作成中...' : 'イベントを作成'}</button>
+              }}>{creatingEvent ? '作成中...' : createMode === 'poll' ? 'アンケートを作成' : 'イベントを作成'}</button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* 日程アンケート（回答・みんなの回答・日程の決定） */}
+      {selectedPoll && (
+        <EventPollModal
+          poll={selectedPoll}
+          myPlayerId={myPlayerId}
+          discordId={discordId}
+          onClose={() => setSelectedPollId(null)}
+          onChanged={reloadEventPolls}
+          onDecided={handlePollDecided}
+        />
       )}
 
       {/* イベント詳細/編集モーダル */}
@@ -1671,6 +1807,11 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 </div>
               ) : (
                 <>
+                  {pollDecidedEventIds.has(selectedEvent.id) && (
+                    <div style={{ padding: '10px 12px', marginBottom: '12px', borderRadius: '8px', backgroundColor: '#052e16', border: '1px solid #16a34a', fontSize: '13px', color: '#86efac' }}>
+                      日程アンケートで {formatDate(selectedEvent.event_date)} に決まりました
+                    </div>
+                  )}
                   {[
                     ['日付', formatDate(selectedEvent.event_date)],
                     ...(selectedEvent.start_time ? [['時間', `${selectedEvent.start_time}${selectedEvent.end_time ? ` - ${selectedEvent.end_time}` : ''}`]] : []),
