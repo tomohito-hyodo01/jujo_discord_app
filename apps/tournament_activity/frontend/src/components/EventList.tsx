@@ -4,9 +4,10 @@ import { filterPairCandidates } from '../utils/playerFilter'
 import { deadlineTimeSuffix, isTournamentDeadlinePassed } from '../utils/deadline'
 import CommentSection from './CommentSection'
 import PlayerSelect from './PlayerSelect'
-import PlayerMultiSelect from './PlayerMultiSelect'
 import { EventPollSection, EventPollModal } from './EventDatePoll'
 import EventNotifyDialog, { type NotifyMethod } from './EventNotifyDialog'
+import AudiencePicker from './AudiencePicker'
+import { canViewAudience, describeAudience, isRestricted, parseLevels } from '../utils/audience'
 
 interface EventListProps {
   discordId: string
@@ -244,6 +245,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
   const handleCreateEvent = async () => {
     if (!newEvent.title || !newEvent.event_date) { alert('タイトルと開催日は必須です'); return }
+    if (hasNoAudience(newEvent.visibility, newEventInvitedIds)) { alert('見せる範囲を選んでください（会員区分か個人）'); return }
     setCreatingEvent(true)
     try {
       const data: any = { ...newEvent, created_by: discordId }
@@ -257,8 +259,8 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
         body: JSON.stringify(data),
       })
       if (res.ok) {
-        // invited の場合、招待者を保存
-        if (newEvent.visibility === 'invited') {
+        // 見せる範囲を絞っている場合、個人で選んだ人を保存
+        if (isRestricted(newEvent.visibility)) {
           const created = await res.json()
           if (created?.id) {
             await fetch(`${apiUrlRef}/api/events/${created.id}/invitations`, {
@@ -289,6 +291,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     const dates = Array.from(new Set(newPollDates.filter(d => d)))
     if (!newEvent.title) { alert('タイトルは必須です'); return }
     if (dates.length < 2) { alert('候補日を2日以上入れてください'); return }
+    if (hasNoAudience(newEvent.visibility, newEventInvitedIds)) { alert('見せる範囲を選んでください（会員区分か個人）'); return }
     setCreatingEvent(true)
     try {
       const res = await fetch(`${apiUrlRef}/api/event-polls`, {
@@ -303,7 +306,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           max_participants: newEvent.max_participants ? parseInt(newEvent.max_participants) : null,
           visibility: newEvent.visibility,
           created_by: discordId,
-          invited_player_ids: newEvent.visibility === 'invited' ? newEventInvitedIds : [],
+          invited_player_ids: isRestricted(newEvent.visibility) ? newEventInvitedIds : [],
         }),
       })
       if (res.ok) {
@@ -385,6 +388,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
   const handleSaveEvent = async () => {
     if (!selectedEvent) return
+    if (hasNoAudience(editEventForm.visibility, editEventInvitedIds)) { alert('見せる範囲を選んでください（会員区分か個人）'); return }
     setSavingEvent(true)
     try {
       const data: any = { ...editEventForm }
@@ -399,7 +403,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
         body: JSON.stringify(data),
       })
 
-      if (data.visibility === 'invited') {
+      if (isRestricted(data.visibility)) {
         await fetch(`${apiUrlRef}/api/events/${selectedEvent.id}/invitations`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ player_ids: editEventInvitedIds }),
@@ -702,15 +706,13 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     return new Set(registrations.map(r => r.tournament_id))
   }, [registrations])
 
-  // 公開設定に応じて閲覧可否を判定
-  const canViewByVisibility = (item: any): boolean => {
-    const v = item.visibility
-    if (!v || v === 'public') return true
-    if (v === 'members_all') return myMemberLevel === 0 || myMemberLevel === 1
-    if (v === 'members_regular') return myMemberLevel === 0
-    if (v === 'invited') return (item.invited_player_ids || []).includes(myPlayerId)
-    return true
-  }
+  // 公開設定に応じて閲覧可否を判定（練習・イベント・日程アンケート共通。会員区分＋個人）
+  const canViewByVisibility = (item: any): boolean =>
+    canViewAudience(item.visibility, item.invited_player_ids, myMemberLevel, myPlayerId)
+
+  // 見せる相手が誰もいない（会員区分も個人も選んでいない）
+  const hasNoAudience = (visibility: string, invitedIds: number[]) =>
+    isRestricted(visibility) && parseLevels(visibility).length === 0 && invitedIds.length === 0
 
   // カレンダー用: 日付制限なしで公開設定のみ適用
   const visiblePractices = useMemo(
@@ -778,12 +780,13 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     if (eventFilter === 'all' || eventFilter === 'referee') {
       upcomingRefTrainings.forEach(r => items.push({ kind: 'referee', date: r.training_date, data: r }))
     }
-    if (eventFilter === 'all') {
+    // ゲストは絞り込みボタンが無く練習だけの表示だが、ゲストに見せるイベントは出す
+    if (eventFilter === 'all' || guestMode) {
       upcomingCustomEvents.forEach(e => items.push({ kind: 'custom_event', date: e.event_date, data: e }))
     }
     items.sort((a, b) => a.date.localeCompare(b.date))
     return items
-  }, [tournaments, upcomingPractices, upcomingRefTrainings, upcomingCustomEvents, eventFilter])
+  }, [tournaments, upcomingPractices, upcomingRefTrainings, upcomingCustomEvents, eventFilter, guestMode])
 
   // 締切間近の大会（3日以内、受付中かつ未申込のみ）
   // 参加制限中のユーザーには申込導線を出さない（押しても制限される）
@@ -869,10 +872,8 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
         />
       ) : (
       <>
-        {/* 日程アンケート（受付中） */}
-        {!guestMode && (
-          <EventPollSection polls={openEventPolls} myPlayerId={myPlayerId} onOpen={p => setSelectedPollId(p.id)} />
-        )}
+        {/* 日程アンケート（受付中）。ゲストにも、ゲスト向けのものは出す */}
+        <EventPollSection polls={openEventPolls} myPlayerId={myPlayerId} onOpen={p => setSelectedPollId(p.id)} />
 
         {/* フィルター */}
         {!guestMode && (
@@ -1749,21 +1750,13 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   placeholder="未設定の場合は無制限" min="1"
                   style={{ width: '100%', padding: '10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }} />
               </div>
-              {/* 公開設定 */}
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>公開設定</label>
-                <select value={newEvent.visibility} onChange={e => setNewEvent({ ...newEvent, visibility: e.target.value })}
-                  style={{ width: '100%', padding: '10px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }}>
-                  <option value="public">全体公開</option>
-                  <option value="invited">メンバー限定</option>
-                </select>
-              </div>
-              {newEvent.visibility === 'invited' && (
-                <div>
-                  <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>招待メンバー({newEventInvitedIds.length}名)</label>
-                  <PlayerMultiSelect players={players} selectedIds={newEventInvitedIds} onChange={setNewEventInvitedIds} maxHeight="200px" />
-                </div>
-              )}
+              {/* 見せる範囲（正会員・準会員・ゲスト＋個人） */}
+              <AudiencePicker
+                visibility={newEvent.visibility}
+                invitedIds={newEventInvitedIds}
+                players={players}
+                onChange={(v, ids) => { setNewEvent({ ...newEvent, visibility: v }); setNewEventInvitedIds(ids) }}
+              />
               <button onClick={createMode === 'poll' ? handleCreatePoll : handleCreateEvent} disabled={creatingEvent} style={{
                 padding: '12px', borderRadius: '6px', backgroundColor: '#3b82f6', color: '#fff',
                 border: 'none', fontSize: '14px', fontWeight: '600', cursor: creatingEvent ? 'not-allowed' : 'pointer',
@@ -1794,6 +1787,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           kind={notifyTarget.kind}
           title={notifyTargetItem.title}
           visibility={notifyTargetItem.visibility || 'public'}
+          audience={describeAudience(notifyTargetItem.visibility, (notifyTargetItem.invited_player_ids || []).length)}
           last={lastNotifications.get(`${notifyTarget.kind}:${notifyTarget.id}`) || null}
           onSend={handleSendNotify}
           onClose={() => setNotifyTarget(null)}
@@ -1859,17 +1853,13 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                   <div><label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>参加人数上限</label>
                     <input type="number" value={editEventForm.max_participants} onChange={e => setEditEventForm({ ...editEventForm, max_participants: e.target.value })}
                       placeholder="無制限" min="1" style={{ width: '100%', padding: '8px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }} /></div>
-                  <div><label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>公開設定</label>
-                    <select value={editEventForm.visibility} onChange={e => setEditEventForm({ ...editEventForm, visibility: e.target.value })}
-                      style={{ width: '100%', padding: '8px', borderRadius: '6px', backgroundColor: '#0c1220', color: '#e2e8f0', border: '1px solid #1e293b', fontSize: '14px', boxSizing: 'border-box' }}>
-                      <option value="public">全体公開</option><option value="invited">メンバー限定</option>
-                    </select></div>
-                  {editEventForm.visibility === 'invited' && (
-                    <div>
-                      <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>招待メンバー({editEventInvitedIds.length}名)</label>
-                      <PlayerMultiSelect players={players} selectedIds={editEventInvitedIds} onChange={setEditEventInvitedIds} maxHeight="150px" />
-                    </div>
-                  )}
+                  <AudiencePicker
+                    visibility={editEventForm.visibility}
+                    invitedIds={editEventInvitedIds}
+                    players={players}
+                    maxHeight="150px"
+                    onChange={(v, ids) => { setEditEventForm({ ...editEventForm, visibility: v }); setEditEventInvitedIds(ids) }}
+                  />
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button onClick={handleSaveEvent} disabled={savingEvent} style={{ flex: 1, padding: '10px', borderRadius: '6px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
                       {savingEvent ? '保存中...' : '保存'}</button>

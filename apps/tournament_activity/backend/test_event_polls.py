@@ -181,7 +181,11 @@ check("空欄は NULL", _row['end_time'], None)
 check("締切は DATETIME の形", _row['deadline_date'], '2026-11-20 23:59')
 check("状態は受付中", _row['status'], 'open')
 check("公開設定はそのまま", _row['visibility'], 'invited')
-check("知らない公開設定は全体公開", E._poll_row(E.PollCreate(title='a', option_dates=[], visibility='x'))['visibility'],
+check("読めない公開範囲は 400", _status_of_sync(lambda: E._poll_row(E.PollCreate(title='a', option_dates=[], visibility='x')))[0],
+      400)
+check("会員区分はそろえて保存", E._poll_row(E.PollCreate(title='a', option_dates=[], visibility='members:1,0,1'))['visibility'],
+      'members:0,1')
+check("全区分なら全員公開", E._poll_row(E.PollCreate(title='a', option_dates=[], visibility='members:0,1,2'))['visibility'],
       'public')
 check("タイトル空は不可", _status_of_sync(lambda: E._poll_row(E.PollCreate(title='  ', option_dates=[])))[0], 400)
 
@@ -259,6 +263,9 @@ check("招待者（重複なし）", _cur.executed[2], ("INSERT INTO event_date_
 _pub = E.PollCreate(title='忘年会', option_dates=['2026-12-12', '2026-12-19'], invited_player_ids=[1])
 _res, _cur, _conn = _with_db(lambda sql, p: ([], 1, 8), lambda: E.create_event_poll(_pub))
 check("全体公開なら招待者は保存しない", len(_cur.executed), 2)
+_lv = E.PollCreate(title='忘年会', option_dates=['2026-12-12', '2026-12-19'], visibility='members:0', invited_player_ids=[9])
+_res, _cur, _conn = _with_db(lambda sql, p: ([], 1, 10), lambda: E.create_event_poll(_lv))
+check("会員区分＋個人なら個人も保存", _cur.executed[2][1], [(10, 9)])
 
 
 class _BoomCursor(_FakeCursor):
@@ -368,6 +375,10 @@ check("アンケートを決定済みにする", _cur.executed[5],
 _res, _cur, _conn = _with_db(_decide_db(poll={**_poll_row, 'visibility': 'public'}),
                              lambda: E.decide_event_poll(1, E.PollDecide(option_id=11, actor_discord_id='111')))
 check("全体公開なら招待者は引き継がない", any('event_invitations' in s for s in _sqls(_cur)), False)
+_res, _cur, _conn = _with_db(_decide_db(poll={**_poll_row, 'visibility': 'members:0'}),
+                             lambda: E.decide_event_poll(1, E.PollDecide(option_id=11, actor_discord_id='111')))
+check("会員区分＋個人なら公開範囲と個人を引き継ぐ",
+      (_cur.executed[2][1][5], any(s.startswith('INSERT INTO event_invitations') for s in _sqls(_cur))), ('members:0', True))
 
 _res, _cur, _conn = _with_db(_decide_db(), lambda: E.decide_event_poll(1, E.PollDecide(option_id=11, actor_discord_id='222')))
 check("作成者以外は 403・何も作らず巻き戻す",

@@ -19,6 +19,7 @@ import aiomysql
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from api.audience import is_restricted, normalize_visibility
 from api.database import db
 from api.routers.events import _fix_time_fields
 
@@ -170,7 +171,9 @@ def _poll_row(body: PollCreate) -> dict:
     title = (body.title or '').strip()
     if not title:
         raise HTTPException(status_code=400, detail="タイトルは必須です")
-    visibility = body.visibility if body.visibility in ('public', 'invited') else 'public'
+    visibility = normalize_visibility(body.visibility)
+    if visibility is None:
+        raise HTTPException(status_code=400, detail="公開範囲の指定が正しくありません")
     return {
         'title': title,
         'start_time': _blank_to_none(body.start_time),
@@ -207,7 +210,7 @@ def _assemble(polls: list, options: list, answers: list, invitations: list) -> l
 
     - options: 候補日（日付順）と ○ の数
     - respondents: 回答した人（最初に回答した順）と候補日ごとの ○ / ×
-    - invited_player_ids: メンバー限定のときの招待者
+    - invited_player_ids: 個人で選んだ人（メンバー限定・会員区分＋個人のとき）
     """
     by_poll = {}
     result = []
@@ -293,7 +296,7 @@ async def create_event_poll(body: PollCreate):
     """日程アンケートを作る（候補日・招待者もまとめて保存）"""
     row = _poll_row(body)
     option_dates = _normalize_option_dates(body.option_dates)
-    invited = sorted(set(body.invited_player_ids)) if row['visibility'] == 'invited' else []
+    invited = sorted(set(body.invited_player_ids)) if is_restricted(row['visibility']) else []
     try:
         await _ensure_tables()
         async with db.pool.acquire() as conn:
@@ -403,7 +406,7 @@ async def decide_event_poll(poll_id: int, body: PollDecide):
                     )
                     participant_count = cursor.rowcount
 
-                    if poll.get('visibility') == 'invited':
+                    if is_restricted(poll.get('visibility')):
                         await cursor.execute(
                             f"INSERT INTO event_invitations (event_id, player_id) "
                             f"SELECT %s, player_id FROM {INVITATIONS} WHERE poll_id = %s",

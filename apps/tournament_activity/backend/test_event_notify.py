@@ -182,7 +182,7 @@ check("チャンネル（@everyone 付き）", N.build_event_message(_event, dm=
       "- 場所: 北千住駅周辺\n- 参加締切: 11/20(金) 23:59\n- 定員: 10名\n\n"
       "アプリのイベント一覧から参加できます\nhttps://tournament.jujo-softtennis.com/")
 _dm = N.build_event_message(_event, dm=True)
-check("DM は @everyone なし・メンバー限定と書く", (_dm.startswith('📢 **イベントのお知らせ（メンバー限定）**'), '@everyone' in _dm),
+check("DM は @everyone なし・対象者限定と書く", (_dm.startswith('📢 **イベントのお知らせ（対象者限定）**'), '@everyone' in _dm),
       (True, False))
 check("空の項目は書かない",
       N.build_event_message({'title': '練習試合', 'event_date': '2026-11-29', 'start_time': None, 'end_time': None}, dm=False),
@@ -227,7 +227,7 @@ check("知らない送り方は 400", _res.status_code, 400)
 
 _cur = _setup(events={300: _event})
 _res = _call(lambda: N.notify_event(300, N.NotifyRequest(method='dm', actor_discord_id='admin')))
-check("全体公開は DM できない（400・送らない）", (_res.status_code, _FakeClient.posts), (400, []))
+check("全員公開は DM できない（400・送らない）", (_res.status_code, _FakeClient.posts), (400, []))
 
 _setup(events={})
 check("無いイベントは 404",
@@ -282,8 +282,45 @@ check("誰にも届かなければ通知済にしない", (_res['success'], _res
       (False, 0, 2, []))
 
 _cur = _setup(events={300: _inv_event}, responder=_invited([]))
-check("招待メンバーがいなければ 400",
+check("送る相手がいなければ 400",
       _call(lambda: N.notify_event(300, N.NotifyRequest(method='dm', actor_discord_id='admin'))).status_code, 400)
+
+print("\n▼ 会員区分＋個人の DM")
+_lv_event = {**_event, 'visibility': 'members:0'}
+
+
+def _levels_db(level_rows, invited_rows):
+    def responder(sql, p):
+        if sql.startswith('SELECT discord_id FROM player_mst WHERE member_level IN'):
+            return level_rows
+        if sql.startswith('SELECT p.discord_id FROM event_invitations'):
+            return invited_rows
+        return []
+    return responder
+
+
+_cur = _setup(events={300: _lv_event},
+              responder=_levels_db([{'discord_id': 'r1'}, {'discord_id': 'r2'}],
+                                   [{'discord_id': 'g1'}, {'discord_id': 'r1'}, {'discord_id': None}]))
+_res = _call(lambda: N.notify_event(300, N.NotifyRequest(method='dm', actor_discord_id='admin')))
+check("会員区分の人を選ぶSQL（Discord ID がある人だけ）", _cur.executed[0],
+      ("SELECT discord_id FROM player_mst WHERE member_level IN (%s) AND discord_id IS NOT NULL AND discord_id <> '' "
+       "ORDER BY player_id", [0]))
+check("正会員＋個人に DM（重複なし）", [j['recipient_id'] for u, j in _FakeClient.posts if u.endswith('/users/@me/channels')],
+      ['r1', 'r2', 'g1'])
+check("届かなかった人数は個人で選んだ ID 未登録の人だけ", (_res['sent_count'], _res['failed_count']), (3, 1))
+
+_cur = _setup(events={300: {**_event, 'visibility': 'members:0,1'}}, responder=_levels_db([{'discord_id': 'r1'}], []))
+_call(lambda: N.notify_event(300, N.NotifyRequest(method='dm', actor_discord_id='admin')))
+check("複数の会員区分", _cur.executed[0][1], [0, 1])
+
+_cur = _setup(events={300: {**_event, 'visibility': 'members_regular'}}, responder=_levels_db([{'discord_id': 'r1'}], []))
+_res = _call(lambda: N.notify_event(300, N.NotifyRequest(method='dm', actor_discord_id='admin')))
+check("練習と同じ値（正会員のみ）も読める", (_cur.executed[0][1], _res['sent_count']), ([0], 1))
+
+_cur = _setup(events={300: _lv_event}, responder=_levels_db([{'discord_id': 'r1'}], []))
+_res = _call(lambda: N.notify_event(300, N.NotifyRequest(method='channel', actor_discord_id='admin')))
+check("会員区分でもチャンネルを選べる", (_res['method'], _FakeClient.posts[0][0]), ('channel', 'https://discord.example/webhook'))
 
 # ===== アンケートの通知 =====
 print("\n▼ アンケートの通知")
