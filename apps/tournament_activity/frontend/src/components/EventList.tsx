@@ -6,6 +6,7 @@ import CommentSection from './CommentSection'
 import PlayerSelect from './PlayerSelect'
 import PlayerMultiSelect from './PlayerMultiSelect'
 import { EventPollSection, EventPollModal } from './EventDatePoll'
+import EventNotifyDialog, { type NotifyMethod } from './EventNotifyDialog'
 
 interface EventListProps {
   discordId: string
@@ -78,6 +79,9 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   const [selectedPollId, setSelectedPollId] = useState<number | null>(null)
   const [createMode, setCreateMode] = useState<'date' | 'poll'>('date')
   const [newPollDates, setNewPollDates] = useState<string[]>(['', ''])
+  // Discord への通知（管理者のみ）
+  const [eventNotifications, setEventNotifications] = useState<any[]>([])
+  const [notifyTarget, setNotifyTarget] = useState<{ kind: 'event' | 'poll'; id: number } | null>(null)
 
   useEffect(() => {
     const loadData = async () => {
@@ -179,6 +183,12 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
               // 日程アンケート
               const pollRes = await fetch(`${apiUrl}/api/event-polls`)
               if (pollRes.ok) setEventPolls(await pollRes.json())
+
+              // 通知の記録（「通知済」の表示に使う。ボタンは管理者だけ）
+              if (me.admin_role != null && me.admin_role <= 1) {
+                const ntRes = await fetch(`${apiUrl}/api/event-notifications`)
+                if (ntRes.ok) setEventNotifications(await ntRes.json())
+              }
             }
           }
         }
@@ -309,6 +319,36 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
       }
     } catch { alert('通信エラー') }
     finally { setCreatingEvent(false) }
+  }
+
+  // Discord への通知
+  const reloadEventNotifications = async () => {
+    try {
+      const res = await fetch(`${apiUrlRef}/api/event-notifications`)
+      if (res.ok) setEventNotifications(await res.json())
+    } catch {}
+  }
+
+  const handleSendNotify = async (method: NotifyMethod): Promise<{ ok: boolean; message: string }> => {
+    if (!notifyTarget) return { ok: false, message: '通知先がありません' }
+    const path = notifyTarget.kind === 'poll' ? `event-polls/${notifyTarget.id}` : `events/${notifyTarget.id}`
+    try {
+      const res = await fetch(`${apiUrlRef}/api/${path}/notify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method, actor_discord_id: discordId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) return { ok: false, message: data?.detail || '通知に失敗しました' }
+      await reloadEventNotifications()
+      if (data.method === 'channel') return { ok: true, message: 'チャンネルに通知しました' }
+      if (!data.success) return { ok: false, message: `誰にも届きませんでした（${data.failed_count}人。Discord未登録かDMを受け付けていません）` }
+      return {
+        ok: true,
+        message: `${data.sent_count}人に DM を送りました${data.failed_count ? `（${data.failed_count}人には届きませんでした）` : ''}`,
+      }
+    } catch {
+      return { ok: false, message: '通信エラー' }
+    }
   }
 
   // 日程が決まったら、できたイベントの詳細を開く
@@ -693,6 +733,15 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
     () => new Set(eventPolls.filter(p => p.status === 'decided' && p.decided_event_id).map(p => p.decided_event_id)),
     [eventPolls]
   )
+  // イベント・アンケートごとの最後の通知（記録は古い順に来るので、後のもので上書き）
+  const lastNotifications = useMemo(() => {
+    const m = new Map<string, any>()
+    for (const n of eventNotifications) m.set(`${n.target_type}:${n.target_id}`, n)
+    return m
+  }, [eventNotifications])
+  const notifyTargetItem = notifyTarget
+    ? (notifyTarget.kind === 'poll' ? eventPolls : customEvents).find(x => x.id === notifyTarget.id) || null
+    : null
 
   // 大会と練習を統合して日付順にソート
   const upcomingPractices = useMemo(() => {
@@ -1733,6 +1782,21 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           onClose={() => setSelectedPollId(null)}
           onChanged={reloadEventPolls}
           onDecided={handlePollDecided}
+          onNotify={myAdminRole <= 1 ? () => setNotifyTarget({ kind: 'poll', id: selectedPoll.id }) : undefined}
+          notified={lastNotifications.has(`poll:${selectedPoll.id}`)}
+        />
+      )}
+
+      {/* Discord への通知（イベント詳細・日程アンケートの上に重ねて出す） */}
+      {notifyTarget && notifyTargetItem && (
+        <EventNotifyDialog
+          key={`${notifyTarget.kind}:${notifyTarget.id}`}
+          kind={notifyTarget.kind}
+          title={notifyTargetItem.title}
+          visibility={notifyTargetItem.visibility || 'public'}
+          last={lastNotifications.get(`${notifyTarget.kind}:${notifyTarget.id}`) || null}
+          onSend={handleSendNotify}
+          onClose={() => setNotifyTarget(null)}
         />
       )}
 
@@ -1752,6 +1816,17 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                 {editingEvent ? 'イベント編集' : selectedEvent.title}
               </h3>
               <div style={{ display: 'flex', gap: '6px' }}>
+                {!editingEvent && myAdminRole <= 1 && (() => {
+                  const notified = lastNotifications.has(`event:${selectedEvent.id}`)
+                  return (
+                    <button onClick={() => setNotifyTarget({ kind: 'event', id: selectedEvent.id })} style={{
+                      padding: '4px 10px', borderRadius: '5px', fontSize: '12px', cursor: 'pointer',
+                      backgroundColor: notified ? '#1e293b' : '#0e4429',
+                      color: notified ? '#94a3b8' : '#6ee7b7',
+                      border: `1px solid ${notified ? '#334155' : '#16a34a'}`,
+                    }}>{notified ? '通知済' : '通知'}</button>
+                  )
+                })()}
                 {!editingEvent && myAdminRole <= 1 && (
                   <button onClick={openEditEvent} style={{ padding: '4px 10px', borderRadius: '5px', fontSize: '12px', backgroundColor: '#1e3a8a', color: '#93c5fd', border: '1px solid #2563eb', cursor: 'pointer' }}>編集</button>
                 )}
