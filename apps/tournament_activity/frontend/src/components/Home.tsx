@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { hasPermission, type UserPermissionInfo } from '../utils/permissions'
 import { deadlineTimeSuffix } from '../utils/deadline'
 import CommentSection from './CommentSection'
+import { EventPollSection, EventPollModal } from './EventDatePoll'
+import { canViewAudience } from '../utils/audience'
 
 interface HomeProps {
   discordId: string
@@ -53,10 +55,21 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
   const [eventParticipants, setEventParticipants] = useState<any[]>([])
   const [eventModalLoading, setEventModalLoading] = useState(false)
   const [eventLeaving, setEventLeaving] = useState(false)
+  const [eventPolls, setEventPolls] = useState<any[]>([])
+  const [selectedPollId, setSelectedPollId] = useState<number | null>(null)
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+  // 日程アンケート（イベント一覧と同じものを、トップページでも回答できるようにする）
+  const reloadEventPolls = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/event-polls`)
+      if (res.ok) setEventPolls(await res.json())
+    } catch {}
+  }
+
   useEffect(() => {
+    reloadEventPolls()
     const load = async () => {
       try {
         // 自分のplayer_idを取得
@@ -202,6 +215,27 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
     hasPermission(permissionInfo, card.permission as any)
   )
 
+  // 受付中で自分に見える日程アンケート（イベント一覧と同じ条件。作った人には必ず見せる）
+  const openEventPolls = eventPolls.filter(p =>
+    p.status === 'open' &&
+    (p.created_by === discordId ||
+      canViewAudience(p.visibility, p.invited_player_ids, permissionInfo?.memberLevel ?? null, myPlayerId))
+  )
+  const selectedPoll = eventPolls.find(p => p.id === selectedPollId) || null
+
+  // 日程が決まったら、できたイベントの詳細を開く
+  const handlePollDecided = async (eventId: number) => {
+    setSelectedPollId(null)
+    await reloadEventPolls()
+    try {
+      const evRes = await fetch(`${apiUrl}/api/events`)
+      if (evRes.ok) {
+        const created = (await evRes.json()).find((e: any) => e.id === eventId)
+        if (created) openEventDetail(created)
+      }
+    } catch {}
+  }
+
   const formatDate = (d: string) => {
     const dt = new Date(d)
     const weekdays = ['日', '月', '火', '水', '木', '金', '土']
@@ -307,6 +341,9 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
             }}>審判講習を確認する</button>
           </div>
         )}
+
+        {/* 日程アンケート（受付中）。回答はここからもできる */}
+        <EventPollSection polls={openEventPolls} myPlayerId={myPlayerId} onOpen={p => setSelectedPollId(p.id)} />
 
         {/* 直近の申込済み大会 */}
         {upcomingRegistrations.length > 0 && (
@@ -775,6 +812,18 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
             </div>
           </div>
         </div>
+      )}
+
+      {/* 日程アンケートの回答・集計（Discord への通知はイベント一覧から） */}
+      {selectedPoll && (
+        <EventPollModal
+          poll={selectedPoll}
+          myPlayerId={myPlayerId}
+          discordId={discordId}
+          onClose={() => setSelectedPollId(null)}
+          onChanged={reloadEventPolls}
+          onDecided={handlePollDecided}
+        />
       )}
     </div>
   )
