@@ -3,7 +3,8 @@
 """
 イベント・日程アンケートの Discord 通知ルーター
 
-イベント詳細・日程アンケート画面の「通知」ボタンから呼ばれる（管理者のみ）。
+イベント詳細・日程アンケート画面の「通知」ボタンから呼ばれる。
+送れる人: イベントは管理者・大会申込管理者、日程アンケートは管理者とそのアンケートを作った人。
 
 - 全員公開: 大会の登録通知と同じチャンネル（DISCORD_WEBHOOK_URL_TOURNAMENT_NOTIFY）に @everyone で投稿
 - 公開範囲を絞ったもの（会員区分・個人）: 対象の人全員への DM か、チャンネルへの全体通知を選ぶ
@@ -218,16 +219,30 @@ async def _send_dms(discord_ids: list, content: str) -> tuple:
 
 # ===== DB =====
 
-async def _is_admin(discord_id: Optional[str]) -> bool:
-    """イベントの作成・編集ができる人（管理者・大会申込管理者）か。画面のボタン表示と同じ条件"""
+async def _admin_role(discord_id: Optional[str]) -> Optional[int]:
+    """player_mst.admin_role（0=管理者, 1=大会申込管理者, 2=一般）。未登録は None"""
     if not discord_id:
-        return False
+        return None
     res = await db.execute_query('player_mst', operation='select', filters={'discord_id': discord_id})
     rows = res.get('data') or []
     if not rows:
-        return False
-    role = rows[0].get('admin_role')
+        return None
+    return rows[0].get('admin_role')
+
+
+async def _is_admin(discord_id: Optional[str]) -> bool:
+    """イベントの作成・編集ができる人（管理者・大会申込管理者）か。画面のボタン表示と同じ条件"""
+    role = await _admin_role(discord_id)
     return role is not None and role <= 1
+
+
+async def _can_notify_poll(discord_id: Optional[str], poll: dict) -> bool:
+    """日程アンケートを通知できる人（管理者と、そのアンケートを作った人）か。画面のボタン表示と同じ条件"""
+    if not discord_id:
+        return False
+    if discord_id == poll.get('created_by'):
+        return True
+    return await _admin_role(discord_id) == 0
 
 
 async def _audience_discord_ids(visibility: Optional[str], invitation_table: str, key: str, target_id: int) -> tuple:
@@ -311,9 +326,13 @@ async def _notify(target_type: str, target_id: int, visibility: Optional[str], b
     }
 
 
-async def _check_request(body: NotifyRequest):
+def _check_method(body: NotifyRequest):
     if body.method not in (METHOD_CHANNEL, METHOD_DM):
         raise HTTPException(status_code=400, detail='送り方が正しくありません')
+
+
+async def _check_request(body: NotifyRequest):
+    _check_method(body)
     if not await _is_admin(body.actor_discord_id):
         raise HTTPException(status_code=403, detail='通知できるのは管理者だけです')
     await _ensure_table()
@@ -358,17 +377,22 @@ async def notify_event(event_id: int, body: NotifyRequest):
 
 @router.post("/event-polls/{poll_id}/notify")
 async def notify_event_poll(poll_id: int, body: NotifyRequest):
-    """日程アンケートを Discord に通知する（管理者のみ・受付中のみ）"""
+    """日程アンケートを Discord に通知する（管理者とアンケートを作った人のみ・受付中のみ）"""
     try:
-        await _check_request(body)
+        _check_method(body)
         async with db.pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute("SELECT * FROM event_date_polls WHERE id = %s", (poll_id,))
                 poll = await cursor.fetchone()
-                if not poll:
-                    raise HTTPException(status_code=404, detail='アンケートが見つかりません')
-                if poll.get('status') != 'open':
-                    raise HTTPException(status_code=400, detail='日程が決まったアンケートは通知できません（決まったイベントから通知してください）')
+        if not poll:
+            raise HTTPException(status_code=404, detail='アンケートが見つかりません')
+        if not await _can_notify_poll(body.actor_discord_id, poll):
+            raise HTTPException(status_code=403, detail='通知できるのは管理者と、このアンケートを作った人だけです')
+        if poll.get('status') != 'open':
+            raise HTTPException(status_code=400, detail='日程が決まったアンケートは通知できません（決まったイベントから通知してください）')
+        await _ensure_table()
+        async with db.pool.acquire() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(
                     "SELECT option_date FROM event_date_poll_options WHERE poll_id = %s ORDER BY option_date",
                     (poll_id,),

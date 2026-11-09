@@ -359,6 +359,34 @@ _cur = _setup(responder=_poll_db(None))
 check("無いアンケートは 404",
       _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='channel', actor_discord_id='admin'))).status_code, 404)
 
+print("\n▼ アンケートを通知できる人（管理者と作った人）")
+_mine = {**_poll, 'visibility': 'public', 'created_by': 'maker'}
+_people = {'admin': {'admin_role': 0}, 'admin1': {'admin_role': 1}, 'maker': {'admin_role': 1},
+           'member': {'admin_role': 2}, 'maker2': {'admin_role': 2}}
+_cur = _setup(players=_people, responder=_poll_db(_mine))
+_res = _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='channel', actor_discord_id='admin')))
+check("管理者は送れる", (_res['method'], len(_FakeClient.posts)), ('channel', 1))
+_cur = _setup(players=_people, responder=_poll_db(_mine))
+_res = _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='channel', actor_discord_id='maker')))
+check("作った人は送れる", (_res['method'], len(_FakeClient.posts)), ('channel', 1))
+_cur = _setup(players=_people, responder=_poll_db({**_mine, 'created_by': 'maker2'}))
+_res = _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='channel', actor_discord_id='maker2')))
+check("作った人なら役割が一般でも送れる", (_res['method'], len(_FakeClient.posts)), ('channel', 1))
+_cur = _setup(players=_people, responder=_poll_db(_mine))
+_res = _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='channel', actor_discord_id='admin1')))
+check("作っていない大会申込管理者は 403・送らない", (_res.status_code, _FakeClient.posts, _inserts(_cur)), (403, [], []))
+_cur = _setup(players=_people, responder=_poll_db(_mine))
+_res = _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='channel', actor_discord_id='member')))
+check("一般メンバーは 403", _res.status_code, 403)
+_cur = _setup(players=_people, responder=_poll_db(_mine))
+check("操作者なしは 403", _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='channel'))).status_code, 403)
+_cur = _setup(players=_people, responder=_poll_db({**_mine, 'created_by': None}))
+check("作った人が不明なら管理者だけ（操作者なしは 403）",
+      _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='channel', actor_discord_id=None))).status_code, 403)
+_cur = _setup(players=_people, responder=_poll_db(_mine))
+check("送り方が正しくなければ 400",
+      _call(lambda: N.notify_event_poll(1, N.NotifyRequest(method='x', actor_discord_id='maker'))).status_code, 400)
+
 # ===== 記録・テーブル =====
 print("\n▼ 記録・テーブル")
 _cur = _setup(responder=lambda sql, p: [{'target_type': 'event', 'target_id': 300, 'method': 'channel',

@@ -183,10 +183,12 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
 
               // 日程アンケート
               const pollRes = await fetch(`${apiUrl}/api/event-polls`)
-              if (pollRes.ok) setEventPolls(await pollRes.json())
+              let polls: any[] = []
+              if (pollRes.ok) { polls = await pollRes.json(); setEventPolls(polls) }
 
-              // 通知の記録（「通知済」の表示に使う。ボタンは管理者だけ）
-              if (me.admin_role != null && me.admin_role <= 1) {
+              // 通知の記録（「通知済」の表示に使う。通知ボタンが出る人だけ読む:
+              // イベントは管理者・大会申込管理者、日程アンケートは管理者と作った人）
+              if ((me.admin_role != null && me.admin_role <= 1) || polls.some((p: any) => p.created_by === discordId)) {
                 const ntRes = await fetch(`${apiUrl}/api/event-notifications`)
                 if (ntRes.ok) setEventNotifications(await ntRes.json())
               }
@@ -709,6 +711,10 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
   // 公開設定に応じて閲覧可否を判定（練習・イベント・日程アンケート共通。会員区分＋個人）
   const canViewByVisibility = (item: any): boolean =>
     canViewAudience(item.visibility, item.invited_player_ids, myMemberLevel, myPlayerId)
+
+  // 日程アンケートの「通知」ボタンを出す人: 管理者と、そのアンケートを作った人（サーバー側も同じ条件）
+  const canNotifyPoll = (poll: any): boolean =>
+    myAdminRole === 0 || (!!discordId && poll.created_by === discordId)
 
   // 見せる相手が誰もいない（会員区分も個人も選んでいない）
   const hasNoAudience = (visibility: string, invitedIds: number[]) =>
@@ -1775,7 +1781,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           onClose={() => setSelectedPollId(null)}
           onChanged={reloadEventPolls}
           onDecided={handlePollDecided}
-          onNotify={myAdminRole <= 1 ? () => setNotifyTarget({ kind: 'poll', id: selectedPoll.id }) : undefined}
+          onNotify={canNotifyPoll(selectedPoll) ? () => setNotifyTarget({ kind: 'poll', id: selectedPoll.id }) : undefined}
           notified={lastNotifications.has(`poll:${selectedPoll.id}`)}
         />
       )}
