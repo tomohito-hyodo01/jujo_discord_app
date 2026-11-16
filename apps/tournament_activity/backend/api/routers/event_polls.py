@@ -19,7 +19,7 @@ import aiomysql
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from api.audience import is_restricted, normalize_visibility
+from api.audience import is_restricted, normalize_visibility, parse_levels
 from api.database import db
 from api.routers.events import _fix_time_fields
 
@@ -129,6 +129,12 @@ class PollAnswers(BaseModel):
 class PollDecide(BaseModel):
     option_id: int
     actor_discord_id: Optional[str] = None
+
+
+class PollAudienceUpdate(BaseModel):
+    actor_discord_id: Optional[str] = None
+    visibility: Optional[str] = 'public'
+    invited_player_ids: list[int] = []
 
 
 def _blank_to_none(value: Optional[str]) -> Optional[str]:
@@ -476,6 +482,132 @@ async def delete_event_poll(poll_id: int, actor_discord_id: Optional[str] = None
                 await conn.rollback()
                 raise
         return {"success": True, "message": "アンケートを削除しました"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== 対象者（管理者のみ） =====
+# 対象者 = 見せる範囲にチェックした会員区分の人 ＋ 個人で追加した人。
+# 一覧に出すのは Discord を連携している人（アプリで回答できる人）と、
+# 個人で追加した人・回答した人（連携が無くても隠さない）。
+
+def _in_audience(levels, invited: set, player: dict) -> bool:
+    return player.get('member_level') in levels or player.get('player_id') in invited
+
+
+async def _require_admin(cursor, discord_id: Optional[str]):
+    """管理者（admin_role=0）でなければ 403"""
+    if not discord_id:
+        raise HTTPException(status_code=403, detail="対象者を見たり変えたりできるのは管理者だけです")
+    await cursor.execute("SELECT admin_role FROM player_mst WHERE discord_id = %s", (discord_id,))
+    row = await cursor.fetchone()
+    if not row or row.get('admin_role') != 0:
+        raise HTTPException(status_code=403, detail="対象者を見たり変えたりできるのは管理者だけです")
+
+
+@router.get("/event-polls/{poll_id}/audience")
+async def get_event_poll_audience(poll_id: int, actor_discord_id: Optional[str] = None):
+    """対象者ごとの回答状況（回答済み / 未回答 / 対象外）。管理者のみ"""
+    try:
+        await _ensure_tables()
+        async with db.pool.acquire() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                await _require_admin(cursor, actor_discord_id)
+                await cursor.execute(f"SELECT id, visibility FROM {POLLS} WHERE id = %s", (poll_id,))
+                poll = await cursor.fetchone()
+                if not poll:
+                    raise HTTPException(status_code=404, detail="アンケートが見つかりません")
+                await cursor.execute(f"SELECT player_id FROM {INVITATIONS} WHERE poll_id = %s", (poll_id,))
+                invited = {r['player_id'] for r in await cursor.fetchall()}
+                await cursor.execute(f"SELECT DISTINCT player_id FROM {ANSWERS} WHERE poll_id = %s", (poll_id,))
+                answered = {r['player_id'] for r in await cursor.fetchall()}
+                await cursor.execute(
+                    "SELECT player_id, player_name, player_name_kana, affiliated_club, member_level, "
+                    "(discord_id IS NOT NULL AND discord_id <> '') AS has_discord FROM player_mst "
+                    "WHERE (discord_id IS NOT NULL AND discord_id <> '' AND member_level IN (0, 1, 2)) "
+                    f"OR player_id IN (SELECT player_id FROM {INVITATIONS} WHERE poll_id = %s) "
+                    f"OR player_id IN (SELECT player_id FROM {ANSWERS} WHERE poll_id = %s) "
+                    "ORDER BY player_id",
+                    (poll_id, poll_id),
+                )
+                players = list(await cursor.fetchall())
+        levels = parse_levels(poll.get('visibility'))
+        items = []
+        for pl in players:
+            pid = pl['player_id']
+            items.append({
+                'player_id': pid,
+                'player_name': pl.get('player_name'),
+                'player_name_kana': pl.get('player_name_kana'),
+                'affiliated_club': pl.get('affiliated_club'),
+                'member_level': pl.get('member_level'),
+                'has_discord': bool(pl.get('has_discord')),
+                'invited': pid in invited,
+                'in_target': _in_audience(levels, invited, pl),
+                'answered': pid in answered,
+            })
+        return {
+            'visibility': poll.get('visibility') or 'public',
+            'invited_player_ids': sorted(invited),
+            'players': items,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/event-polls/{poll_id}/audience")
+async def update_event_poll_audience(poll_id: int, body: PollAudienceUpdate):
+    """対象者（見せる範囲と個人）を変える。管理者のみ・受付中のみ。
+    回答済みの人を対象から外す変更は受け付けない（回答と ○ の数が宙に浮くため）"""
+    visibility = normalize_visibility(body.visibility)
+    if visibility is None:
+        raise HTTPException(status_code=400, detail="公開範囲の指定が正しくありません")
+    new_invited = sorted(set(body.invited_player_ids)) if is_restricted(visibility) else []
+    try:
+        await _ensure_tables()
+        async with db.pool.acquire() as conn:
+            await conn.begin()
+            try:
+                async with conn.cursor(aiomysql.DictCursor) as cursor:
+                    await _require_admin(cursor, body.actor_discord_id)
+                    await cursor.execute(f"SELECT id, visibility, status FROM {POLLS} WHERE id = %s FOR UPDATE", (poll_id,))
+                    poll = await cursor.fetchone()
+                    if not poll:
+                        raise HTTPException(status_code=404, detail="アンケートが見つかりません")
+                    if poll.get('status') != 'open':
+                        raise HTTPException(status_code=409, detail="日程が決まったアンケートの対象者は変えられません")
+                    await cursor.execute(f"SELECT player_id FROM {INVITATIONS} WHERE poll_id = %s", (poll_id,))
+                    old_invited = {r['player_id'] for r in await cursor.fetchall()}
+                    await cursor.execute(
+                        f"SELECT DISTINCT a.player_id, p.player_name, p.member_level FROM {ANSWERS} a "
+                        f"LEFT JOIN player_mst p ON p.player_id = a.player_id WHERE a.poll_id = %s",
+                        (poll_id,),
+                    )
+                    respondents = list(await cursor.fetchall())
+                    old_levels = parse_levels(poll.get('visibility'))
+                    new_levels = parse_levels(visibility)
+                    new_set = set(new_invited)
+                    blocked = [r for r in respondents
+                               if _in_audience(old_levels, old_invited, r) and not _in_audience(new_levels, new_set, r)]
+                    if blocked:
+                        names = '、'.join(r.get('player_name') or f"選手ID {r['player_id']}" for r in blocked)
+                        raise HTTPException(status_code=409, detail=f"回答済みの人は対象から外せません: {names}")
+                    await cursor.execute(f"UPDATE {POLLS} SET visibility = %s WHERE id = %s", (visibility, poll_id))
+                    await cursor.execute(f"DELETE FROM {INVITATIONS} WHERE poll_id = %s", (poll_id,))
+                    if new_invited:
+                        await cursor.executemany(
+                            f"INSERT INTO {INVITATIONS} (poll_id, player_id) VALUES (%s, %s)",
+                            [(poll_id, pid) for pid in new_invited],
+                        )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+        return {'success': True, 'visibility': visibility, 'invited_player_ids': new_invited}
     except HTTPException:
         raise
     except Exception as e:
