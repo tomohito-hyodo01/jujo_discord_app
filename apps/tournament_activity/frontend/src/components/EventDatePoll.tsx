@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import PollAudiencePanel from './PollAudiencePanel'
 
 /**
  * 日程アンケート
@@ -114,6 +115,8 @@ interface EventPollModalProps {
   /** Discord への通知（管理者のときだけ渡す） */
   onNotify?: () => void
   notified?: boolean
+  /** 対象者と回答状況を見る・変える（管理者のときだけ true） */
+  canManageAudience?: boolean
 }
 
 const infoRow = (label: string, value: string) => (
@@ -133,8 +136,8 @@ const choiceStyle = (selected: boolean, kind: 'yes' | 'no') => ({
 
 const cellBorder = { borderBottom: '1px solid #1e293b' }
 
-export function EventPollModal({ poll, myPlayerId, discordId, onClose, onChanged, onDecided, onNotify, notified }: EventPollModalProps) {
-  const [view, setView] = useState<'answer' | 'results'>('answer')
+export function EventPollModal({ poll, myPlayerId, discordId, onClose, onChanged, onDecided, onNotify, notified, canManageAudience }: EventPollModalProps) {
+  const [view, setView] = useState<'answer' | 'results' | 'audience'>('answer')
   const [draft, setDraft] = useState<Record<string, number>>({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -304,6 +307,21 @@ export function EventPollModal({ poll, myPlayerId, discordId, onClose, onChanged
                 marginTop: '20px', width: '100%', height: '44px', borderRadius: '6px', backgroundColor: 'transparent',
                 color: '#93c5fd', border: '1px solid #334155', fontSize: '13px', cursor: 'pointer',
               }}>みんなの回答を見る（{respondents.length}人）</button>
+
+              {canManageAudience && isOpen && (
+                <button onClick={() => setView('audience')} style={{
+                  marginTop: '10px', width: '100%', height: '44px', borderRadius: '6px', backgroundColor: 'transparent',
+                  color: '#fcd34d', border: '1px solid #a16207', fontSize: '13px', cursor: 'pointer',
+                }}>対象者と回答状況（管理者）</button>
+              )}
+            </>
+          ) : view === 'audience' ? (
+            <>
+              <PollAudiencePanel pollId={poll.id} discordId={discordId} onChanged={onChanged} />
+              <button onClick={() => setView('answer')} style={{
+                marginTop: '20px', width: '100%', height: '44px', borderRadius: '6px', backgroundColor: 'transparent',
+                color: '#93c5fd', border: '1px solid #334155', fontSize: '13px', cursor: 'pointer',
+              }}>戻る</button>
             </>
           ) : (
             <>

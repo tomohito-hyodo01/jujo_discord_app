@@ -462,9 +462,115 @@ check("1人1候補日に1回答", "UNIQUE KEY uq_option_player (option_id, playe
 _res, _cur, _ = _with_db(lambda sql, p: ([], 0, None), lambda: E._ensure_tables())
 check("2回目以降は作らない", _cur.executed, [])
 
+# ===== 対象者（管理者のみ） =====
+print("\n▼ 対象者の一覧")
+
+
+def _aud_db(admin_role=0, poll=None, invited=(), answered=(), players=(), respondents=()):
+    poll = poll if poll is not None else {'id': 1, 'visibility': 'members:0', 'status': 'open'}
+
+    def responder(sql, p):
+        if sql.startswith('SELECT admin_role FROM player_mst'):
+            return ([{'admin_role': admin_role}] if admin_role is not None else []), 0, None
+        if sql.startswith('SELECT id, visibility'):
+            return ([poll] if poll else []), 0, None
+        if sql.startswith('SELECT player_id FROM event_date_poll_invitations'):
+            return [{'player_id': x} for x in invited], 0, None
+        if sql.startswith('SELECT DISTINCT player_id FROM event_date_poll_answers'):
+            return [{'player_id': x} for x in answered], 0, None
+        if sql.startswith('SELECT player_id, player_name'):
+            return list(players), 0, None
+        if sql.startswith('SELECT DISTINCT a.player_id'):
+            return list(respondents), 0, None
+        return [], 1, None
+    return responder
+
+
+_players = [
+    {'player_id': 1, 'player_name': '正会員A', 'member_level': 0, 'has_discord': 1},
+    {'player_id': 2, 'player_name': '正会員B', 'member_level': 0, 'has_discord': 1},
+    {'player_id': 3, 'player_name': '準会員C', 'member_level': 1, 'has_discord': 1},
+    {'player_id': 4, 'player_name': 'ゲストD', 'member_level': 2, 'has_discord': 1},
+]
+_res, _cur, _conn = _with_db(_aud_db(invited=[4], answered=[1], players=_players),
+                             lambda: E.get_event_poll_audience(1, actor_discord_id='admin'))
+check("状態（回答済み・未回答・対象外）",
+      [(x['player_id'], x['in_target'], x['answered'], x['invited']) for x in _res['players']],
+      [(1, True, True, False), (2, True, False, False), (3, False, False, False), (4, True, False, True)])
+check("今の見せる範囲と個人も返す", (_res['visibility'], _res['invited_player_ids']), ('members:0', [4]))
+check("一覧は Discord 連携済み＋個人で追加・回答した人",
+      [s for s, _ in _cur.executed if s.startswith('SELECT player_id, player_name')][0],
+      "SELECT player_id, player_name, player_name_kana, affiliated_club, member_level, "
+      "(discord_id IS NOT NULL AND discord_id <> '') AS has_discord FROM player_mst "
+      "WHERE (discord_id IS NOT NULL AND discord_id <> '' AND member_level IN (0, 1, 2)) "
+      "OR player_id IN (SELECT player_id FROM event_date_poll_invitations WHERE poll_id = %s) "
+      "OR player_id IN (SELECT player_id FROM event_date_poll_answers WHERE poll_id = %s) ORDER BY player_id")
+_res, _cur, _conn = _with_db(_aud_db(admin_role=1), lambda: E.get_event_poll_audience(1, actor_discord_id='x'))
+check("管理者以外は 403", _res.status_code, 403)
+_res, _cur, _conn = _with_db(_aud_db(), lambda: E.get_event_poll_audience(1))
+check("操作者なしは 403（DBも見ない）", (_res.status_code, _cur.executed), (403, []))
+_res, _cur, _conn = _with_db(_aud_db(poll=False), lambda: E.get_event_poll_audience(1, actor_discord_id='admin'))
+check("無いアンケートは 404", _res.status_code, 404)
+
+print("\n▼ 対象者の変更")
+_resp = [{'player_id': 1, 'player_name': '正会員A', 'member_level': 0},
+         {'player_id': 4, 'player_name': 'ゲストD', 'member_level': 2}]
+_res, _cur, _conn = _with_db(
+    _aud_db(invited=[4], respondents=_resp),
+    lambda: E.update_event_poll_audience(1, E.PollAudienceUpdate(actor_discord_id='admin', visibility='members:1,0',
+                                                                 invited_player_ids=[4, 9, 9])))
+check("区分を足し、個人も足せる", _res, {'success': True, 'visibility': 'members:0,1', 'invited_player_ids': [4, 9]})
+check("まとめてコミット", _conn.log, ['begin', 'commit'])
+check("行をロックして状態を見る", _cur.executed[1],
+      ("SELECT id, visibility, status FROM event_date_polls WHERE id = %s FOR UPDATE", (1,)))
+check("見せる範囲を更新", ("UPDATE event_date_polls SET visibility = %s WHERE id = %s", ('members:0,1', 1)) in _cur.executed, True)
+check("個人を入れ直す", _cur.executed[-2:],
+      [("DELETE FROM event_date_poll_invitations WHERE poll_id = %s", (1,)),
+       ("INSERT INTO event_date_poll_invitations (poll_id, player_id) VALUES (%s, %s)", [(1, 4), (1, 9)])])
+
+_res, _cur, _conn = _with_db(
+    _aud_db(invited=[4], respondents=_resp),
+    lambda: E.update_event_poll_audience(1, E.PollAudienceUpdate(actor_discord_id='admin', visibility='members:0',
+                                                                 invited_player_ids=[])))
+check("回答済みの個人を外すと 409・名前を出す・変えない",
+      (_res.status_code, _res.detail, _conn.log, any(s.startswith('UPDATE') for s, _ in _cur.executed)),
+      (409, '回答済みの人は対象から外せません: ゲストD', ['begin', 'rollback'], False))
+_res, _cur, _conn = _with_db(
+    _aud_db(invited=[4], respondents=_resp),
+    lambda: E.update_event_poll_audience(1, E.PollAudienceUpdate(actor_discord_id='admin', visibility='invited',
+                                                                 invited_player_ids=[4])))
+check("回答済みの人がいる区分を外すと 409", (_res.status_code, _res.detail), (409, '回答済みの人は対象から外せません: 正会員A'))
+_res, _cur, _conn = _with_db(
+    _aud_db(invited=[4], respondents=_resp),
+    lambda: E.update_event_poll_audience(1, E.PollAudienceUpdate(actor_discord_id='admin', visibility='invited',
+                                                                 invited_player_ids=[1, 4])))
+check("区分を外しても、回答済みの人を個人で残せば変えられる", _res['visibility'], 'invited')
+_res, _cur, _conn = _with_db(
+    _aud_db(poll={'id': 1, 'visibility': 'invited', 'status': 'open'}, invited=[4],
+            respondents=[{'player_id': 7, 'player_name': '作成者', 'member_level': 0}]),
+    lambda: E.update_event_poll_audience(1, E.PollAudienceUpdate(actor_discord_id='admin', visibility='invited',
+                                                                 invited_player_ids=[5])))
+check("もともと対象外で回答した人（作成者など）は止めない", _res['invited_player_ids'], [5])
+_res, _cur, _conn = _with_db(
+    _aud_db(respondents=_resp),
+    lambda: E.update_event_poll_audience(1, E.PollAudienceUpdate(actor_discord_id='admin', visibility='public',
+                                                                 invited_player_ids=[3])))
+check("全員にすると個人は持たない", (_res['visibility'], _res['invited_player_ids']), ('public', []))
+_res, _cur, _conn = _with_db(
+    _aud_db(poll={'id': 1, 'visibility': 'public', 'status': 'decided'}),
+    lambda: E.update_event_poll_audience(1, E.PollAudienceUpdate(actor_discord_id='admin')))
+check("決定済みは 409", _res.status_code, 409)
+_res, _cur, _conn = _with_db(
+    _aud_db(admin_role=2),
+    lambda: E.update_event_poll_audience(1, E.PollAudienceUpdate(actor_discord_id='x')))
+check("管理者以外は 403・変えない", (_res.status_code, _conn.log), (403, ['begin', 'rollback']))
+check("読めない見せる範囲は 400", _status_of(lambda: E.update_event_poll_audience(
+    1, E.PollAudienceUpdate(actor_discord_id='admin', visibility='x')))[0], 400)
+
 check("エンドポイント", sorted((r.path, sorted(r.methods)) for r in E.router.routes),
       [('/event-polls', ['GET']), ('/event-polls', ['POST']), ('/event-polls/{poll_id}', ['DELETE']),
-       ('/event-polls/{poll_id}/answers', ['PUT']), ('/event-polls/{poll_id}/decide', ['POST'])])
+       ('/event-polls/{poll_id}/answers', ['PUT']), ('/event-polls/{poll_id}/audience', ['GET']),
+       ('/event-polls/{poll_id}/audience', ['PUT']), ('/event-polls/{poll_id}/decide', ['POST'])])
 
 print()
 if _failures:

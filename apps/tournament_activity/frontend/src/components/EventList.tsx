@@ -1782,6 +1782,7 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
           onChanged={reloadEventPolls}
           onDecided={handlePollDecided}
           onNotify={canNotifyPoll(selectedPoll) ? () => setNotifyTarget({ kind: 'poll', id: selectedPoll.id }) : undefined}
+          canManageAudience={myAdminRole === 0}
           notified={lastNotifications.has(`poll:${selectedPoll.id}`)}
         />
       )}

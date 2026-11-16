@@ -823,6 +823,7 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
           onClose={() => setSelectedPollId(null)}
           onChanged={reloadEventPolls}
           onDecided={handlePollDecided}
+          canManageAudience={permissionInfo?.adminRole === 0}
         />
       )}
     </div>
