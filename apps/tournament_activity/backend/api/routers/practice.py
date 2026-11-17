@@ -135,6 +135,56 @@ class InvitationUpdate(BaseModel):
     player_ids: list[int]
 
 
+class PracticeGuestAdd(BaseModel):
+    guest_name: str
+    actor_discord_id: Optional[str] = None
+
+
+# ===== ゲスト（会員名簿にいない人を名前だけで練習に加える） =====
+
+GUEST_NAME_MAX = 50
+
+_CREATE_GUESTS_SQL = """
+    CREATE TABLE IF NOT EXISTS practice_guests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        practice_id INT NOT NULL,
+        guest_name VARCHAR(50) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_practice_guests_practice (practice_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
+_guest_table_ready = False
+
+
+async def _ensure_guest_table():
+    """ゲスト用のテーブルが無ければ作る（冪等・初回のみ実行）"""
+    global _guest_table_ready
+    if _guest_table_ready:
+        return
+    async with db.pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(_CREATE_GUESTS_SQL)
+    _guest_table_ready = True
+
+
+async def _fetch_guests(practice_id: int) -> list:
+    """練習のゲストを登録順に返す"""
+    await _ensure_guest_table()
+    async with db.pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cursor:
+            await cursor.execute(
+                "SELECT id, practice_id, guest_name FROM practice_guests "
+                "WHERE practice_id = %s ORDER BY id",
+                (practice_id,),
+            )
+            return list(await cursor.fetchall())
+
+
+def _guest_label(name: str) -> str:
+    return f"{name}（ゲスト）"
+
+
 class CourtReservation(BaseModel):
     start_time: str
     end_time: str
@@ -202,6 +252,16 @@ async def get_practice_schedules():
                 player_data = player_result.get('data', [])
                 if player_data:
                     names.append(player_data[0]['player_name'])
+
+            # ゲストも人数と名前に含める（取れなくても一覧は出す）
+            try:
+                guests = await _fetch_guests(schedule['id'])
+            except Exception as e:
+                print(f'⚠️ 練習ゲストの取得に失敗: practice_id={schedule["id"]} {e}')
+                guests = []
+            schedule['guest_count'] = len(guests)
+            schedule['participant_count'] += len(guests)
+            names.extend(_guest_label(g['guest_name']) for g in guests)
             schedule['participant_names'] = names
 
             # 招待者リスト（visibility=invitedの場合）
@@ -245,6 +305,64 @@ async def get_practice_participants(practice_id: int):
             participant['player_name'] = player_data[0]['player_name'] if player_data else None
 
         return participants
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/practice/{practice_id}/guests")
+async def get_practice_guests(practice_id: int):
+    """練習のゲスト一覧"""
+    try:
+        return await _fetch_guests(practice_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/practice/{practice_id}/guests")
+async def add_practice_guest(practice_id: int, body: PracticeGuestAdd):
+    """練習にゲストを名前で追加（管理者・練習管理者のみ。締切後も可）"""
+    name = (body.guest_name or '').strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="ゲストの名前を入れてください")
+    if len(name) > GUEST_NAME_MAX:
+        raise HTTPException(status_code=400, detail=f"ゲストの名前は{GUEST_NAME_MAX}文字までです")
+    if not await _is_admin_actor(body.actor_discord_id):
+        raise HTTPException(status_code=403, detail="ゲストを追加できるのは管理者だけです")
+    try:
+        p_res = await db.execute_query('practice_schedule', operation='select', filters={'id': practice_id})
+        if not p_res.get('data'):
+            raise HTTPException(status_code=404, detail="練習が見つかりません")
+        await _ensure_guest_table()
+        async with db.pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    "INSERT INTO practice_guests (practice_id, guest_name) VALUES (%s, %s)",
+                    (practice_id, name),
+                )
+                guest_id = cursor.lastrowid
+        return {"success": True, "id": guest_id, "guest_name": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/practice/guests/{guest_id}")
+async def delete_practice_guest(guest_id: int, discord_id: Optional[str] = None):
+    """ゲストを外す（管理者・練習管理者のみ）"""
+    if not await _is_admin_actor(discord_id):
+        raise HTTPException(status_code=403, detail="ゲストを外せるのは管理者だけです")
+    try:
+        await _ensure_guest_table()
+        async with db.pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute("DELETE FROM practice_guests WHERE id = %s", (guest_id,))
+                deleted = cursor.rowcount
+        if not deleted:
+            raise HTTPException(status_code=404, detail="ゲストが見つかりません")
+        return {"success": True}
     except HTTPException:
         raise
     except Exception as e:
@@ -477,6 +595,15 @@ async def delete_practice(practice_id: int):
         )
         if result.get('error'):
             raise HTTPException(status_code=500, detail=result['error'])
+
+        # ゲストは外部キーで結んでいないため、ここで消す（失敗しても練習の削除は成功扱い）
+        try:
+            await _ensure_guest_table()
+            async with db.pool.acquire() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute("DELETE FROM practice_guests WHERE practice_id = %s", (practice_id,))
+        except Exception as e:
+            print(f'⚠️ 練習ゲストの削除に失敗: practice_id={practice_id} {e}')
 
         return {"success": True, "message": "練習予定を削除しました"}
     except HTTPException:
@@ -859,8 +986,11 @@ def _mentionable_discord_id(participant: dict) -> Optional[str]:
     return did if did.isdigit() else None
 
 
-def _build_reminder_message(practice: dict, participants: list) -> tuple:
-    """リマインド本文とメンション対象のdiscord_id一覧を組み立てる"""
+def _build_reminder_message(practice: dict, participants: list, guest_names: list = ()) -> tuple:
+    """リマインド本文とメンション対象のdiscord_id一覧を組み立てる
+
+    ゲストはメンションせず、名前の後ろに（ゲスト）を付けて載せる
+    """
     schedule = _fix_time_fields(dict(practice))
     start, end = schedule.get('start_time'), schedule.get('end_time')
     if start and end:
@@ -881,7 +1011,7 @@ def _build_reminder_message(practice: dict, participants: list) -> tuple:
         f"📅 {_format_practice_date(practice.get('practice_date'))}{time_label}",
         place,
         '',
-        f"【参加予定 {len(participants)}名】",
+        f"【参加予定 {len(participants) + len(guest_names)}名】",
     ]
 
     mention_ids = []
@@ -893,8 +1023,19 @@ def _build_reminder_message(practice: dict, participants: list) -> tuple:
             lines.append(f"・<@{did}> {name}")
         else:
             lines.append(f"・{name}")
+    for guest_name in guest_names:
+        lines.append(f"・{_guest_label(guest_name)}")
 
     return '\n'.join(lines), mention_ids
+
+
+async def _fetch_guest_names_for_reminder(practice_id: int) -> list:
+    """リマインドに載せるゲスト名。取れなくても会員へのリマインドは止めない"""
+    try:
+        return [g['guest_name'] for g in await _fetch_guests(practice_id)]
+    except Exception as e:
+        print(f'⚠️ 練習リマインド: ゲストを取得できませんでした（会員分だけ送ります）: practice_id={practice_id} {e}')
+        return []
 
 
 def _allowed_mentions_for(chunk: str, mention_ids: list) -> dict:
@@ -1046,12 +1187,13 @@ async def _send_practice_reminder(practice: dict, force: bool = False) -> dict:
             claimed = claim is True
 
         participants = await _fetch_participants_with_discord(practice_id)
-        if not participants:
+        guest_names = await _fetch_guest_names_for_reminder(practice_id)
+        if not participants and not guest_names:
             if claimed:
                 await _release_reminder(practice_id, stamp)
             return {'practice_id': practice_id, 'status': 'skipped', 'reason': 'no_participants'}
 
-        content, mention_ids = _build_reminder_message(practice, participants)
+        content, mention_ids = _build_reminder_message(practice, participants, guest_names)
         posted, total = await _post_reminder_to_channel(content, mention_ids)
 
         if posted == 0:
@@ -1073,6 +1215,7 @@ async def _send_practice_reminder(practice: dict, force: bool = False) -> dict:
             'practice_id': practice_id,
             'status': 'sent' if posted == total else 'partially_sent',
             'participant_count': len(participants),
+            'guest_count': len(guest_names),
             'mentioned_count': len(mention_ids),
             # Discord未連携でメンションできなかった人。運用で連携を促すために返す
             'unlinked_names': [

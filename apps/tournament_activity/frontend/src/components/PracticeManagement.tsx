@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import PracticeGuests from './PracticeGuests'
 import PlayerMultiSelect from './PlayerMultiSelect'
 
 interface PracticeManagementProps {
@@ -649,6 +650,7 @@ export default function PracticeManagement({ discordId }: PracticeManagementProp
                     ))}
                   </div>
                 )}
+                <PracticeGuests practiceId={editingPractice.id} />
               </div>
 
               {/* 公開設定 */}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PracticeGuests from './PracticeGuests'
 import { hasPermission, type UserPermissionInfo } from '../utils/permissions'
 import { deadlineTimeSuffix } from '../utils/deadline'
 import CommentSection from './CommentSection'
@@ -724,6 +725,8 @@ export default function Home({ discordId, permissionInfo, onNavigate }: HomeProp
                   ))}
                 </div>
               )}
+
+              <PracticeGuests practiceId={selectedPractice.id} />
 
               <CommentSection targetType="practice" targetId={selectedPractice.id} discordId={discordId} />
             </div>

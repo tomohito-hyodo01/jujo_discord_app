@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import PracticeGuests from './PracticeGuests'
 import TournamentCalendar from './TournamentCalendar'
 import { filterPairCandidates } from '../utils/playerFilter'
 import { deadlineTimeSuffix, isTournamentDeadlinePassed } from '../utils/deadline'
@@ -1548,6 +1549,16 @@ export default function EventList({ discordId, onNavigate, guestMode = false }: 
                       }}>追加</button>
                   </div>
                 )}
+
+                <PracticeGuests
+                  practiceId={selectedPractice.id}
+                  discordId={discordId}
+                  canEdit={myAdminRole === 0}
+                  onChanged={async () => {
+                    const practRes = await fetch(`${apiUrlRef}/api/practice`)
+                    if (practRes.ok) setPractices(await practRes.json())
+                  }}
+                />
 
                 <CommentSection targetType="practice" targetId={selectedPractice.id} discordId={discordId} />
               </div>
