@@ -116,6 +116,16 @@ _c3, _ = P._build_reminder_message(
 check("開始時刻のみ", "📅 2026/08/12(水) 19:00〜\n" in _c3, True)
 check("参加者0名", "【参加予定 0名】" in _c3, True)
 
+_cg, _idsg = P._build_reminder_message(_practice, _participants, ['高橋さん', '<@999999999999999999>'])
+check("ゲストも人数に入る", "【参加予定 5名】" in _cg, True)
+check("ゲストは（ゲスト）付きで載る", "・高橋さん（ゲスト）" in _cg, True)
+check("ゲストはメンション対象にしない", _idsg, ['111111111111111111', '222222222222222222'])
+check("ゲストは会員の後に並ぶ", _cg.index("・佐藤次郎") < _cg.index("・高橋さん（ゲスト）"), True)
+check("ゲスト名にメンション記法があっても許可しない",
+      P._allowed_mentions_for(_cg, _idsg)['users'], ['111111111111111111', '222222222222222222'])
+_cg2, _idsg2 = P._build_reminder_message(_practice, [], ['高橋さん'])
+check("ゲストだけでも組み立てられる", ("【参加予定 1名】" in _cg2, _idsg2), (True, []))
+
 # ===== 2000文字分割 =====
 print("\n▼ Discordのメッセージ長対応")
 check("短文は分割しない", P._split_for_discord("abc"), ["abc"])
@@ -360,7 +370,8 @@ class _Stubs:
     """practice.py のI/O関数を差し替えて分岐を検証する"""
 
     def __init__(self, claim=True, participants=None, post=(1, 1),
-                 fetch_error=None, claim_error=None, release_ok=True):
+                 fetch_error=None, claim_error=None, release_ok=True, guests=()):
+        self.guests = list(guests)
         self.claim = claim
         self.participants = participants if participants is not None else _participants
         self.post = post
@@ -383,6 +394,9 @@ class _Stubs:
                 raise self.fetch_error
             return self.participants
 
+        async def fake_guests(pid):
+            return self.guests
+
         async def fake_post(content, ids):
             self.posted.append((content, ids))
             return self.post
@@ -396,6 +410,7 @@ class _Stubs:
 
         for name, fn in (('_claim_reminder', fake_claim),
                          ('_fetch_participants_with_discord', fake_fetch),
+                         ('_fetch_guest_names_for_reminder', fake_guests),
                          ('_post_reminder_to_channel', fake_post),
                          ('_release_reminder', fake_release),
                          ('_mark_reminder_sent', fake_mark)):
@@ -434,6 +449,16 @@ with _Stubs(participants=[]) as s:
     check("参加者0名はスキップ", (r['status'], r['reason']), ('skipped', 'no_participants'))
     check("送信権を巻き戻す", s.released, [1])
     check("投稿しない", s.posted, [])
+
+with _Stubs(guests=['高橋さん']) as s:
+    r = _run(P._send_practice_reminder(_practice))
+    check("ゲスト入りでも送信できる", (r['status'], r['guest_count'], r['mentioned_count']), ('sent', 1, 2))
+    check("本文にゲストが載る", "・高橋さん（ゲスト）" in s.posted[0][0], True)
+
+with _Stubs(participants=[], guests=['高橋さん']) as s:
+    r = _run(P._send_practice_reminder(_practice))
+    check("ゲストだけの練習も送る", (r['status'], r['mentioned_count']), ('sent', 0))
+    check("ゲストだけなら巻き戻さない", s.released, [])
 
 with _Stubs(post=(0, 1)) as s:
     r = _run(P._send_practice_reminder(_practice))
@@ -540,6 +565,67 @@ check("失敗した練習のstatus", next(r['status'] for r in _res['results'] i
 _res2, _, _fake2 = _call_endpoint([])
 check("既定はJSTの翌日", _fake2.filters, {'practice_date': (P._today_jst() + timedelta(days=1)).isoformat()})
 check("対象0件でも成功", (_res2['success'], _res2['sent_count']), (True, 0))
+
+# ===== ゲストの追加・削除 =====
+print("\n▼ ゲストの追加・削除")
+
+
+def _guest_call(fn, admin=True, practice_exists=True, cursor=None):
+    """管理者判定とDBを差し替えてゲストAPIを呼ぶ。(結果 or (status, detail), cursor) を返す"""
+    cursor = cursor or _FakeCursor(rowcount=1)
+    cursor.lastrowid = 55
+
+    async def fake_is_admin(did):
+        return admin
+
+    async def fake_query(table, operation='select', filters=None, data=None):
+        return {'data': [{'id': 7}] if practice_exists else []}
+
+    orig_db, orig_admin, orig_ready = P.db, P._is_admin_actor, P._guest_table_ready
+    P.db = types.SimpleNamespace(pool=_FakePool(cursor), execute_query=fake_query)
+    P._is_admin_actor = fake_is_admin
+    P._guest_table_ready = False
+    try:
+        return _run(fn()), cursor
+    except P.HTTPException as e:
+        return (e.status_code, e.detail), cursor
+    finally:
+        P.db, P._is_admin_actor, P._guest_table_ready = orig_db, orig_admin, orig_ready
+
+
+_r, _c = _guest_call(lambda: P.add_practice_guest(7, P.PracticeGuestAdd(guest_name='  高橋さん ', actor_discord_id='1')))
+check("管理者は追加できる", _r, {'success': True, 'id': 55, 'guest_name': '高橋さん'})
+check("テーブルが無ければ作る", _c.executed[0][0].startswith('CREATE TABLE IF NOT EXISTS practice_guests'), True)
+check("名前は前後の空白を落として保存", _c.executed[1], (
+    'INSERT INTO practice_guests (practice_id, guest_name) VALUES (%s, %s)', (7, '高橋さん')))
+
+_r, _c = _guest_call(lambda: P.add_practice_guest(7, P.PracticeGuestAdd(guest_name='高橋', actor_discord_id='2')), admin=False)
+check("管理者以外は追加できない", _r[0], 403)
+check("管理者以外なら書き込まない", _c.executed, [])
+
+_r, _ = _guest_call(lambda: P.add_practice_guest(7, P.PracticeGuestAdd(guest_name='   ')))
+check("空の名前は断る", _r[0], 400)
+_r, _ = _guest_call(lambda: P.add_practice_guest(7, P.PracticeGuestAdd(guest_name='あ' * 51)))
+check("51文字は断る", _r[0], 400)
+_r, _ = _guest_call(lambda: P.add_practice_guest(7, P.PracticeGuestAdd(guest_name='あ' * 50, actor_discord_id='1')))
+check("50文字は入る", _r['success'], True)
+_r, _ = _guest_call(lambda: P.add_practice_guest(9, P.PracticeGuestAdd(guest_name='高橋', actor_discord_id='1')),
+                    practice_exists=False)
+check("無い練習には追加しない", _r[0], 404)
+
+_r, _c = _guest_call(lambda: P.delete_practice_guest(55, discord_id='1'))
+check("管理者は外せる", _r, {'success': True})
+check("削除SQL", _c.executed[1], ('DELETE FROM practice_guests WHERE id = %s', (55,)))
+_r, _c = _guest_call(lambda: P.delete_practice_guest(55, discord_id='2'), admin=False)
+check("管理者以外は外せない", (_r[0], _c.executed), (403, []))
+_r, _ = _guest_call(lambda: P.delete_practice_guest(56, discord_id='1'), cursor=_FakeCursor(rowcount=0))
+check("無いゲストは404", _r[0], 404)
+
+_r, _c = _guest_call(lambda: P.get_practice_guests(7),
+                     cursor=_FakeCursor(rows=[{'id': 55, 'practice_id': 7, 'guest_name': '高橋さん'}]))
+check("一覧を返す", _r, [{'id': 55, 'practice_id': 7, 'guest_name': '高橋さん'}])
+check("一覧は登録順", _c.executed[1][0],
+      'SELECT id, practice_id, guest_name FROM practice_guests WHERE practice_id = %s ORDER BY id')
 
 # ===== 設定 =====
 print("\n▼ 設定")

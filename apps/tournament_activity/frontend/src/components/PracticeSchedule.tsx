@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PracticeGuests from './PracticeGuests'
 
 import CommentSection from './CommentSection'
 
@@ -305,6 +306,7 @@ export default function PracticeSchedule({ discordId }: PracticeScheduleProps) {
                     ))}
                   </div>
                 )}
+                <PracticeGuests practiceId={selectedPractice.id} />
               </div>
 
               <CommentSection targetType="practice" targetId={selectedPractice.id} discordId={discordId} />
